@@ -4,37 +4,51 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { Web3Provider } from "./contexts/Web3Context";
+import { MatrixProvider } from "./contexts/MatrixContext";
+import { IPFSProvider } from "./contexts/IPFSContext";
 import Home from "./pages/Home";
+import Dashboard from "./pages/Dashboard";
+import { WagmiProvider } from "wagmi";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
+import { config } from "./lib/wagmi";
+import "@rainbow-me/rainbowkit/styles.css";
+
+const queryClient = new QueryClient();
 
 function Router() {
-  // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
+      <Route path="/" component={Home} />
+      <Route path="/dashboard" component={Dashboard} />
+      <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
-      </ThemeProvider>
+      <WagmiProvider config={config}>
+        <QueryClientProvider client={queryClient}>
+          <RainbowKitProvider>
+            <Web3Provider>
+              <MatrixProvider>
+                <IPFSProvider>
+                  <ThemeProvider defaultTheme="dark">
+                    <TooltipProvider>
+                      <Toaster />
+                      <Router />
+                    </TooltipProvider>
+                  </ThemeProvider>
+                </IPFSProvider>
+              </MatrixProvider>
+            </Web3Provider>
+          </RainbowKitProvider>
+        </QueryClientProvider>
+      </WagmiProvider>
     </ErrorBoundary>
   );
 }
