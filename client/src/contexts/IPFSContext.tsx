@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState } from 'react';
 import axios from 'axios';
 
+// Vite environment variables are prefixed with VITE_
+// They are available at runtime in the browser
+
 interface IPFSContextType {
   uploadFile: (file: File) => Promise<string>; // Returns IPFS hash
   downloadFile: (ipfsHash: string) => Promise<Blob>;
@@ -11,8 +14,8 @@ interface IPFSContextType {
 
 const IPFSContext = createContext<IPFSContextType | undefined>(undefined);
 
-const IPFS_GATEWAY = process.env.REACT_APP_IPFS_GATEWAY || 'https://gateway.pinata.cloud/ipfs';
-const IPFS_API_URL = process.env.REACT_APP_IPFS_API_URL || 'http://localhost:5001';
+const IPFS_GATEWAY = import.meta.env.VITE_IPFS_GATEWAY || 'https://gateway.pinata.cloud/ipfs';
+const IPFS_API_URL = import.meta.env.VITE_IPFS_API_URL || 'http://localhost:5001';
 
 export function IPFSProvider({ children }: { children: React.ReactNode }) {
   const [isUploading, setIsUploading] = useState(false);

@@ -17,7 +17,7 @@ interface MatrixContextType {
 
 const MatrixContext = createContext<MatrixContextType | undefined>(undefined);
 
-const MATRIX_HOMESERVER = process.env.REACT_APP_MATRIX_HOMESERVER || 'https://matrix.org';
+const MATRIX_HOMESERVER = import.meta.env.VITE_MATRIX_HOMESERVER_URL || 'http://matrix:8008';
 
 export function MatrixProvider({ children }: { children: React.ReactNode }) {
   const [client, setClient] = useState<sdk.MatrixClient | null>(null);

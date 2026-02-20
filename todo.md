@@ -68,3 +68,6 @@
 - [ ] Test NFT verification and token-gating
 - [ ] Create deployment guide
 - [ ] Set up monitoring and error tracking
+
+## Bug Fixes & Updates
+- [ ] Update Pi5 cloud setup guide with free database alternatives (PlanetScale no longer free)

@@ -8,9 +8,12 @@ import {
   sepolia,
 } from 'wagmi/chains';
 
+// Vite environment variables are prefixed with VITE_
+// They are available at runtime in the browser
+
 export const config = getDefaultConfig({
   appName: 'Decentralized Discord',
-  projectId: process.env.REACT_APP_WALLET_CONNECT_PROJECT_ID || 'default-project-id',
+  projectId: import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'default-project-id',
   chains: [
     mainnet,
     polygon,
