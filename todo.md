@@ -70,4 +70,5 @@
 - [ ] Set up monitoring and error tracking
 
 ## Bug Fixes & Updates
-- [ ] Update Pi5 cloud setup guide with free database alternatives (PlanetScale no longer free)
+- [x] Update Pi5 cloud setup guide with free database alternatives (PlanetScale no longer free)
+- [x] Create Supabase-specific setup guide for Pi 5
