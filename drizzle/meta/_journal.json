@@ -15,6 +15,13 @@
       "when": 1771461587078,
       "tag": "0001_easy_strong_guy",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1771659301854,
+      "tag": "0002_awesome_morbius",
+      "breakpoints": true
     }
   ]
 }
