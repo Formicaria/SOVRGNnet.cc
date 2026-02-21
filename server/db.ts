@@ -1,5 +1,6 @@
-import { eq, and } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { eq, and, sql, type SQL } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import { InsertUser, users, servers, channels, messages, fileShares, soundboardClips, nitroSubscriptions, serverMembers, userProfiles } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -9,7 +10,8 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const client = postgres(process.env.DATABASE_URL);
+      _db = drizzle(client);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -68,8 +70,16 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
+    // For PostgreSQL, use onConflictDoUpdate
+    const conflictUpdateSet: any = {};
+    if (updateSet.name !== undefined) conflictUpdateSet.name = updateSet.name;
+    if (updateSet.email !== undefined) conflictUpdateSet.email = updateSet.email;
+    if (updateSet.loginMethod !== undefined) conflictUpdateSet.loginMethod = updateSet.loginMethod;
+    if (updateSet.role !== undefined) conflictUpdateSet.role = updateSet.role;
+    if (updateSet.lastSignedIn !== undefined) conflictUpdateSet.lastSignedIn = updateSet.lastSignedIn;
+    await db.insert(users).values(values).onConflictDoUpdate({
+      target: users.openId,
+      set: conflictUpdateSet as any,
     });
   } catch (error) {
     console.error("[Database] Failed to upsert user:", error);
@@ -88,6 +98,7 @@ export async function getUserByOpenId(openId: string) {
 
   return result.length > 0 ? result[0] : undefined;
 }
+
 
 // Server functions
 export async function createServer(name: string, description: string | undefined, matrixRoomId: string, ownerId: number, icon?: string) {
