@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { Web3Provider } from "./contexts/Web3Context";
 import { MatrixProvider } from "./contexts/MatrixContext";
 import { IPFSProvider } from "./contexts/IPFSContext";
+import { SupabaseAuthProvider } from "./contexts/SupabaseAuthContext";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import { WagmiProvider } from "wagmi";
@@ -31,24 +32,26 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <WagmiProvider config={config}>
-        <QueryClientProvider client={queryClient}>
-          <RainbowKitProvider>
-            <Web3Provider>
-              <MatrixProvider>
-                <IPFSProvider>
-                  <ThemeProvider defaultTheme="dark">
-                    <TooltipProvider>
-                      <Toaster />
-                      <Router />
-                    </TooltipProvider>
-                  </ThemeProvider>
-                </IPFSProvider>
-              </MatrixProvider>
-            </Web3Provider>
-          </RainbowKitProvider>
-        </QueryClientProvider>
-      </WagmiProvider>
+      <SupabaseAuthProvider>
+        <WagmiProvider config={config}>
+          <QueryClientProvider client={queryClient}>
+            <RainbowKitProvider>
+              <Web3Provider>
+                <MatrixProvider>
+                  <IPFSProvider>
+                    <ThemeProvider defaultTheme="dark">
+                      <TooltipProvider>
+                        <Toaster />
+                        <Router />
+                      </TooltipProvider>
+                    </ThemeProvider>
+                  </IPFSProvider>
+                </MatrixProvider>
+              </Web3Provider>
+            </RainbowKitProvider>
+          </QueryClientProvider>
+        </WagmiProvider>
+      </SupabaseAuthProvider>
     </ErrorBoundary>
   );
 }
