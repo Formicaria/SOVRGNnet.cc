@@ -12,7 +12,7 @@ import { useLocation } from "wouter";
 export default function Dashboard() {
   const { user, signOut } = useSupabaseAuth();
   const { address, ensName, isConnected, connect, disconnect } = useWeb3();
-  const { rooms, isConnected: matrixConnected, sendMessage, createRoom } = useMatrix();
+  const { rooms, isConnected: matrixConnected, sendMessage, createRoom, messages } = useMatrix();
   const { isUploading } = useIPFS();
   
   const [, setLocation] = useLocation();
@@ -180,10 +180,34 @@ export default function Dashboard() {
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-900">
           {selectedRoom ? (
-            <div className="text-center text-slate-400">
-              <p>Messages will appear here</p>
-              <p className="text-sm mt-2">Matrix connection: {matrixConnected ? "✓ Connected" : "✗ Disconnected"}</p>
-            </div>
+            <>
+              {messages.get(selectedRoom)?.length ? (
+                messages.get(selectedRoom)!.map((msg) => {
+                  const sender = msg.getSender();
+                  const content = msg.getContent();
+                  const timestamp = msg.getTs();
+                  return (
+                    <div key={msg.getId()} className="flex gap-3">
+                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xs font-bold">
+                        {sender?.[0] || '?'}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-baseline gap-2">
+                          <p className="font-semibold text-white text-sm">{sender || 'Unknown'}</p>
+                          <p className="text-xs text-slate-500">{new Date(timestamp).toLocaleTimeString()}</p>
+                        </div>
+                        <p className="text-slate-300 text-sm mt-1">{content.body}</p>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center text-slate-400 py-8">
+                  <p>No messages yet</p>
+                  <p className="text-sm mt-2">Matrix connection: {matrixConnected ? "✓ Connected" : "✗ Disconnected"}</p>
+                </div>
+              )}
+            </>
           ) : (
             <div className="h-full flex items-center justify-center text-slate-400">
               <p>Select a channel to start messaging</p>

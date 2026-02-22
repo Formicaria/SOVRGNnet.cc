@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 interface SupabaseAuthContextType {
@@ -18,14 +19,13 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-  // Create Supabase client with lock manager disabled to avoid timeout issues
+  // Create Supabase client
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: true,
       flowType: 'pkce',
-      lockRetryCount: 0, // Disable lock retry
     },
   });
 
