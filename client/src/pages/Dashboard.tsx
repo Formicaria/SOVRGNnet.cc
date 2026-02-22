@@ -1,4 +1,4 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
 import { useWeb3 } from "@/contexts/Web3Context";
 import { useMatrix } from "@/contexts/MatrixContext";
 import { useIPFS } from "@/contexts/IPFSContext";
@@ -10,7 +10,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 
 export default function Dashboard() {
-  const { user, logout } = useAuth();
+  const { user, signOut } = useSupabaseAuth();
   const { address, ensName, isConnected, connect, disconnect } = useWeb3();
   const { rooms, isConnected: matrixConnected, sendMessage, createRoom } = useMatrix();
   const { isUploading } = useIPFS();
@@ -52,6 +52,15 @@ export default function Dashboard() {
       setMessageInput("");
     } catch (err) {
       console.error("Failed to send message:", err);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await signOut();
+      setLocation("/");
+    } catch (err) {
+      console.error("Failed to sign out:", err);
     }
   };
 
@@ -161,7 +170,7 @@ export default function Dashboard() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => logout()}
+              onClick={handleLogout}
             >
               <LogOut className="w-5 h-5" />
             </Button>
@@ -226,7 +235,7 @@ export default function Dashboard() {
             <div className="space-y-2 text-sm">
               <div>
                 <p className="text-slate-400">Username</p>
-                <p className="font-mono">{user.name || user.email}</p>
+                <p className="font-mono">{user.user_metadata?.name || user.email}</p>
               </div>
               <div>
                 <p className="text-slate-400">Wallet</p>
