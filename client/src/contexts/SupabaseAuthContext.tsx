@@ -18,7 +18,16 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  // Create Supabase client with lock manager disabled to avoid timeout issues
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: true,
+      flowType: 'pkce',
+      lockRetryCount: 0, // Disable lock retry
+    },
+  });
 
   useEffect(() => {
     // Check if user is already logged in
@@ -52,6 +61,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          skipBrowserRedirect: false,
         },
       });
       if (error) throw error;
@@ -67,6 +77,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         provider: 'github',
         options: {
           redirectTo: `${window.location.origin}/auth/callback`,
+          skipBrowserRedirect: false,
         },
       });
       if (error) throw error;

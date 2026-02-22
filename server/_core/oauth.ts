@@ -1,21 +1,53 @@
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import type { Express, Request, Response } from "express";
+import * as db from "../db";
+import { getSessionCookieOptions } from "./cookies";
+import { sdk } from "./sdk";
 
-/**
- * Supabase Auth is handled entirely on the client side.
- * The OAuth callback is not needed for Supabase Auth.
- * 
- * Supabase Auth flow:
- * 1. Client initiates sign-in via supabaseClient.auth.signInWithOAuth()
- * 2. User authenticates with Google/GitHub
- * 3. Supabase redirects to /auth/callback with session
- * 4. Client handles callback and stores JWT in localStorage
- * 5. Client sends JWT in Authorization header for API requests
- * 6. Server verifies JWT in context.ts
- */
+function getQueryParam(req: Request, key: string): string | undefined {
+  const value = req.query[key];
+  return typeof value === "string" ? value : undefined;
+}
+
 export function registerOAuthRoutes(app: Express) {
-  // No OAuth callback needed - Supabase handles everything on client side
-  // This function is kept for backwards compatibility
-  app.get("/api/oauth/callback", (req: Request, res: Response) => {
-    res.status(404).json({ error: "OAuth callback not needed for Supabase Auth" });
+  app.get("/api/oauth/callback", async (req: Request, res: Response) => {
+    const code = getQueryParam(req, "code");
+    const state = getQueryParam(req, "state");
+
+    if (!code || !state) {
+      res.status(400).json({ error: "code and state are required" });
+      return;
+    }
+
+    try {
+      const tokenResponse = await sdk.exchangeCodeForToken(code, state);
+      const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
+
+      if (!userInfo.openId) {
+        res.status(400).json({ error: "openId missing from user info" });
+        return;
+      }
+
+      await db.upsertUser({
+        openId: userInfo.openId,
+        name: userInfo.name || null,
+        email: userInfo.email ?? null,
+        loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+        lastSignedIn: new Date(),
+      });
+
+      const sessionToken = await sdk.createSessionToken(userInfo.openId, {
+        name: userInfo.name || "",
+        expiresInMs: ONE_YEAR_MS,
+      });
+
+      const cookieOptions = getSessionCookieOptions(req);
+      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+      res.redirect(302, "/");
+    } catch (error) {
+      console.error("[OAuth] Callback failed", error);
+      res.status(500).json({ error: "OAuth callback failed" });
+    }
   });
 }
