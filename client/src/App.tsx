@@ -7,8 +7,10 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { Web3Provider } from "./contexts/Web3Context";
 import { MatrixProvider } from "./contexts/MatrixContext";
 import { IPFSProvider } from "./contexts/IPFSContext";
+import { SupabaseAuthProvider } from "./contexts/SupabaseAuthContext";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
+import AuthCallback from "./pages/AuthCallback";
 import { WagmiProvider } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
@@ -22,6 +24,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/dashboard" component={Dashboard} />
+      <Route path="/auth/callback" component={AuthCallback} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -31,24 +34,26 @@ function Router() {
 function App() {
   return (
     <ErrorBoundary>
-      <WagmiProvider config={config}>
-        <QueryClientProvider client={queryClient}>
-          <RainbowKitProvider>
-            <Web3Provider>
-              <MatrixProvider>
-                <IPFSProvider>
-                  <ThemeProvider defaultTheme="dark">
-                    <TooltipProvider>
-                      <Toaster />
-                      <Router />
-                    </TooltipProvider>
-                  </ThemeProvider>
-                </IPFSProvider>
-              </MatrixProvider>
-            </Web3Provider>
-          </RainbowKitProvider>
-        </QueryClientProvider>
-      </WagmiProvider>
+      <SupabaseAuthProvider>
+        <WagmiProvider config={config}>
+          <QueryClientProvider client={queryClient}>
+            <RainbowKitProvider>
+              <Web3Provider>
+                <MatrixProvider>
+                  <IPFSProvider>
+                    <ThemeProvider defaultTheme="dark">
+                      <TooltipProvider>
+                        <Toaster />
+                        <Router />
+                      </TooltipProvider>
+                    </ThemeProvider>
+                  </IPFSProvider>
+                </MatrixProvider>
+              </Web3Provider>
+            </RainbowKitProvider>
+          </QueryClientProvider>
+        </WagmiProvider>
+      </SupabaseAuthProvider>
     </ErrorBoundary>
   );
 }

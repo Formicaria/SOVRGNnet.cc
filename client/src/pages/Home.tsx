@@ -1,13 +1,12 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
 import { useWeb3 } from "@/contexts/Web3Context";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Loader2, Zap, Lock, Users, MessageCircle } from "lucide-react";
+import { Loader2, Zap, Lock, Users, MessageCircle, Github, Mail } from "lucide-react";
 import { useLocation } from "wouter";
-import { getLoginUrl } from "@/const";
 
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { user, loading, signInWithGoogle, signInWithGitHub } = useSupabaseAuth();
   const { isConnected, connect } = useWeb3();
   const [, setLocation] = useLocation();
 
@@ -149,13 +148,22 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="flex gap-4">
+        <div className="flex gap-4 flex-wrap justify-center">
           <Button
             size="lg"
-            onClick={() => window.location.href = getLoginUrl()}
-            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+            onClick={signInWithGoogle}
+            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 flex items-center gap-2"
           >
-            Sign In
+            <Mail className="w-5 h-5" />
+            Sign In with Google
+          </Button>
+          <Button
+            size="lg"
+            onClick={signInWithGitHub}
+            className="bg-gradient-to-r from-gray-700 to-gray-900 hover:from-gray-800 hover:to-black flex items-center gap-2"
+          >
+            <Github className="w-5 h-5" />
+            Sign In with GitHub
           </Button>
           <Button
             size="lg"
@@ -168,7 +176,7 @@ export default function Home() {
         </div>
 
         <div className="text-sm text-slate-400">
-          <p>Sign in with Manus OAuth or connect your Web3 wallet to get started</p>
+          <p>Sign in with Google/GitHub or connect your Web3 wallet to get started</p>
         </div>
       </div>
     </div>
