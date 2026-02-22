@@ -99,7 +99,6 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-
 // Server functions
 export async function createServer(name: string, description: string | undefined, matrixRoomId: string, ownerId: number, icon?: string) {
   const db = await getDb();
