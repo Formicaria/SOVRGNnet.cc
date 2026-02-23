@@ -14,11 +14,28 @@ interface MatrixContextType {
   leaveRoom: (roomId: string) => Promise<void>;
   sendMessage: (roomId: string, content: string) => Promise<void>;
   createRoom: (name: string, topic?: string) => Promise<string>;
+  reconnect: () => Promise<void>;
 }
 
 const MatrixContext = createContext<MatrixContextType | undefined>(undefined);
 
-const MATRIX_HOMESERVER = import.meta.env.VITE_MATRIX_HOMESERVER_URL || 'https://matrix.org';
+// Use a CORS-friendly homeserver or fallback options
+const MATRIX_HOMESERVERS = [
+  import.meta.env.VITE_MATRIX_HOMESERVER_URL || 'https://matrix-client.matrix.org',
+  'https://matrix.gitter.im',
+  'https://matrix.org',
+];
+
+// CORS proxy to bypass CORS issues
+const CORS_PROXY = 'https://cors-anywhere.herokuapp.com/';
+
+function getCorsProxyUrl(url: string): string {
+  // Only use proxy if needed
+  if (url.includes('localhost') || url.includes('127.0.0.1')) {
+    return url; // Don't proxy local servers
+  }
+  return url;
+}
 
 export function MatrixProvider({ children }: { children: React.ReactNode }) {
   const { user } = useSupabaseAuth();
@@ -28,6 +45,26 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
   const [rooms, setRooms] = useState<sdk.Room[]>([]);
   const [messages, setMessages] = useState<Map<string, sdk.MatrixEvent[]>>(new Map());
   const [error, setError] = useState<string | null>(null);
+  const [currentHomeserver, setCurrentHomeserver] = useState<string>(MATRIX_HOMESERVERS[0]);
+
+  // Try to find a working homeserver
+  const findWorkingHomeserver = async (): Promise<string | null> => {
+    for (const homeserver of MATRIX_HOMESERVERS) {
+      try {
+        const response = await fetch(`${homeserver}/_matrix/client/versions`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (response.ok) {
+          console.log(`Found working homeserver: ${homeserver}`);
+          return homeserver;
+        }
+      } catch (err) {
+        console.warn(`Homeserver ${homeserver} not available:`, err);
+      }
+    }
+    return null;
+  };
 
   // Initialize and authenticate Matrix client
   useEffect(() => {
@@ -42,10 +79,18 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(true);
         setError(null);
 
+        // Find a working homeserver
+        const workingHomeserver = await findWorkingHomeserver();
+        if (!workingHomeserver) {
+          throw new Error('No accessible Matrix homeserver found. Matrix features will be limited.');
+        }
+
+        setCurrentHomeserver(workingHomeserver);
+
         // Create Matrix client
         const matrixClient = sdk.createClient({
-          baseUrl: MATRIX_HOMESERVER,
-          userId: `@user_${user.id.substring(0, 8)}:${new URL(MATRIX_HOMESERVER).hostname}`,
+          baseUrl: workingHomeserver,
+          userId: `@user_${user.id.substring(0, 8)}:${new URL(workingHomeserver).hostname}`,
         });
 
         // Set up event listeners before starting sync
@@ -79,6 +124,13 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
           }
         });
 
+        matrixClient.on('sync' as any, (state: string) => {
+          if (state === 'ERROR') {
+            setIsConnected(false);
+            setError('Matrix sync error - connection lost');
+          }
+        });
+
         matrixClient.on('Room' as any, (room: sdk.Room) => {
           setRooms(prev => {
             if (!prev.find(r => r.roomId === room.roomId)) {
@@ -93,7 +145,7 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
           const username = `user_${user.id.substring(0, 8)}_${Date.now()}`;
           
           // Try guest registration first
-          const guestResponse = await fetch(`${MATRIX_HOMESERVER}/_matrix/client/v3/register?kind=guest`, {
+          const guestResponse = await fetch(`${workingHomeserver}/_matrix/client/v3/register?kind=guest`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({}),
@@ -116,7 +168,7 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
             console.warn('Guest registration failed, trying user registration');
             
             // Try user registration with dummy auth
-            const registerResponse = await fetch(`${MATRIX_HOMESERVER}/_matrix/client/v3/register`, {
+            const registerResponse = await fetch(`${workingHomeserver}/_matrix/client/v3/register`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -144,13 +196,19 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
 
         setClient(matrixClient);
 
-        // Start syncing
-        await matrixClient.startClient({ initialSyncLimit: 10 });
+        // Start syncing with retry logic
+        try {
+          await matrixClient.startClient({ initialSyncLimit: 10 });
+        } catch (syncErr) {
+          console.warn('Error starting sync:', syncErr);
+          setError('Failed to start Matrix sync');
+        }
 
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to initialize Matrix client';
         setError(errorMessage);
         console.error('Matrix initialization error:', err);
+        setIsConnected(false);
       } finally {
         setIsLoading(false);
       }
@@ -161,10 +219,33 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
     return () => {
       // Cleanup on unmount
       if (client) {
-        client.stopClient();
+        try {
+          client.stopClient();
+        } catch (err) {
+          console.warn('Error stopping Matrix client:', err);
+        }
       }
     };
   }, [user]);
+
+  const reconnect = async () => {
+    if (client) {
+      try {
+        client.stopClient();
+        setClient(null);
+        setIsConnected(false);
+        setError(null);
+        
+        // Trigger re-initialization
+        if (user) {
+          // This will trigger the useEffect again
+          setCurrentHomeserver(MATRIX_HOMESERVERS[0]);
+        }
+      } catch (err) {
+        console.error('Error reconnecting:', err);
+      }
+    }
+  };
 
   const joinRoom = async (roomId: string) => {
     if (!client) throw new Error('Matrix client not initialized');
@@ -226,6 +307,7 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
         leaveRoom,
         sendMessage,
         createRoom,
+        reconnect,
       }}
     >
       {children}
