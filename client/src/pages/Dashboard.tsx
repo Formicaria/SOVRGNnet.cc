@@ -5,14 +5,14 @@ import { useIPFS } from "@/contexts/IPFSContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Loader2, Plus, Send, Volume2, LogOut } from "lucide-react";
+import { Loader2, Plus, Send, Volume2, LogOut, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 
 export default function Dashboard() {
   const { user, signOut } = useSupabaseAuth();
   const { address, ensName, isConnected, connect, disconnect } = useWeb3();
-  const { rooms, isConnected: matrixConnected, sendMessage, createRoom, messages } = useMatrix();
+  const { rooms, isConnected: matrixConnected, sendMessage, createRoom, messages, error: matrixError } = useMatrix();
   const { isUploading } = useIPFS();
   
   const [, setLocation] = useLocation();
@@ -20,6 +20,7 @@ export default function Dashboard() {
   const [messageInput, setMessageInput] = useState("");
   const [newRoomName, setNewRoomName] = useState("");
   const [isCreatingRoom, setIsCreatingRoom] = useState(false);
+  const [operationError, setOperationError] = useState<string | null>(null);
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -35,22 +36,25 @@ export default function Dashboard() {
   const handleCreateRoom = async () => {
     if (!newRoomName.trim()) return;
     try {
-      setIsCreatingRoom(true);
+      setOperationError(null);
       await createRoom(newRoomName);
       setNewRoomName("");
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to create room";
+      setOperationError(errorMsg);
       console.error("Failed to create room:", err);
-    } finally {
-      setIsCreatingRoom(false);
     }
   };
 
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !selectedRoom) return;
     try {
+      setOperationError(null);
       await sendMessage(selectedRoom, messageInput);
       setMessageInput("");
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to send message";
+      setOperationError(errorMsg);
       console.error("Failed to send message:", err);
     }
   };
@@ -61,6 +65,28 @@ export default function Dashboard() {
       setLocation("/");
     } catch (err) {
       console.error("Failed to sign out:", err);
+    }
+  };
+
+  const handleConnectWallet = async () => {
+    try {
+      setOperationError(null);
+      await connect();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to connect wallet";
+      setOperationError(errorMsg);
+      console.error("Failed to connect wallet:", err);
+    }
+  };
+
+  const handleDisconnectWallet = async () => {
+    try {
+      setOperationError(null);
+      await disconnect();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to disconnect wallet";
+      setOperationError(errorMsg);
+      console.error("Failed to disconnect wallet:", err);
     }
   };
 
@@ -77,6 +103,7 @@ export default function Dashboard() {
           size="icon"
           className="rounded-full hover:bg-slate-800"
           onClick={() => setIsCreatingRoom(!isCreatingRoom)}
+          title="Create Channel"
         >
           <Plus className="w-5 h-5" />
         </Button>
@@ -86,6 +113,12 @@ export default function Dashboard() {
       <div className="w-64 bg-slate-800 border-r border-slate-700 flex flex-col">
         <div className="p-4 border-b border-slate-700">
           <h2 className="font-bold text-lg">Channels</h2>
+          {matrixError && (
+            <div className="mt-2 text-xs text-yellow-400 flex items-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              Matrix unavailable
+            </div>
+          )}
         </div>
 
         {isCreatingRoom && (
@@ -100,7 +133,8 @@ export default function Dashboard() {
               <Button
                 size="sm"
                 onClick={handleCreateRoom}
-                disabled={isCreatingRoom || !newRoomName.trim()}
+                className="flex-1"
+                disabled={!newRoomName.trim() || !matrixConnected}
               >
                 Create
               </Button>
@@ -108,6 +142,7 @@ export default function Dashboard() {
                 size="sm"
                 variant="outline"
                 onClick={() => setIsCreatingRoom(false)}
+                className="flex-1"
               >
                 Cancel
               </Button>
@@ -115,180 +150,151 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {rooms.map((room) => (
-            <button
-              key={room.roomId}
-              onClick={() => setSelectedRoom(room.roomId)}
-              className={`w-full text-left px-4 py-2 rounded-md transition-colors ${
-                selectedRoom === room.roomId
-                  ? "bg-slate-700 text-white"
-                  : "text-slate-300 hover:bg-slate-700"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                {room.getType() === "m.space" ? (
-                  <div className="w-2 h-2 rounded-full bg-purple-500" />
-                ) : (
-                  <span>#</span>
-                )}
-                <span className="truncate">{room.name || room.roomId}</span>
-              </div>
-            </button>
-          ))}
+        {/* Room List */}
+        <div className="flex-1 overflow-y-auto">
+          {rooms.length === 0 ? (
+            <div className="p-4 text-sm text-slate-400">
+              {matrixConnected ? "No channels yet" : "Matrix features unavailable"}
+            </div>
+          ) : (
+            rooms.map((room) => (
+              <Button
+                key={room.roomId}
+                variant={selectedRoom === room.roomId ? "default" : "ghost"}
+                className="w-full justify-start rounded-none border-0"
+                onClick={() => setSelectedRoom(room.roomId)}
+              >
+                # {room.name || "Unnamed"}
+              </Button>
+            ))
+          )}
         </div>
       </div>
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
+        <div className="h-16 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-6">
           <div>
-            <h1 className="text-xl font-bold">
-              {selectedRoom ? "Channel" : "Select a channel"}
+            <h1 className="font-bold text-lg">
+              {selectedRoom ? `# Channel` : "Welcome"}
             </h1>
-            <p className="text-sm text-slate-400">
-              {ensName || address?.slice(0, 6) + "..." || "Not connected"}
+            <p className="text-xs text-slate-400">
+              {address ? `Connected: ${address.slice(0, 6)}...${address.slice(-4)}` : "Not connected"}
             </p>
           </div>
           <div className="flex items-center gap-4">
-            {!isConnected ? (
-              <Button onClick={connect} size="sm">
-                Connect Wallet
+            {isConnected ? (
+              <Button size="sm" variant="outline" onClick={handleDisconnectWallet}>
+                Disconnect Wallet
               </Button>
             ) : (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={disconnect}
-                >
-                  Disconnect
-                </Button>
-              </>
+              <Button size="sm" onClick={handleConnectWallet}>
+                Connect Wallet
+              </Button>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleLogout}
-            >
-              <LogOut className="w-5 h-5" />
+            <Button size="sm" variant="outline" onClick={handleLogout}>
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
             </Button>
           </div>
         </div>
 
+        {/* Error Banner */}
+        {operationError && (
+          <div className="bg-red-900/20 border-b border-red-700 px-6 py-3 text-red-300 text-sm flex items-center gap-2">
+            <AlertCircle className="w-4 h-4" />
+            {operationError}
+          </div>
+        )}
+
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-900">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
           {selectedRoom ? (
             <>
               {messages.get(selectedRoom)?.length ? (
-                messages.get(selectedRoom)!.map((msg) => {
-                  const sender = msg.getSender();
-                  const content = msg.getContent();
-                  const timestamp = msg.getTs();
-                  return (
-                    <div key={msg.getId()} className="flex gap-3">
-                      <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white text-xs font-bold">
-                        {sender?.[0] || '?'}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-baseline gap-2">
-                          <p className="font-semibold text-white text-sm">{sender || 'Unknown'}</p>
-                          <p className="text-xs text-slate-500">{new Date(timestamp).toLocaleTimeString()}</p>
-                        </div>
-                        <p className="text-slate-300 text-sm mt-1">{content.body}</p>
-                      </div>
-                    </div>
-                  );
-                })
+                messages.get(selectedRoom)?.map((msg) => (
+                  <Card key={msg.getId()} className="bg-slate-700 border-slate-600 p-4">
+                    <p className="text-sm text-slate-300">
+                      {msg.getContent().body}
+                    </p>
+                  </Card>
+                ))
               ) : (
-                <div className="text-center text-slate-400 py-8">
-                  <p>No messages yet</p>
-                  <p className="text-sm mt-2">Matrix connection: {matrixConnected ? "✓ Connected" : "✗ Disconnected"}</p>
+                <div className="text-center text-slate-400 mt-8">
+                  No messages yet. Start the conversation!
                 </div>
               )}
             </>
           ) : (
-            <div className="h-full flex items-center justify-center text-slate-400">
+            <div className="text-center text-slate-400 mt-8">
               <p>Select a channel to start messaging</p>
+              <p className="text-xs mt-2">or create a new one with the + button</p>
             </div>
           )}
         </div>
 
         {/* Message Input */}
         {selectedRoom && (
-          <div className="bg-slate-800 border-t border-slate-700 p-4">
-            <div className="flex gap-2">
-              <Input
-                placeholder="Type a message..."
-                value={messageInput}
-                onChange={(e) => setMessageInput(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                className="bg-slate-700 border-slate-600"
-                disabled={isUploading}
-              />
-              <Button
-                onClick={handleSendMessage}
-                disabled={!messageInput.trim() || isUploading}
-                size="icon"
-              >
-                <Send className="w-5 h-5" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                title="Soundboard"
-              >
-                <Volume2 className="w-5 h-5" />
-              </Button>
-            </div>
+          <div className="h-20 bg-slate-800 border-t border-slate-700 p-4 flex gap-2">
+            <Input
+              placeholder="Type a message..."
+              value={messageInput}
+              onChange={(e) => setMessageInput(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
+              className="bg-slate-700 border-slate-600"
+              disabled={!matrixConnected}
+            />
+            <Button
+              onClick={handleSendMessage}
+              disabled={!messageInput.trim() || !matrixConnected}
+              size="icon"
+            >
+              <Send className="w-4 h-4" />
+            </Button>
           </div>
         )}
       </div>
 
-      {/* Right Sidebar - User Info */}
-      <div className="w-64 bg-slate-800 border-l border-slate-700 p-4 overflow-y-auto">
-        <div className="space-y-4">
-          <Card className="bg-slate-700 border-slate-600 p-4">
-            <h3 className="font-bold mb-2">Profile</h3>
-            <div className="space-y-2 text-sm">
-              <div>
-                <p className="text-slate-400">Username</p>
-                <p className="font-mono">{user.user_metadata?.name || user.email}</p>
-              </div>
-              <div>
-                <p className="text-slate-400">Wallet</p>
-                <p className="font-mono text-xs">
-                  {address ? address.slice(0, 6) + "..." + address.slice(-4) : "Not connected"}
-                </p>
-              </div>
-              {ensName && (
-                <div>
-                  <p className="text-slate-400">ENS Name</p>
-                  <p className="font-mono">{ensName}</p>
-                </div>
-              )}
+      {/* Right Sidebar - User Profile & Status */}
+      <div className="w-64 bg-slate-800 border-l border-slate-700 p-6 flex flex-col justify-between">
+        <div>
+          <h3 className="font-bold mb-4">Profile</h3>
+          <Card className="bg-slate-700 border-slate-600 p-4 space-y-2">
+            <div>
+              <p className="text-xs text-slate-400">User</p>
+              <p className="text-sm font-mono">{user?.email || "Anonymous"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-slate-400">Wallet</p>
+              <p className="text-sm font-mono">
+                {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Not connected"}
+              </p>
             </div>
           </Card>
+        </div>
 
-          <Card className="bg-slate-700 border-slate-600 p-4">
-            <h3 className="font-bold mb-2">Status</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${matrixConnected ? "bg-green-500" : "bg-red-500"}`} />
-                <span>Matrix: {matrixConnected ? "Connected" : "Disconnected"}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`} />
-                <span>Wallet: {isConnected ? "Connected" : "Disconnected"}</span>
-              </div>
+        <div>
+          <h3 className="font-bold mb-4">Status</h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${matrixConnected ? "bg-green-500" : "bg-red-500"}`} />
+              <span>Matrix: {matrixConnected ? "Connected" : "Offline"}</span>
             </div>
-          </Card>
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-yellow-500"}`} />
+              <span>Wallet: {isConnected ? "Connected" : "Disconnected"}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-green-500" />
+              <span>Auth: Connected</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
