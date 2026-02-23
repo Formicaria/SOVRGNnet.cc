@@ -18,7 +18,7 @@ interface MatrixContextType {
 
 const MatrixContext = createContext<MatrixContextType | undefined>(undefined);
 
-const MATRIX_HOMESERVER = import.meta.env.VITE_MATRIX_HOMESERVER_URL || 'http://localhost:8008';
+const MATRIX_HOMESERVER = import.meta.env.VITE_MATRIX_HOMESERVER_URL || 'https://matrix.org';
 
 export function MatrixProvider({ children }: { children: React.ReactNode }) {
   const { user } = useSupabaseAuth();
@@ -45,11 +45,8 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
         // Create Matrix client
         const matrixClient = sdk.createClient({
           baseUrl: MATRIX_HOMESERVER,
+          userId: `@user_${user.id.substring(0, 8)}:${new URL(MATRIX_HOMESERVER).hostname}`,
         });
-
-        // Use Supabase user ID as Matrix user ID (format: @userid:homeserver)
-        const userId = `@${user.id.substring(0, 12)}:${new URL(MATRIX_HOMESERVER).hostname}`;
-        const deviceId = `web_${Date.now()}`;
 
         // Set up event listeners before starting sync
         matrixClient.on('Room.timeline' as any, (event: sdk.MatrixEvent, room: sdk.Room) => {
@@ -91,42 +88,48 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
           });
         });
 
-        // Try to register or login with guest account
+        // Try to register as a guest user
         try {
-          const username = user.id.substring(0, 12);
+          const username = `user_${user.id.substring(0, 8)}_${Date.now()}`;
           
-          // Try to register a guest account
-          const registerResponse = await fetch(`${MATRIX_HOMESERVER}/_matrix/client/r0/register`, {
+          // Try guest registration first
+          const guestResponse = await fetch(`${MATRIX_HOMESERVER}/_matrix/client/v3/register?kind=guest`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              kind: 'user',
-              auth: { type: 'm.login.dummy' },
-              user: username,
-              initial_device_display_name: 'Web Client',
-            }),
+            body: JSON.stringify({}),
           });
 
-          if (registerResponse.ok) {
-            const data = await registerResponse.json();
+          if (guestResponse.ok) {
+            const guestData = await guestResponse.json();
+            console.log('Guest registration successful:', guestData);
+            
+            // Set guest credentials
             (matrixClient as any).credentials = {
-              userId: data.user_id,
-              deviceId: data.device_id,
-              accessToken: data.access_token,
+              userId: guestData.user_id,
+              deviceId: guestData.device_id,
+              accessToken: guestData.access_token,
             };
-          } else if (registerResponse.status === 400) {
-            // User might already exist, try login
-            const loginResponse = await fetch(`${MATRIX_HOMESERVER}/_matrix/client/r0/login`, {
+            
+            // Update client with credentials
+            matrixClient.setGuest(true);
+          } else {
+            console.warn('Guest registration failed, trying user registration');
+            
+            // Try user registration with dummy auth
+            const registerResponse = await fetch(`${MATRIX_HOMESERVER}/_matrix/client/v3/register`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                type: 'm.login.dummy',
+                kind: 'user',
+                auth: { type: 'm.login.dummy' },
                 user: username,
+                initial_device_display_name: 'Web Client',
               }),
             });
 
-            if (loginResponse.ok) {
-              const data = await loginResponse.json();
+            if (registerResponse.ok) {
+              const data = await registerResponse.json();
+              console.log('User registration successful:', data);
               (matrixClient as any).credentials = {
                 userId: data.user_id,
                 deviceId: data.device_id,
@@ -167,10 +170,8 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
     if (!client) throw new Error('Matrix client not initialized');
     try {
       await client.joinRoom(roomId);
-      setRooms(client.getRooms());
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to join room';
-      setError(errorMessage);
+      console.error('Error joining room:', err);
       throw err;
     }
   };
@@ -179,10 +180,8 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
     if (!client) throw new Error('Matrix client not initialized');
     try {
       await client.leave(roomId);
-      setRooms(client.getRooms());
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to leave room';
-      setError(errorMessage);
+      console.error('Error leaving room:', err);
       throw err;
     }
   };
@@ -192,8 +191,7 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
     try {
       await client.sendTextMessage(roomId, content);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
-      setError(errorMessage);
+      console.error('Error sending message:', err);
       throw err;
     }
   };
@@ -202,15 +200,15 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
     if (!client) throw new Error('Matrix client not initialized');
     try {
       const response = await client.createRoom({
-        name,
-        topic,
+        room_alias_name: name.toLowerCase().replace(/\s+/g, '-'),
+        name: name,
+        topic: topic,
         visibility: 'public' as any,
+        preset: 'public_chat' as any,
       });
-      setRooms(client.getRooms());
       return response.room_id;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create room';
-      setError(errorMessage);
+      console.error('Error creating room:', err);
       throw err;
     }
   };
