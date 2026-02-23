@@ -8,6 +8,7 @@ interface SupabaseAuthContextType {
   signInWithGoogle: () => Promise<void>;
   signInWithGitHub: () => Promise<void>;
   signOut: () => Promise<void>;
+  logout: () => Promise<void>; // Alias for signOut
 }
 
 const SupabaseAuthContext = createContext<SupabaseAuthContextType | undefined>(undefined);
@@ -106,6 +107,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         signInWithGoogle,
         signInWithGitHub,
         signOut,
+        logout: signOut, // Alias for signOut
       }}
     >
       {children}

@@ -1,4 +1,4 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
 import { useWeb3 } from "@/contexts/Web3Context";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -7,7 +7,7 @@ import { useLocation } from "wouter";
 import { getLoginUrl } from "@/const";
 
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { user, loading } = useSupabaseAuth();
   const { isConnected, connect } = useWeb3();
   const [, setLocation] = useLocation();
 
@@ -168,7 +168,7 @@ export default function Home() {
         </div>
 
         <div className="text-sm text-slate-400">
-          <p>Sign in with Manus OAuth or connect your Web3 wallet to get started</p>
+          <p>Sign in with Google or GitHub to get started</p>
         </div>
       </div>
     </div>
