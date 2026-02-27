@@ -28,7 +28,7 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<Map<string, sdk.MatrixEvent[]>>(new Map());
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize Matrix client (with graceful degradation for network restrictions)
+  // Initialize Matrix client with real homeserver
   useEffect(() => {
     if (!user) {
       setClient(null);
@@ -41,24 +41,52 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(true);
         setError(null);
 
-        // Create a placeholder client that won't try to connect
-        // This allows the app to function without Matrix
+        // Create Matrix client pointing to real homeserver on Pi
+        // Use local server to avoid Cloudflare RFC1918 restrictions
         const matrixClient = sdk.createClient({
-          baseUrl: 'https://matrix-client.matrix.org',
-          userId: `@user_${user.id.substring(0, 8)}:matrix.org`,
-          useAuthorizationHeader: false,
+          baseUrl: 'http://localhost:8008',
+          userId: `@user_${user.id.substring(0, 8)}:sovrgnnet.com`,
+          useAuthorizationHeader: true,
         });
 
-        // Set as connected without actually connecting
-        // This allows UI to render and buttons to work
+        // Start the client
+        await matrixClient.startClient();
+        
+        // Wait for initial sync with timeout
+        await Promise.race([
+          new Promise<void>((resolve) => {
+            const syncHandler = (state: string) => {
+              if (state === 'PREPARED' || state === 'SYNCING') {
+                matrixClient.removeListener('sync' as any, syncHandler);
+                resolve();
+              }
+            };
+            matrixClient.on('sync' as any, syncHandler);
+          }),
+          new Promise<void>((resolve) => {
+            setTimeout(() => resolve(), 5000); // 5 second timeout
+          }),
+        ]);
+
         setClient(matrixClient);
-        setIsConnected(false); // Not actually connected due to network restrictions
-        setError('Matrix integration unavailable - network restrictions detected. App is functional without real-time messaging.');
+        setIsConnected(true);
+        setError(null);
+        setRooms(matrixClient.getRooms());
+
+        // Listen for room updates
+        const handleRoomStateEvent = () => {
+          setRooms(matrixClient.getRooms());
+        };
+
+        matrixClient.on('Room' as any, handleRoomStateEvent);
+        matrixClient.on('Room.timeline' as any, handleRoomStateEvent);
 
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Failed to initialize Matrix client';
         setError(`Matrix unavailable: ${errorMessage}`);
-        console.warn('Matrix initialization warning:', err);
+        console.warn('Matrix initialization error:', err);
+        setIsConnected(false);
+        setClient(null);
       } finally {
         setIsLoading(false);
       }
@@ -79,23 +107,72 @@ export function MatrixProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const reconnect = async () => {
-    setError('Matrix reconnection unavailable due to network restrictions');
+    if (!client) throw new Error('Matrix client not initialized');
+    try {
+      setIsLoading(true);
+      await client.stopClient();
+      await client.startClient();
+      setIsConnected(true);
+      setError(null);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Reconnection failed';
+      setError(errorMessage);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const joinRoom = async (roomId: string) => {
-    throw new Error('Matrix features unavailable - network restrictions detected');
+    if (!client) throw new Error('Matrix client not initialized');
+    try {
+      await client.joinRoom(roomId);
+      setRooms(client.getRooms());
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to join room';
+      setError(errorMessage);
+      throw err;
+    }
   };
 
   const leaveRoom = async (roomId: string) => {
-    throw new Error('Matrix features unavailable - network restrictions detected');
+    if (!client) throw new Error('Matrix client not initialized');
+    try {
+      await client.leave(roomId);
+      setRooms(client.getRooms());
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to leave room';
+      setError(errorMessage);
+      throw err;
+    }
   };
 
   const sendMessage = async (roomId: string, content: string) => {
-    throw new Error('Matrix features unavailable - network restrictions detected');
+    if (!client) throw new Error('Matrix client not initialized');
+    try {
+      await client.sendTextMessage(roomId, content);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
+      setError(errorMessage);
+      throw err;
+    }
   };
 
   const createRoom = async (name: string, topic?: string): Promise<string> => {
-    throw new Error('Matrix features unavailable - network restrictions detected');
+    if (!client) throw new Error('Matrix client not initialized');
+    try {
+      const response = await client.createRoom({
+        name,
+        topic,
+        visibility: 'public' as any, // Type assertion for visibility
+      });
+      setRooms(client.getRooms());
+      return response.room_id;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create room';
+      setError(errorMessage);
+      throw err;
+    }
   };
 
   return (
