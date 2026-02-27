@@ -4,10 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Loader2, Zap, Lock, Users, MessageCircle } from "lucide-react";
 import { useLocation } from "wouter";
-import { getLoginUrl } from "@/const";
 
 export default function Home() {
-  const { user, loading } = useSupabaseAuth();
+  const { user, loading, signInWithGoogle } = useSupabaseAuth();
   const { isConnected, connect } = useWeb3();
   const [, setLocation] = useLocation();
 
@@ -152,7 +151,7 @@ export default function Home() {
         <div className="flex gap-4">
           <Button
             size="lg"
-            onClick={() => window.location.href = getLoginUrl()}
+            onClick={signInWithGoogle}
             className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
           >
             Sign In
