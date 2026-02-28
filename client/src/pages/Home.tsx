@@ -2,13 +2,38 @@ import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
 import { useWeb3 } from "@/contexts/Web3Context";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Loader2, Zap, Lock, Users, MessageCircle } from "lucide-react";
 import { useLocation } from "wouter";
+import { useState } from "react";
 
 export default function Home() {
-  const { user, loading, signInWithGoogle } = useSupabaseAuth();
+  const { user, loading, signInWithGoogle, signInWithEmail, signUp } = useSupabaseAuth();
   const { isConnected, connect } = useWeb3();
   const [, setLocation] = useLocation();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const handleEmailAuth = async () => {
+    try {
+      setAuthLoading(true);
+      setAuthError(null);
+      if (isSignUp) {
+        await signUp(email, password);
+      } else {
+        await signInWithEmail(email, password);
+      }
+      setEmail("");
+      setPassword("");
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Authentication failed");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -137,37 +162,85 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-white flex flex-col items-center justify-center">
-      <div className="text-center space-y-8">
+      <div className="text-center space-y-8 max-w-md">
         <div>
           <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-4xl mx-auto mb-6">
             DD
           </div>
           <h1 className="text-5xl font-bold mb-4">Decentralized Discord</h1>
-          <p className="text-xl text-slate-300 max-w-md">
+          <p className="text-xl text-slate-300">
             A Web3-native communication platform with end-to-end encryption and true decentralization.
           </p>
         </div>
 
-        <div className="flex gap-4">
+        <Card className="bg-slate-800 border-slate-700 p-6 space-y-4">
+          <div className="space-y-2">
+            <Input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="bg-slate-700 border-slate-600"
+              disabled={authLoading}
+            />
+            <Input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="bg-slate-700 border-slate-600"
+              disabled={authLoading}
+              onKeyPress={(e) => {
+                if (e.key === "Enter") handleEmailAuth();
+              }}
+            />
+          </div>
+
+          {authError && (
+            <div className="text-red-400 text-sm">{authError}</div>
+          )}
+
+          <Button
+            onClick={handleEmailAuth}
+            disabled={authLoading || !email || !password}
+            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+          >
+            {authLoading ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> {isSignUp ? "Signing up..." : "Signing in..."}</>
+            ) : (
+              isSignUp ? "Sign Up" : "Sign In"
+            )}
+          </Button>
+
+          <div className="text-center text-sm text-slate-400">
+            {isSignUp ? "Already have an account? " : "Don't have an account? "}
+            <button
+              onClick={() => setIsSignUp(!isSignUp)}
+              className="text-purple-400 hover:text-purple-300 underline"
+              disabled={authLoading}
+            >
+              {isSignUp ? "Sign In" : "Sign Up"}
+            </button>
+          </div>
+        </Card>
+
+        <div className="space-y-2">
           <Button
             size="lg"
             onClick={signInWithGoogle}
-            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+            variant="outline"
+            className="w-full border-slate-600"
           >
-            Sign In
+            Sign In with Google
           </Button>
           <Button
             size="lg"
             variant="outline"
             onClick={connect}
-            className="border-purple-500 text-purple-400 hover:bg-purple-500/10"
+            className="w-full border-slate-600"
           >
             Connect Wallet
           </Button>
-        </div>
-
-        <div className="text-sm text-slate-400">
-          <p>Sign in with Google or GitHub to get started</p>
         </div>
       </div>
     </div>
