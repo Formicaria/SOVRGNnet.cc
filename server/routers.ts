@@ -241,6 +241,41 @@ export const appRouter = router({
         return await db.addServerMember(input.serverId, input.userId, input.role);
       }),
   }),
+
+  // Matrix operations (server-side proxy)
+  matrix: router({
+    createRoom: protectedProcedure
+      .input(z.object({
+        name: z.string().min(1),
+        topic: z.string().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const response = await fetch('http://localhost:8008/_matrix/client/v3/createRoom', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              name: input.name,
+              topic: input.topic,
+              visibility: 'public',
+            }),
+          });
+
+          if (!response.ok) {
+            const error = await response.text();
+            throw new Error(`Matrix API error: ${response.status} - ${error}`);
+          }
+
+          const data = await response.json();
+          return { roomId: data.room_id };
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Failed to create Matrix room';
+          throw new Error(message);
+        }
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
