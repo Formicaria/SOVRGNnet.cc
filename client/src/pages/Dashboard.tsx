@@ -13,7 +13,7 @@ import { trpc } from "@/lib/trpc";
 export default function Dashboard() {
   const { user, signOut } = useSupabaseAuth();
   const { address, ensName, isConnected, connect, disconnect } = useWeb3();
-  const { rooms, isConnected: matrixConnected, sendMessage, createRoom, messages, error: matrixError } = useMatrix();
+  const { isConnected: matrixConnected, error: matrixError } = useMatrix();
   const { isUploading } = useIPFS();
   const createRoomMutation = trpc.matrix.createRoom.useMutation();
   
@@ -52,7 +52,7 @@ export default function Dashboard() {
     if (!messageInput.trim() || !selectedRoom) return;
     try {
       setOperationError(null);
-      await sendMessage(selectedRoom, messageInput);
+      // TODO: Implement message sending via tRPC
       setMessageInput("");
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Failed to send message";
@@ -154,22 +154,9 @@ export default function Dashboard() {
 
         {/* Room List */}
         <div className="flex-1 overflow-y-auto">
-          {rooms.length === 0 ? (
-            <div className="p-4 text-sm text-slate-400">
-              {matrixConnected ? "No channels yet" : "Matrix features unavailable"}
-            </div>
-          ) : (
-            rooms.map((room) => (
-              <Button
-                key={room.roomId}
-                variant={selectedRoom === room.roomId ? "default" : "ghost"}
-                className="w-full justify-start rounded-none border-0"
-                onClick={() => setSelectedRoom(room.roomId)}
-              >
-                # {room.name || "Unnamed"}
-              </Button>
-            ))
-          )}
+          <div className="p-4 text-sm text-slate-400">
+            No channels yet. Create one with the + button.
+          </div>
         </div>
       </div>
 
@@ -212,28 +199,10 @@ export default function Dashboard() {
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {selectedRoom ? (
-            <>
-              {messages.get(selectedRoom)?.length ? (
-                messages.get(selectedRoom)?.map((msg) => (
-                  <Card key={msg.getId()} className="bg-slate-700 border-slate-600 p-4">
-                    <p className="text-sm text-slate-300">
-                      {msg.getContent().body}
-                    </p>
-                  </Card>
-                ))
-              ) : (
-                <div className="text-center text-slate-400 mt-8">
-                  No messages yet. Start the conversation!
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="text-center text-slate-400 mt-8">
-              <p>Select a channel to start messaging</p>
-              <p className="text-xs mt-2">or create a new one with the + button</p>
-            </div>
-          )}
+          <div className="text-center text-slate-400 mt-8">
+            <p>Select a channel to start messaging</p>
+            <p className="text-xs mt-2">or create a new one with the + button</p>
+          </div>
         </div>
 
         {/* Message Input */}
