@@ -8,12 +8,14 @@ import { Card } from "@/components/ui/card";
 import { Loader2, Plus, Send, Volume2, LogOut, AlertCircle } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
+import { trpc } from "@/lib/trpc";
 
 export default function Dashboard() {
   const { user, signOut } = useSupabaseAuth();
   const { address, ensName, isConnected, connect, disconnect } = useWeb3();
   const { rooms, isConnected: matrixConnected, sendMessage, createRoom, messages, error: matrixError } = useMatrix();
   const { isUploading } = useIPFS();
+  const createRoomMutation = trpc.matrix.createRoom.useMutation();
   
   const [, setLocation] = useLocation();
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
@@ -37,7 +39,7 @@ export default function Dashboard() {
     if (!newRoomName.trim()) return;
     try {
       setOperationError(null);
-      await createRoom(newRoomName);
+      await createRoomMutation.mutateAsync({ name: newRoomName });
       setNewRoomName("");
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Failed to create room";
