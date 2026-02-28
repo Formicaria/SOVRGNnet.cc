@@ -7,8 +7,10 @@ interface SupabaseAuthContextType {
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithGitHub: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>;
+  signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  logout: () => Promise<void>; // Alias for signOut
+  logout: () => Promise<void>;
 }
 
 const SupabaseAuthContext = createContext<SupabaseAuthContextType | undefined>(undefined);
@@ -20,7 +22,6 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-  // Create Supabase client only once using useMemo
   const supabase = useMemo(() => {
     return createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
@@ -33,7 +34,6 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   }, [supabaseUrl, supabaseAnonKey]);
 
   useEffect(() => {
-    // Check if user is already logged in
     const checkUser = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -49,7 +49,6 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
     checkUser();
 
-    // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
       setUser(session?.user || null);
       setLoading(false);
@@ -57,6 +56,32 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
     return () => subscription?.unsubscribe();
   }, [supabase]);
+
+  const signInWithEmail = async (email: string, password: string) => {
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error signing in with email:', error);
+      throw error;
+    }
+  };
+
+  const signUp = async (email: string, password: string) => {
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error signing up:', error);
+      throw error;
+    }
+  };
 
   const signInWithGoogle = async () => {
     try {
@@ -108,8 +133,10 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         loading,
         signInWithGoogle,
         signInWithGitHub,
+        signInWithEmail,
+        signUp,
         signOut,
-        logout: signOut, // Alias for signOut
+        logout: signOut,
       }}
     >
       {children}
