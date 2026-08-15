@@ -42,7 +42,9 @@ export function getSessionCookieOptions(
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
+    // Same-origin app: lax works everywhere (including http://localhost dev,
+    // where browsers reject SameSite=None without Secure) and blunts CSRF.
+    sameSite: "lax",
     secure: isSecureRequest(req),
   };
 }

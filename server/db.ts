@@ -96,6 +96,57 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+export async function getUserById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email.toLowerCase()))
+    .limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function createLocalUser(
+  email: string,
+  passwordHash: string,
+  name?: string
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .insert(users)
+    .values({
+      openId: `local:${crypto.randomUUID()}`,
+      email: email.toLowerCase(),
+      passwordHash,
+      name: name ?? email.split("@")[0],
+      loginMethod: "password",
+    })
+    .returning();
+  return result[0];
+}
+
+export async function touchLastSignedIn(userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+
+  await db
+    .update(users)
+    .set({ lastSignedIn: new Date() })
+    .where(eq(users.id, userId));
+}
+
 // Server functions
 export async function createServer(name: string, description: string | undefined, matrixRoomId: string, ownerId: number, icon?: string) {
   const db = await getDb();
