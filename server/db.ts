@@ -333,7 +333,7 @@ export async function createFileShare(channelId: number, userId: number, filenam
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.insert(fileShares).values({
+  const result = await db.insert(fileShares).values({
     channelId,
     userId,
     filename,
@@ -341,14 +341,43 @@ export async function createFileShare(channelId: number, userId: number, filenam
     fileSize,
     mimeType,
     torrentMagnetLink,
-  });
+  }).returning();
+  return result[0];
 }
 
+/** File shares with uploader names, oldest first. */
 export async function getFileSharesByChannel(channelId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.select().from(fileShares).where(eq(fileShares.channelId, channelId));
+  return await db
+    .select({
+      id: fileShares.id,
+      channelId: fileShares.channelId,
+      userId: fileShares.userId,
+      filename: fileShares.filename,
+      ipfsHash: fileShares.ipfsHash,
+      fileSize: fileShares.fileSize,
+      mimeType: fileShares.mimeType,
+      createdAt: fileShares.createdAt,
+      senderName: users.name,
+    })
+    .from(fileShares)
+    .leftJoin(users, eq(fileShares.userId, users.id))
+    .where(eq(fileShares.channelId, channelId))
+    .orderBy(fileShares.createdAt);
+}
+
+export async function getFileShareByCid(cid: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .select()
+    .from(fileShares)
+    .where(eq(fileShares.ipfsHash, cid))
+    .limit(1);
+  return result.length > 0 ? result[0] : undefined;
 }
 
 // Soundboard functions

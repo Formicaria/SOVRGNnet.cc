@@ -8,4 +8,6 @@ export const ENV = {
   matrixServerName: process.env.MATRIX_SERVER_NAME ?? "localhost",
   /** Optional registration token if the homeserver gates registration. */
   matrixRegistrationToken: process.env.MATRIX_REGISTRATION_TOKEN ?? "",
+  /** Internal URL of the Kubo (IPFS) daemon API. */
+  ipfsApiUrl: process.env.IPFS_API_URL ?? "http://localhost:5001",
 };
