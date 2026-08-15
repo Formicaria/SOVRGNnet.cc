@@ -22,7 +22,7 @@ Internet ──▶ Cloudflare edge (DNS, TLS, proxy)
 On the R640 (or any node): Ubuntu Server 24.04 VM, 4 vCPU / 8 GB RAM / 64 GB disk is comfortable for v1. Install Docker + Compose plugin. An LXC also works, but a VM avoids Docker-in-LXC nesting quirks.
 
 ```bash
-git clone https://github.com/mrknockknockgaming-droid/SOVRGNnet
+git clone https://github.com/Formicaria/SOVRGNnet.cc
 cd SOVRGNnet
 cp docker.env.template .env    # set real values; never commit .env
 ```
