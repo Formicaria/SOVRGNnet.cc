@@ -19,60 +19,94 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_NAME="sovrgnnet_backup_${TIMESTAMP}"
 DEST="$BACKUP_DIR/$BACKUP_NAME"
 
-if docker compose version >/dev/null 2>&1; then
-  DC="docker compose"
-elif command -v docker-compose >/dev/null 2>&1; then
-  DC="docker-compose"
+# Same two shapes the control script knows about: Docker or native/LXC.
+NATIVE_ENV="/etc/sovrgnnet/sovrgnnet.env"
+if [ -f "$NATIVE_ENV" ]; then
+  RUNTIME="native"
+  ENV_FILE="$NATIVE_ENV"
+elif [ -f .env ]; then
+  RUNTIME="docker"
+  ENV_FILE=".env"
+  if docker compose version >/dev/null 2>&1; then
+    DC="docker compose"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    DC="docker-compose"
+  else
+    echo -e "${RED}Docker Compose isn't installed.${NC}" >&2; exit 1
+  fi
 else
-  echo -e "${RED}Docker Compose isn't installed.${NC}" >&2; exit 1
+  echo -e "${RED}No settings found — run an installer first.${NC}" >&2; exit 1
 fi
 
-[ -f .env ] || { echo -e "${RED}No .env found — run ./install.sh first.${NC}" >&2; exit 1; }
-
-# Volume names are prefixed with the compose project name, which defaults to
-# the directory name. Read it back rather than assuming.
-PROJECT="$($DC config --format json 2>/dev/null | sed -n 's/.*"name":"\([^"]*\)".*/\1/p' | head -1)"
-PROJECT="${PROJECT:-$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]')}"
-
-echo -e "${GREEN}Backing up SOVRGNnet${NC}"
+echo -e "${GREEN}Backing up SOVRGNnet${NC} ${DIM}($RUNTIME)${NC}"
 echo -e "${DIM}This takes a minute. Nothing is interrupted — you can keep chatting.${NC}\n"
 
 mkdir -p "$DEST"
 
-# --- Postgres: accounts, servers, channels, messages, file metadata --------
-echo -e "${YELLOW}Database...${NC}"
-if ! $DC exec -T db pg_dump -U sovrgn -d sovrgnnet --clean --if-exists > "$DEST/database.sql" 2>/dev/null; then
-  echo -e "${RED}Couldn't reach the database. Is it running? (./sovrgnnet status)${NC}" >&2
-  rm -rf "$DEST"; exit 1
+if [ "$RUNTIME" = "native" ]; then
+  # ---------------------------------------------------------- native paths
+  echo -e "${YELLOW}Database...${NC}"
+  if ! su - postgres -c "pg_dump -d sovrgnnet --clean --if-exists" > "$DEST/database.sql" 2>/dev/null; then
+    echo -e "${RED}Couldn't reach the database. Is it running? (sovrgnnet status)${NC}" >&2
+    rm -rf "$DEST"; exit 1
+  fi
+  echo -e "${GREEN}  ✓ $(wc -l < "$DEST/database.sql") lines${NC}"
+
+  echo -e "${YELLOW}Chat history...${NC}"
+  if [ -d /var/lib/matrix-conduit ]; then
+    tar czf "$DEST/matrix_data.tar.gz" -C /var/lib/matrix-conduit . 2>/dev/null
+    echo -e "${GREEN}  ✓ archived${NC}"
+  else
+    echo -e "${DIM}  - nothing at /var/lib/matrix-conduit${NC}"
+  fi
+
+  echo -e "${YELLOW}Shared files...${NC}"
+  if [ -d /var/lib/ipfs ]; then
+    tar czf "$DEST/ipfs_data.tar.gz" -C /var/lib/ipfs . 2>/dev/null
+    echo -e "${GREEN}  ✓ archived${NC}"
+  else
+    echo -e "${DIM}  - nothing at /var/lib/ipfs${NC}"
+  fi
+else
+  # ---------------------------------------------------------- docker volumes
+  # Volume names carry the compose project prefix, which defaults to the
+  # directory name. Read it back rather than assuming.
+  PROJECT="$($DC config --format json 2>/dev/null | sed -n 's/.*"name":"\([^"]*\)".*/\1/p' | head -1)"
+  PROJECT="${PROJECT:-$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]')}"
+
+  echo -e "${YELLOW}Database...${NC}"
+  if ! $DC exec -T db pg_dump -U sovrgn -d sovrgnnet --clean --if-exists > "$DEST/database.sql" 2>/dev/null; then
+    echo -e "${RED}Couldn't reach the database. Is it running? (./sovrgnnet status)${NC}" >&2
+    rm -rf "$DEST"; exit 1
+  fi
+  echo -e "${GREEN}  ✓ $(wc -l < "$DEST/database.sql") lines${NC}"
+
+  echo -e "${YELLOW}Chat history...${NC}"
+  docker run --rm \
+    -v "${PROJECT}_matrix_data:/data:ro" \
+    -v "$(pwd)/$DEST:/backup" \
+    alpine tar czf /backup/matrix_data.tar.gz -C /data . 2>/dev/null \
+    || echo -e "${RED}  ! Skipped (volume ${PROJECT}_matrix_data not found)${NC}"
+
+  echo -e "${YELLOW}Shared files...${NC}"
+  docker run --rm \
+    -v "${PROJECT}_ipfs_data:/data:ro" \
+    -v "$(pwd)/$DEST:/backup" \
+    alpine tar czf /backup/ipfs_data.tar.gz -C /data . 2>/dev/null \
+    || echo -e "${RED}  ! Skipped (volume ${PROJECT}_ipfs_data not found)${NC}"
 fi
-echo -e "${GREEN}  ✓ $(wc -l < "$DEST/database.sql") lines${NC}"
-
-# --- Matrix homeserver state (rooms, events, its own accounts) -------------
-echo -e "${YELLOW}Chat history...${NC}"
-docker run --rm \
-  -v "${PROJECT}_matrix_data:/data:ro" \
-  -v "$(pwd)/$DEST:/backup" \
-  alpine tar czf /backup/matrix_data.tar.gz -C /data . 2>/dev/null \
-  || echo -e "${RED}  ! Skipped (volume ${PROJECT}_matrix_data not found)${NC}"
-
-# --- IPFS blocks: the actual bytes of every shared file --------------------
-echo -e "${YELLOW}Shared files...${NC}"
-docker run --rm \
-  -v "${PROJECT}_ipfs_data:/data:ro" \
-  -v "$(pwd)/$DEST:/backup" \
-  alpine tar czf /backup/ipfs_data.tar.gz -C /data . 2>/dev/null \
-  || echo -e "${RED}  ! Skipped (volume ${PROJECT}_ipfs_data not found)${NC}"
 
 # --- Settings --------------------------------------------------------------
 echo -e "${YELLOW}Settings...${NC}"
-cp .env "$DEST/env.backup"
+cp "$ENV_FILE" "$DEST/env.backup"
 chmod 600 "$DEST/env.backup"
+echo "$RUNTIME" > "$DEST/RUNTIME"
 
 cat > "$DEST/BACKUP_INFO.txt" <<EOF
 SOVRGNnet backup
 ================
 Taken:    $(date)
-Project:  $PROJECT
+Install:  $RUNTIME
 Host:     $(uname -srm)
 
 What's inside

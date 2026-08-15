@@ -2,14 +2,17 @@
 #
 # SOVRGNnet control script — the handful of things you'll actually do.
 #
-#   ./sovrgnnet start | stop | restart | status | logs | url | backup | update
+#   sovrgnnet start | stop | restart | status | logs | url | backup | update
 #
-# Everything here is a thin wrapper over docker compose. If you'd rather use
-# docker directly, nothing stops you.
+# Works with either install:
+#   Docker (./install.sh)          -> wraps docker compose
+#   Native/LXC (install-lxc.sh)    -> wraps systemctl
+#
+# It figures out which one you have by looking for /etc/sovrgnnet/sovrgnnet.env.
 
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 cd "$REPO_DIR"
 
 if [ -t 1 ] && command -v tput >/dev/null 2>&1 && [ "$(tput colors 2>/dev/null || echo 0)" -ge 8 ]; then
@@ -24,46 +27,81 @@ warn() { printf '  %s!%s %s\n' "$YELLOW" "$RESET" "$*"; }
 fail() { printf '%serror:%s %s\n' "$RED" "$RESET" "$*" >&2; exit 1; }
 hint() { printf '  %s%s%s\n' "$DIM" "$*" "$RESET"; }
 
-[ -f .env ] || fail "No .env found. Run ./install.sh first."
+# ------------------------------------------------------------ which install?
 
-if docker compose version >/dev/null 2>&1; then
-  DC="docker compose"
-elif command -v docker-compose >/dev/null 2>&1; then
-  DC="docker-compose"
+# Overridable so the script can be exercised without a real system install.
+NATIVE_ENV="${SOVRGNNET_NATIVE_ENV:-/etc/sovrgnnet/sovrgnnet.env}"
+
+if [ -f "$NATIVE_ENV" ]; then
+  RUNTIME="native"
+  ENV_FILE="$NATIVE_ENV"
+elif [ -f "$REPO_DIR/.env" ]; then
+  RUNTIME="docker"
+  ENV_FILE="$REPO_DIR/.env"
 else
-  fail "Docker Compose isn't installed. Run ./install.sh."
+  fail "No settings found. Run ./install.sh (Docker) or scripts/install-lxc.sh (native)."
 fi
 
-ACCESS_MODE="$(sed -n 's/^SOVRGNNET_ACCESS_MODE=//p' .env | tail -1)"
-DOMAIN="$(sed -n 's/^DOMAIN=//p' .env | tail -1)"
+read_env() { sed -n "s/^${1}=//p" "$ENV_FILE" 2>/dev/null | tail -1; }
 
-case "$ACCESS_MODE" in
-  quick)  PROFILES="--profile quick" ;;
-  tunnel) PROFILES="--profile tunnel" ;;
-  proxy)  PROFILES="--profile proxy" ;;
-  *)      PROFILES="" ;;
-esac
+ACCESS_MODE="$(read_env SOVRGNNET_ACCESS_MODE)"
+DOMAIN="$(read_env DOMAIN)"
+
+# Native services, in dependency order.
+NATIVE_UNITS="postgresql conduit ipfs sovrgnnet"
+[ -f /etc/systemd/system/sovrgnnet-tunnel.service ] && \
+  NATIVE_UNITS="$NATIVE_UNITS sovrgnnet-tunnel"
+
+if [ "$RUNTIME" = "docker" ]; then
+  if docker compose version >/dev/null 2>&1; then
+    DC="docker compose"
+  elif command -v docker-compose >/dev/null 2>&1; then
+    DC="docker-compose"
+  else
+    fail "Docker Compose isn't installed."
+  fi
+  case "$ACCESS_MODE" in
+    quick)  PROFILES="--profile quick" ;;
+    tunnel) PROFILES="--profile tunnel" ;;
+    proxy)  PROFILES="--profile proxy" ;;
+    *)      PROFILES="" ;;
+  esac
+fi
+
+# Anything touching systemd needs root; re-exec rather than failing obscurely.
+need_root() {
+  [ "$RUNTIME" = "native" ] || return 0
+  [ "$(id -u)" -eq 0 ] && return 0
+  command -v sudo >/dev/null 2>&1 || fail "Run this as root."
+  exec sudo -- "$0" "$@"
+}
 
 lan_ip() {
   local ip=""
-  if command -v ip >/dev/null 2>&1; then
-    ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1); exit}')
-  fi
+  ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1); exit}')
   [ -z "$ip" ] && ip=$(hostname -I 2>/dev/null | awk '{print $1}')
   printf '%s' "${ip:-localhost}"
+}
+
+quick_url() {
+  if [ "$RUNTIME" = "native" ]; then
+    journalctl -u sovrgnnet-tunnel --no-pager 2>/dev/null \
+      | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1 || true
+  else
+    $DC logs cloudflared-quick 2>/dev/null \
+      | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1 || true
+  fi
 }
 
 show_url() {
   case "$ACCESS_MODE" in
     quick)
-      local url
-      url=$($DC logs cloudflared-quick 2>/dev/null \
-            | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1 || true)
+      local url; url="$(quick_url)"
       if [ -n "$url" ]; then
         printf '  %s%s%s\n' "$BOLD" "$url" "$RESET"
         hint "Random address — it changes every time you restart."
       else
-        warn "No public link yet. Is it running? Try: ./sovrgnnet status"
+        warn "No public link yet. Is it running? Try: sovrgnnet status"
       fi
       ;;
     tunnel|proxy)
@@ -76,40 +114,76 @@ show_url() {
   esac
 }
 
+app_answering() {
+  curl -fsS -o /dev/null http://127.0.0.1:3000 2>/dev/null
+}
+
 # shellcheck disable=SC2086
 case "${1:-help}" in
   start)
-    $DC $PROFILES up -d
+    need_root "$@"
+    if [ "$RUNTIME" = "native" ]; then
+      systemctl start $NATIVE_UNITS
+    else
+      $DC $PROFILES up -d
+    fi
     ok "Started."
     show_url
     ;;
 
   stop)
-    $DC $PROFILES down
-    ok "Stopped. Your data is safe — ./sovrgnnet start brings it back."
+    need_root "$@"
+    if [ "$RUNTIME" = "native" ]; then
+      # Reverse order: the app first, its dependencies after.
+      systemctl stop sovrgnnet-tunnel 2>/dev/null || true
+      systemctl stop sovrgnnet ipfs conduit
+    else
+      $DC $PROFILES down
+    fi
+    ok "Stopped. Your data is safe — sovrgnnet start brings it back."
     ;;
 
   restart)
-    $DC $PROFILES restart
+    need_root "$@"
+    if [ "$RUNTIME" = "native" ]; then
+      systemctl restart $NATIVE_UNITS
+    else
+      $DC $PROFILES restart
+    fi
     ok "Restarted."
-    [ "$ACCESS_MODE" = "quick" ] && hint "Your public link changed. See it with: ./sovrgnnet url"
+    [ "$ACCESS_MODE" = "quick" ] && hint "Your public link changed: sovrgnnet url"
     ;;
 
   status)
-    $DC $PROFILES ps
+    if [ "$RUNTIME" = "native" ]; then
+      for unit in $NATIVE_UNITS; do
+        state="$(systemctl is-active "$unit" 2>/dev/null || echo unknown)"
+        if [ "$state" = "active" ]; then
+          printf '  %s✓%s %-18s %s\n' "$GREEN" "$RESET" "$unit" "$state"
+        else
+          printf '  %s✗%s %-18s %s\n' "$RED" "$RESET" "$unit" "$state"
+        fi
+      done
+    else
+      $DC $PROFILES ps
+    fi
     printf '\n'
-    if curl -fsS -o /dev/null http://localhost:3000 2>/dev/null; then
+    if app_answering; then
       ok "The app is answering."
       show_url
     else
       warn "The app isn't answering yet."
-      hint "Just started? Give it a minute. Otherwise: ./sovrgnnet logs"
+      hint "Just started? Give it a minute. Otherwise: sovrgnnet logs"
     fi
     ;;
 
   logs)
     shift || true
-    $DC $PROFILES logs -f --tail 100 "$@"
+    if [ "$RUNTIME" = "native" ]; then
+      journalctl -f -n 100 -u "${1:-sovrgnnet}"
+    else
+      $DC $PROFILES logs -f --tail 100 "$@"
+    fi
     ;;
 
   url)
@@ -117,26 +191,34 @@ case "${1:-help}" in
     ;;
 
   backup)
-    ./scripts/backup.sh
+    need_root "$@"
+    "$REPO_DIR/scripts/backup.sh"
     ;;
 
   update)
+    need_root "$@"
     printf '  Fetching the latest version...\n'
-    git pull --ff-only || fail "Couldn't update. Do you have local changes? Try: git status"
-    $DC $PROFILES up -d --build
+    git -C "$REPO_DIR" pull --ff-only || fail "Couldn't update. Try: git -C $REPO_DIR status"
+    if [ "$RUNTIME" = "native" ]; then
+      ( cd "$REPO_DIR" && pnpm install --frozen-lockfile --silent && pnpm build >/dev/null )
+      chown -R sovrgnnet:sovrgnnet "$REPO_DIR/dist"
+      systemctl restart sovrgnnet
+    else
+      $DC $PROFILES up -d --build
+    fi
     ok "Updated and restarted. (Database changes applied automatically.)"
     ;;
 
   *)
-    printf '\n  %sSOVRGNnet%s\n\n' "$BOLD" "$RESET"
-    printf '    %s./sovrgnnet start%s      turn it on\n' "$BOLD" "$RESET"
-    printf '    %s./sovrgnnet stop%s       turn it off\n' "$BOLD" "$RESET"
-    printf '    %s./sovrgnnet restart%s    turn it off and on again\n' "$BOLD" "$RESET"
-    printf '    %s./sovrgnnet status%s     is everything healthy?\n' "$BOLD" "$RESET"
-    printf '    %s./sovrgnnet url%s        what address do people use?\n' "$BOLD" "$RESET"
-    printf '    %s./sovrgnnet logs%s       watch what it is doing\n' "$BOLD" "$RESET"
-    printf '    %s./sovrgnnet backup%s     save a copy of everything\n' "$BOLD" "$RESET"
-    printf '    %s./sovrgnnet update%s     get the latest version\n' "$BOLD" "$RESET"
+    printf '\n  %sSOVRGNnet%s %s(%s install)%s\n\n' "$BOLD" "$RESET" "$DIM" "$RUNTIME" "$RESET"
+    printf '    %ssovrgnnet start%s      turn it on\n' "$BOLD" "$RESET"
+    printf '    %ssovrgnnet stop%s       turn it off\n' "$BOLD" "$RESET"
+    printf '    %ssovrgnnet restart%s    turn it off and on again\n' "$BOLD" "$RESET"
+    printf '    %ssovrgnnet status%s     is everything healthy?\n' "$BOLD" "$RESET"
+    printf '    %ssovrgnnet url%s        what address do people use?\n' "$BOLD" "$RESET"
+    printf '    %ssovrgnnet logs%s       watch what it is doing\n' "$BOLD" "$RESET"
+    printf '    %ssovrgnnet backup%s     save a copy of everything\n' "$BOLD" "$RESET"
+    printf '    %ssovrgnnet update%s     get the latest version\n' "$BOLD" "$RESET"
     printf '\n'
     ;;
 esac
