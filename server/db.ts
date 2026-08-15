@@ -159,16 +159,37 @@ export async function createServer(name: string, description: string | undefined
     ownerId,
     icon,
     isPublic: true,
-  });
+  }).returning();
 
-  return result;
+  return result[0];
 }
 
+/** Servers the user owns or is a member of. */
 export async function getServersByUser(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.select().from(servers).where(eq(servers.ownerId, userId));
+  const owned = await db.select().from(servers).where(eq(servers.ownerId, userId));
+  const memberRows = await db
+    .select({ server: servers })
+    .from(serverMembers)
+    .innerJoin(servers, eq(serverMembers.serverId, servers.id))
+    .where(eq(serverMembers.userId, userId));
+
+  const seen = new Set(owned.map(s => s.id));
+  const joined = memberRows.map(r => r.server).filter(s => !seen.has(s.id));
+  return [...owned, ...joined];
+}
+
+export async function getPublicServers(limit = 50) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .select()
+    .from(servers)
+    .where(eq(servers.isPublic, true))
+    .limit(limit);
 }
 
 export async function getServerById(serverId: number) {
@@ -184,14 +205,15 @@ export async function createChannel(serverId: number, name: string, description:
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.insert(channels).values({
+  const result = await db.insert(channels).values({
     serverId,
     name,
     description,
     matrixRoomId,
     type,
     isPrivate: false,
-  });
+  }).returning();
+  return result[0];
 }
 
 export async function getChannelsByServer(serverId: number) {
@@ -214,20 +236,96 @@ export async function createMessage(channelId: number, userId: number, content: 
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.insert(messages).values({
+  const result = await db.insert(messages).values({
     channelId,
     userId,
     content,
     matrixEventId,
     encrypted,
-  });
+  }).returning();
+  return result[0];
 }
 
+/** Messages with sender names, oldest first. */
 export async function getMessagesByChannel(channelId: number, limit: number = 50) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.select().from(messages).where(eq(messages.channelId, channelId)).limit(limit);
+  const rows = await db
+    .select({
+      id: messages.id,
+      channelId: messages.channelId,
+      userId: messages.userId,
+      content: messages.content,
+      matrixEventId: messages.matrixEventId,
+      createdAt: messages.createdAt,
+      senderName: users.name,
+    })
+    .from(messages)
+    .leftJoin(users, eq(messages.userId, users.id))
+    .where(eq(messages.channelId, channelId))
+    .orderBy(sql`${messages.createdAt} DESC`)
+    .limit(limit);
+
+  return rows.reverse();
+}
+
+// Matrix credential storage (userProfiles)
+export async function getMatrixCredentials(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select({
+      matrixUserId: userProfiles.matrixUserId,
+      matrixAccessToken: userProfiles.matrixAccessToken,
+    })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, userId))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row?.matrixUserId || !row?.matrixAccessToken) return null;
+  return { userId: row.matrixUserId, accessToken: row.matrixAccessToken };
+}
+
+export async function saveMatrixCredentials(
+  userId: number,
+  matrixUserId: string,
+  matrixAccessToken: string
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await db
+    .select({ id: userProfiles.id })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, userId))
+    .limit(1);
+
+  if (existing.length > 0) {
+    await db
+      .update(userProfiles)
+      .set({ matrixUserId, matrixAccessToken, updatedAt: new Date() })
+      .where(eq(userProfiles.userId, userId));
+  } else {
+    await db.insert(userProfiles).values({ userId, matrixUserId, matrixAccessToken });
+  }
+}
+
+export async function isServerMember(serverId: number, userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const server = await getServerById(serverId);
+  if (server?.ownerId === userId) return true;
+
+  const rows = await db
+    .select({ id: serverMembers.id })
+    .from(serverMembers)
+    .where(and(eq(serverMembers.serverId, serverId), eq(serverMembers.userId, userId)))
+    .limit(1);
+  return rows.length > 0;
 }
 
 // File share functions

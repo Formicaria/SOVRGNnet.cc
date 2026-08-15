@@ -13,6 +13,12 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import * as db from "./db";
+import * as matrix from "./matrixService";
+import {
+  ensureMatrixCredentials,
+  joinServerRooms,
+  requireServerMembership,
+} from "./matrixBridge";
 import type { User } from "../drizzle/schema";
 
 const credentialsInput = z.object({
@@ -98,26 +104,76 @@ export const appRouter = router({
       return await db.getServersByUser(ctx.user.id);
     }),
 
+    listPublic: protectedProcedure.query(async () => {
+      return await db.getPublicServers();
+    }),
+
     create: protectedProcedure
       .input(z.object({
-        name: z.string().min(1),
-        description: z.string().optional(),
-        matrixRoomId: z.string(),
+        name: z.string().min(1).max(100),
+        description: z.string().max(500).optional(),
         icon: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        return await db.createServer(
+        const creds = await ensureMatrixCredentials(ctx.user.id);
+
+        const spaceId = await matrix.createSpace(
+          creds.accessToken,
+          input.name,
+          input.description
+        );
+        const server = await db.createServer(
           input.name,
           input.description,
-          input.matrixRoomId,
+          spaceId,
           ctx.user.id,
           input.icon
         );
+        await db.addServerMember(server.id, ctx.user.id, "owner");
+
+        // Every server starts with a #general channel.
+        const generalRoomId = await matrix.createChannelRoom(
+          creds.accessToken,
+          spaceId,
+          "general"
+        );
+        const general = await db.createChannel(
+          server.id,
+          "general",
+          undefined,
+          generalRoomId,
+          "text"
+        );
+
+        return { server, defaultChannel: general };
+      }),
+
+    join: protectedProcedure
+      .input(z.object({ serverId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const server = await db.getServerById(input.serverId);
+        if (!server || !server.isPublic) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Server not found." });
+        }
+        if (await db.isServerMember(server.id, ctx.user.id)) {
+          return { joined: true } as const;
+        }
+
+        const creds = await ensureMatrixCredentials(ctx.user.id);
+        const channels = await db.getChannelsByServer(server.id);
+        await joinServerRooms(
+          creds.accessToken,
+          server.matrixRoomId,
+          channels.map(c => c.matrixRoomId)
+        );
+        await db.addServerMember(server.id, ctx.user.id, "member");
+        return { joined: true } as const;
       }),
 
     getById: protectedProcedure
       .input(z.object({ serverId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireServerMembership(input.serverId, ctx.user.id);
         return await db.getServerById(input.serverId);
       }),
   }),
@@ -126,32 +182,53 @@ export const appRouter = router({
   channels: router({
     listByServer: protectedProcedure
       .input(z.object({ serverId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireServerMembership(input.serverId, ctx.user.id);
         return await db.getChannelsByServer(input.serverId);
       }),
 
     create: protectedProcedure
       .input(z.object({
         serverId: z.number(),
-        name: z.string().min(1),
-        description: z.string().optional(),
-        matrixRoomId: z.string(),
+        name: z.string().min(1).max(100),
+        description: z.string().max(500).optional(),
         type: z.enum(['text', 'voice', 'video']).default('text'),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const server = await db.getServerById(input.serverId);
+        if (!server) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Server not found." });
+        }
+        if (server.ownerId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only the server owner can create channels.",
+          });
+        }
+
+        const creds = await ensureMatrixCredentials(ctx.user.id);
+        const roomId = await matrix.createChannelRoom(
+          creds.accessToken,
+          server.matrixRoomId,
+          input.name,
+          input.description
+        );
         return await db.createChannel(
           input.serverId,
           input.name,
           input.description,
-          input.matrixRoomId,
+          roomId,
           input.type
         );
       }),
 
     getById: protectedProcedure
       .input(z.object({ channelId: z.number() }))
-      .query(async ({ input }) => {
-        return await db.getChannelById(input.channelId);
+      .query(async ({ ctx, input }) => {
+        const channel = await db.getChannelById(input.channelId);
+        if (!channel) return undefined;
+        await requireServerMembership(channel.serverId, ctx.user.id);
+        return channel;
       }),
   }),
 
@@ -160,26 +237,43 @@ export const appRouter = router({
     listByChannel: protectedProcedure
       .input(z.object({
         channelId: z.number(),
-        limit: z.number().default(50),
+        limit: z.number().min(1).max(200).default(50),
       }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        const channel = await db.getChannelById(input.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        await requireServerMembership(channel.serverId, ctx.user.id);
         return await db.getMessagesByChannel(input.channelId, input.limit);
       }),
 
-    create: protectedProcedure
+    send: protectedProcedure
       .input(z.object({
         channelId: z.number(),
-        content: z.string().min(1),
-        matrixEventId: z.string(),
-        encrypted: z.boolean().default(true),
+        content: z.string().min(1).max(4000),
       }))
       .mutation(async ({ ctx, input }) => {
+        const channel = await db.getChannelById(input.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        await requireServerMembership(channel.serverId, ctx.user.id);
+
+        const creds = await ensureMatrixCredentials(ctx.user.id);
+        const eventId = await matrix.sendMessage(
+          creds.accessToken,
+          channel.matrixRoomId,
+          input.content
+        );
+
+        // E2EE lands in a later phase; until then messages are plaintext.
         return await db.createMessage(
           input.channelId,
           ctx.user.id,
           input.content,
-          input.matrixEventId,
-          input.encrypted
+          eventId,
+          false
         );
       }),
   }),
@@ -297,58 +391,21 @@ export const appRouter = router({
       }),
   }),
 
-  // Server members
+  // Server members (joining happens via servers.join)
   serverMembers: router({
     list: protectedProcedure
       .input(z.object({ serverId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireServerMembership(input.serverId, ctx.user.id);
         return await db.getServerMembers(input.serverId);
-      }),
-
-    add: protectedProcedure
-      .input(z.object({
-        serverId: z.number(),
-        userId: z.number(),
-        role: z.enum(['owner', 'admin', 'moderator', 'member']).default('member'),
-      }))
-      .mutation(async ({ input }) => {
-        return await db.addServerMember(input.serverId, input.userId, input.role);
       }),
   }),
 
-  // Matrix operations (server-side proxy)
+  // Matrix status (everything else goes through servers/channels/messages)
   matrix: router({
-    createRoom: protectedProcedure
-      .input(z.object({
-        name: z.string().min(1),
-        topic: z.string().optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        try {
-          const response = await fetch('http://localhost:8008/_matrix/client/v3/createRoom', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              name: input.name,
-              topic: input.topic,
-              visibility: 'public',
-            }),
-          });
-
-          if (!response.ok) {
-            const error = await response.text();
-            throw new Error(`Matrix API error: ${response.status} - ${error}`);
-          }
-
-          const data = await response.json();
-          return { roomId: data.room_id };
-        } catch (err) {
-          const message = err instanceof Error ? err.message : 'Failed to create Matrix room';
-          throw new Error(message);
-        }
-      }),
+    status: publicProcedure.query(async () => ({
+      reachable: await matrix.isHomeserverReachable(),
+    })),
   }),
 });
 
