@@ -43,6 +43,8 @@ export const userProfiles = pgTable("userProfiles", {
   avatar: text("avatar"), // IPFS hash or URL
   bio: text("bio"),
   matrixUserId: varchar("matrixUserId", { length: 255 }).unique(),
+  /** Server-held Matrix access token — the browser never sees this. */
+  matrixAccessToken: text("matrixAccessToken"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

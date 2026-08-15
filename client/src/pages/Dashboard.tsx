@@ -1,273 +1,431 @@
 import { useAuth } from "@/contexts/AuthContext";
-import { useWeb3 } from "@/contexts/Web3Context";
-import { useMatrix } from "@/contexts/MatrixContext";
-import { useIPFS } from "@/contexts/IPFSContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { Loader2, Plus, Send, Volume2, LogOut, AlertCircle } from "lucide-react";
-import { useState, useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map(w => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
 export default function Dashboard() {
-  const { user, logout } = useAuth();
-  const { address, ensName, isConnected, connect, disconnect } = useWeb3();
-  const { isConnected: matrixConnected, error: matrixError } = useMatrix();
-  const { isUploading } = useIPFS();
-  const createRoomMutation = trpc.matrix.createRoom.useMutation();
-  
+  const { user, loading, logout } = useAuth();
   const [, setLocation] = useLocation();
-  const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
+
+  const [selectedServerId, setSelectedServerId] = useState<number | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null);
   const [messageInput, setMessageInput] = useState("");
-  const [newRoomName, setNewRoomName] = useState("");
-  const [isCreatingRoom, setIsCreatingRoom] = useState(false);
-  const [operationError, setOperationError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [discoverOpen, setDiscoverOpen] = useState(false);
+  const [newServerName, setNewServerName] = useState("");
+  const [newChannelName, setNewChannelName] = useState("");
+  const [serverDialogOpen, setServerDialogOpen] = useState(false);
+  const [channelDialogOpen, setChannelDialogOpen] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Redirect to home if not authenticated
+  const utils = trpc.useUtils();
+
+  const serversQuery = trpc.servers.list.useQuery(undefined, { enabled: !!user });
+  const publicServersQuery = trpc.servers.listPublic.useQuery(undefined, {
+    enabled: !!user && discoverOpen,
+  });
+  const channelsQuery = trpc.channels.listByServer.useQuery(
+    { serverId: selectedServerId! },
+    { enabled: selectedServerId != null }
+  );
+  const messagesQuery = trpc.messages.listByChannel.useQuery(
+    { channelId: selectedChannelId!, limit: 50 },
+    { enabled: selectedChannelId != null, refetchInterval: 3000 }
+  );
+
+  const createServer = trpc.servers.create.useMutation({
+    onSuccess: async res => {
+      await utils.servers.list.invalidate();
+      setSelectedServerId(res.server.id);
+      setSelectedChannelId(res.defaultChannel.id);
+      setServerDialogOpen(false);
+      setNewServerName("");
+    },
+    onError: e => setError(e.message),
+  });
+  const joinServer = trpc.servers.join.useMutation({
+    onSuccess: async () => {
+      await utils.servers.list.invalidate();
+      setDiscoverOpen(false);
+    },
+    onError: e => setError(e.message),
+  });
+  const createChannel = trpc.channels.create.useMutation({
+    onSuccess: async chan => {
+      await utils.channels.listByServer.invalidate({ serverId: selectedServerId! });
+      setSelectedChannelId(chan.id);
+      setChannelDialogOpen(false);
+      setNewChannelName("");
+    },
+    onError: e => setError(e.message),
+  });
+  const sendMessage = trpc.messages.send.useMutation({
+    onSuccess: async () => {
+      setMessageInput("");
+      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+    },
+    onError: e => setError(e.message),
+  });
+
+  const servers = serversQuery.data ?? [];
+  const channels = channelsQuery.data ?? [];
+  const messages = messagesQuery.data ?? [];
+  const selectedServer = servers.find(s => s.id === selectedServerId) ?? null;
+  const selectedChannel = channels.find(c => c.id === selectedChannelId) ?? null;
+
+  // Pick sensible defaults as data arrives.
   useEffect(() => {
-    if (!user) {
-      setLocation("/");
+    if (selectedServerId == null && servers.length > 0) {
+      setSelectedServerId(servers[0].id);
     }
-  }, [user, setLocation]);
+  }, [servers, selectedServerId]);
 
-  if (!user) {
-    return <div className="flex items-center justify-center h-screen"><Loader2 className="animate-spin" /></div>;
+  useEffect(() => {
+    if (
+      selectedServerId != null &&
+      channels.length > 0 &&
+      !channels.some(c => c.id === selectedChannelId)
+    ) {
+      setSelectedChannelId(channels[0].id);
+    }
+  }, [channels, selectedServerId, selectedChannelId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length]);
+
+  useEffect(() => {
+    if (!loading && !user) setLocation("/");
+  }, [user, loading, setLocation]);
+
+  if (loading || !user) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-950">
+        <Loader2 className="animate-spin text-purple-500" />
+      </div>
+    );
   }
 
-  const handleCreateRoom = async () => {
-    if (!newRoomName.trim()) return;
-    try {
-      setOperationError(null);
-      await createRoomMutation.mutateAsync({ name: newRoomName });
-      setNewRoomName("");
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to create room";
-      setOperationError(errorMsg);
-      console.error("Failed to create room:", err);
-    }
-  };
-
-  const handleSendMessage = async () => {
-    if (!messageInput.trim() || !selectedRoom) return;
-    try {
-      setOperationError(null);
-      // TODO: Implement message sending via tRPC
-      setMessageInput("");
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to send message";
-      setOperationError(errorMsg);
-      console.error("Failed to send message:", err);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      setLocation("/");
-    } catch (err) {
-      console.error("Failed to sign out:", err);
-    }
-  };
-
-  const handleConnectWallet = async () => {
-    try {
-      setOperationError(null);
-      await connect();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to connect wallet";
-      setOperationError(errorMsg);
-      console.error("Failed to connect wallet:", err);
-    }
-  };
-
-  const handleDisconnectWallet = async () => {
-    try {
-      setOperationError(null);
-      await disconnect();
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Failed to disconnect wallet";
-      setOperationError(errorMsg);
-      console.error("Failed to disconnect wallet:", err);
-    }
+  const handleSend = () => {
+    const content = messageInput.trim();
+    if (!content || selectedChannelId == null || sendMessage.isPending) return;
+    sendMessage.mutate({ channelId: selectedChannelId, content });
   };
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
-      {/* Sidebar - Servers */}
-      <div className="w-20 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-4 gap-4">
-        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold">
-          DD
-        </div>
-        <div className="h-px bg-slate-700 w-8" />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="rounded-full hover:bg-slate-800"
-          onClick={() => setIsCreatingRoom(!isCreatingRoom)}
-          title="Create Channel"
-        >
-          <Plus className="w-5 h-5" />
-        </Button>
-      </div>
+    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
+      {/* Server rail */}
+      <aside className="w-[72px] bg-slate-900 flex flex-col items-center py-3 gap-2 border-r border-slate-800">
+        {servers.map(server => (
+          <Tooltip key={server.id}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => {
+                  setSelectedServerId(server.id);
+                  setSelectedChannelId(null);
+                }}
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-bold transition-all ${
+                  server.id === selectedServerId
+                    ? "bg-purple-600 rounded-xl"
+                    : "bg-slate-800 hover:bg-slate-700 hover:rounded-xl"
+                }`}
+              >
+                {initials(server.name)}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{server.name}</TooltipContent>
+          </Tooltip>
+        ))}
 
-      {/* Server Channels */}
-      <div className="w-64 bg-slate-800 border-r border-slate-700 flex flex-col">
-        <div className="p-4 border-b border-slate-700">
-          <h2 className="font-bold text-lg">Channels</h2>
-          {matrixError && (
-            <div className="mt-2 text-xs text-yellow-400 flex items-center gap-1">
-              <AlertCircle className="w-3 h-3" />
-              Matrix unavailable
+        <Dialog open={serverDialogOpen} onOpenChange={setServerDialogOpen}>
+          <DialogTrigger asChild>
+            <button className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-green-700 hover:rounded-xl flex items-center justify-center transition-all">
+              <Plus className="w-5 h-5 text-green-400" />
+            </button>
+          </DialogTrigger>
+          <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
+            <DialogHeader>
+              <DialogTitle>Create a server</DialogTitle>
+              <DialogDescription>
+                A server is your community's space — it starts with a #general channel.
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              value={newServerName}
+              onChange={e => setNewServerName(e.target.value)}
+              placeholder="Server name"
+              className="bg-slate-800 border-slate-700"
+              onKeyDown={e => {
+                if (e.key === "Enter" && newServerName.trim()) {
+                  createServer.mutate({ name: newServerName.trim() });
+                }
+              }}
+            />
+            <DialogFooter>
+              <Button
+                disabled={!newServerName.trim() || createServer.isPending}
+                onClick={() => createServer.mutate({ name: newServerName.trim() })}
+              >
+                {createServer.isPending && (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                )}
+                Create
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={discoverOpen} onOpenChange={setDiscoverOpen}>
+          <DialogTrigger asChild>
+            <button className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-purple-700 hover:rounded-xl flex items-center justify-center transition-all">
+              <Compass className="w-5 h-5 text-purple-400" />
+            </button>
+          </DialogTrigger>
+          <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
+            <DialogHeader>
+              <DialogTitle>Discover servers</DialogTitle>
+              <DialogDescription>Public servers on this instance.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {(publicServersQuery.data ?? [])
+                .filter(s => !servers.some(mine => mine.id === s.id))
+                .map(s => (
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between rounded-lg bg-slate-800 px-3 py-2"
+                  >
+                    <div>
+                      <p className="font-medium">{s.name}</p>
+                      {s.description && (
+                        <p className="text-xs text-slate-400">{s.description}</p>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={joinServer.isPending}
+                      onClick={() => joinServer.mutate({ serverId: s.id })}
+                    >
+                      Join
+                    </Button>
+                  </div>
+                ))}
+              {publicServersQuery.data &&
+                publicServersQuery.data.filter(
+                  s => !servers.some(mine => mine.id === s.id)
+                ).length === 0 && (
+                  <p className="text-sm text-slate-400 text-center py-4">
+                    Nothing new to join yet.
+                  </p>
+                )}
             </div>
+          </DialogContent>
+        </Dialog>
+
+        <div className="mt-auto">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={async () => {
+                  await logout();
+                  setLocation("/");
+                }}
+                className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-red-900 flex items-center justify-center transition-all"
+              >
+                <LogOut className="w-4 h-4 text-slate-400" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Log out</TooltipContent>
+          </Tooltip>
+        </div>
+      </aside>
+
+      {/* Channel list */}
+      <aside className="w-60 bg-slate-900/60 border-r border-slate-800 flex flex-col">
+        <div className="h-12 px-4 flex items-center border-b border-slate-800 font-semibold truncate">
+          {selectedServer?.name ?? "SOVRGNnet"}
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+          {channels.map(channel => (
+            <button
+              key={channel.id}
+              onClick={() => setSelectedChannelId(channel.id)}
+              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
+                channel.id === selectedChannelId
+                  ? "bg-slate-700/70 text-white"
+                  : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              }`}
+            >
+              <Hash className="w-4 h-4 shrink-0" />
+              <span className="truncate">{channel.name}</span>
+            </button>
+          ))}
+          {selectedServer && selectedServer.ownerId === user.id && (
+            <Dialog open={channelDialogOpen} onOpenChange={setChannelDialogOpen}>
+              <DialogTrigger asChild>
+                <button className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors">
+                  <Plus className="w-4 h-4" />
+                  Add channel
+                </button>
+              </DialogTrigger>
+              <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
+                <DialogHeader>
+                  <DialogTitle>Create a channel</DialogTitle>
+                </DialogHeader>
+                <Input
+                  value={newChannelName}
+                  onChange={e => setNewChannelName(e.target.value)}
+                  placeholder="channel-name"
+                  className="bg-slate-800 border-slate-700"
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && newChannelName.trim() && selectedServerId) {
+                      createChannel.mutate({
+                        serverId: selectedServerId,
+                        name: newChannelName.trim(),
+                      });
+                    }
+                  }}
+                />
+                <DialogFooter>
+                  <Button
+                    disabled={!newChannelName.trim() || createChannel.isPending}
+                    onClick={() =>
+                      selectedServerId &&
+                      createChannel.mutate({
+                        serverId: selectedServerId,
+                        name: newChannelName.trim(),
+                      })
+                    }
+                  >
+                    {createChannel.isPending && (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    )}
+                    Create
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
+        <div className="p-3 border-t border-slate-800 text-xs text-slate-400 truncate">
+          {user.name ?? user.email}
+        </div>
+      </aside>
+
+      {/* Message pane */}
+      <main className="flex-1 flex flex-col min-w-0">
+        <div className="h-12 px-4 flex items-center gap-2 border-b border-slate-800">
+          {selectedChannel ? (
+            <>
+              <Hash className="w-4 h-4 text-slate-500" />
+              <span className="font-semibold">{selectedChannel.name}</span>
+            </>
+          ) : (
+            <span className="text-slate-500">No channel selected</span>
           )}
         </div>
 
-        {isCreatingRoom && (
-          <div className="p-4 border-b border-slate-700 space-y-2">
-            <Input
-              placeholder="Room name..."
-              value={newRoomName}
-              onChange={(e) => setNewRoomName(e.target.value)}
-              className="bg-slate-700 border-slate-600"
-            />
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={handleCreateRoom}
-                className="flex-1"
-                disabled={!newRoomName.trim() || !matrixConnected}
-              >
-                Create
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setIsCreatingRoom(false)}
-                className="flex-1"
-              >
-                Cancel
-              </Button>
-            </div>
+        {error && (
+          <div className="mx-4 mt-2 flex items-center gap-2 rounded bg-red-950/60 border border-red-900 px-3 py-2 text-sm text-red-300">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="flex-1">{error}</span>
+            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200">
+              ✕
+            </button>
           </div>
         )}
 
-        {/* Room List */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-4 text-sm text-slate-400">
-            No channels yet. Create one with the + button.
-          </div>
-        </div>
-      </div>
-
-      {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="h-16 bg-slate-800 border-b border-slate-700 flex items-center justify-between px-6">
-          <div>
-            <h1 className="font-bold text-lg">
-              {selectedRoom ? `# Channel` : "Welcome"}
-            </h1>
-            <p className="text-xs text-slate-400">
-              {address ? `Connected: ${address.slice(0, 6)}...${address.slice(-4)}` : "Not connected"}
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            {isConnected ? (
-              <Button size="sm" variant="outline" onClick={handleDisconnectWallet}>
-                Disconnect Wallet
-              </Button>
-            ) : (
-              <Button size="sm" onClick={handleConnectWallet}>
-                Connect Wallet
-              </Button>
-            )}
-            <Button size="sm" variant="outline" onClick={handleLogout}>
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
-            </Button>
-          </div>
-        </div>
-
-        {/* Error Banner */}
-        {operationError && (
-          <div className="bg-red-900/20 border-b border-red-700 px-6 py-3 text-red-300 text-sm flex items-center gap-2">
-            <AlertCircle className="w-4 h-4" />
-            {operationError}
-          </div>
-        )}
-
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="text-center text-slate-400 mt-8">
-            <p>Select a channel to start messaging</p>
-            <p className="text-xs mt-2">or create a new one with the + button</p>
-          </div>
-        </div>
-
-        {/* Message Input */}
-        {selectedRoom && (
-          <div className="h-20 bg-slate-800 border-t border-slate-700 p-4 flex gap-2">
-            <Input
-              placeholder="Type a message..."
-              value={messageInput}
-              onChange={(e) => setMessageInput(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              className="bg-slate-700 border-slate-600"
-              disabled={!matrixConnected}
-            />
-            <Button
-              onClick={handleSendMessage}
-              disabled={!messageInput.trim() || !matrixConnected}
-              size="icon"
-            >
-              <Send className="w-4 h-4" />
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* Right Sidebar - User Profile & Status */}
-      <div className="w-64 bg-slate-800 border-l border-slate-700 p-6 flex flex-col justify-between">
-        <div>
-          <h3 className="font-bold mb-4">Profile</h3>
-          <Card className="bg-slate-700 border-slate-600 p-4 space-y-2">
-            <div>
-              <p className="text-xs text-slate-400">User</p>
-              <p className="text-sm font-mono">{user?.email || "Anonymous"}</p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-400">Wallet</p>
-              <p className="text-sm font-mono">
-                {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : "Not connected"}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          {servers.length === 0 && (
+            <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 gap-2">
+              <p className="text-lg text-slate-300">Welcome to SOVRGNnet.</p>
+              <p className="text-sm">
+                Create a server with the <Plus className="w-3.5 h-3.5 inline" /> button, or
+                find one with <Compass className="w-3.5 h-3.5 inline" /> Discover.
               </p>
             </div>
-          </Card>
+          )}
+          {messages.map(msg => (
+            <div key={msg.id} className="flex gap-3">
+              <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold shrink-0">
+                {initials(msg.senderName ?? "?")}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-medium text-sm">
+                    {msg.senderName ?? "Unknown"}
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    {new Date(msg.createdAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
+                  {msg.content}
+                </p>
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
         </div>
 
-        <div>
-          <h3 className="font-bold mb-4">Status</h3>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${matrixConnected ? "bg-green-500" : "bg-red-500"}`} />
-              <span>Matrix: {matrixConnected ? "Connected" : "Offline"}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-yellow-500"}`} />
-              <span>Wallet: {isConnected ? "Connected" : "Disconnected"}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500" />
-              <span>Auth: Connected</span>
+        {selectedChannel && (
+          <div className="p-4 pt-0">
+            <div className="flex gap-2 rounded-lg bg-slate-900 border border-slate-800 p-2">
+              <Input
+                value={messageInput}
+                onChange={e => setMessageInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder={`Message #${selectedChannel.name}`}
+                className="bg-transparent border-0 focus-visible:ring-0"
+              />
+              <Button
+                size="icon"
+                disabled={!messageInput.trim() || sendMessage.isPending}
+                onClick={handleSend}
+              >
+                {sendMessage.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+              </Button>
             </div>
           </div>
-        </div>
-      </div>
+        )}
+      </main>
     </div>
   );
 }

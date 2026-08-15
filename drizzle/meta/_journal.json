@@ -8,6 +8,13 @@
       "when": 1786826065687,
       "tag": "0000_redundant_logan",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786828625817,
+      "tag": "0001_new_golden_guardian",
+      "breakpoints": true
     }
   ]
 }

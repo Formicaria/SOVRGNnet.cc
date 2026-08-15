@@ -1,246 +1,166 @@
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+
+process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-router-tests";
+
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import * as db from "./db";
+import { __setFetchForTests } from "./matrixService";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createAuthContext(userId: number = 1): TrpcContext {
-  const user: AuthenticatedUser = {
-    id: userId,
-    openId: "test-user",
-    email: "test@example.com",
-    name: "Test User",
-    loginMethod: "supabase",
-    role: "user",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    lastSignedIn: new Date(),
-  };
-
+function contextFor(user: AuthenticatedUser): TrpcContext {
   return {
     user,
-    req: {
-      protocol: "https",
-      headers: {},
-    } as TrpcContext["req"],
+    req: { protocol: "https", headers: {}, ip: "127.0.0.1" } as TrpcContext["req"],
     res: {
+      cookie: () => {},
       clearCookie: () => {},
-    } as TrpcContext["res"],
+    } as unknown as TrpcContext["res"],
   };
+}
+
+/**
+ * Fake homeserver: answers register/createRoom/state/join/send with canned
+ * Matrix responses so the full app flow runs against real Postgres alone.
+ */
+let roomCounter = 0;
+function installFakeHomeserver() {
+  const fakeFetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    if (url.includes("/register")) {
+      return json({
+        user_id: `@fake_${Date.now()}_${Math.random().toString(36).slice(2, 6)}:test`,
+        access_token: `tok_${Math.random().toString(36).slice(2)}`,
+      });
+    }
+    if (url.includes("/createRoom")) {
+      roomCounter += 1;
+      return json({ room_id: `!room_${Date.now()}_${roomCounter}:test` });
+    }
+    if (url.includes("/state/m.space.child/")) return json({});
+    if (url.includes("/join/")) return json({});
+    if (url.includes("/send/m.room.message/")) {
+      return json({ event_id: `$ev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}:test` });
+    }
+    if (url.includes("/versions")) return json({ versions: ["v1.11"] });
+    return new Response(JSON.stringify({ errcode: "M_UNRECOGNIZED" }), { status: 404 });
+  });
+  __setFetchForTests(fakeFetch as unknown as typeof fetch);
 }
 
 // Integration tests — require a live Postgres (DATABASE_URL). CI provides one;
 // locally run `docker compose up db` or they are skipped.
-describe.skipIf(!process.env.DATABASE_URL)("tRPC Routers", () => {
-  describe("auth router", () => {
-    it("should return current user with me query", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const user = await caller.auth.me();
-      expect(user).toEqual(ctx.user);
-    });
+describe.skipIf(!process.env.DATABASE_URL)("Platform flow (DB + fake homeserver)", () => {
+  let alice: AuthenticatedUser;
+  let bob: AuthenticatedUser;
+  let serverId: number;
+  let generalChannelId: number;
 
-    it("should logout successfully", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const result = await caller.auth.logout();
-      expect(result.success).toBe(true);
-    });
+  beforeAll(async () => {
+    installFakeHomeserver();
+    const suffix = Date.now();
+    alice = (await db.createLocalUser(`alice_${suffix}@test.cc`, "x", "Alice")) as AuthenticatedUser;
+    bob = (await db.createLocalUser(`bob_${suffix}@test.cc`, "x", "Bob")) as AuthenticatedUser;
   });
 
-  describe("servers router", () => {
-    it("should list servers for a user", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const servers = await caller.servers.list();
-      expect(Array.isArray(servers)).toBe(true);
-    });
-
-    it("should create a new server", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const uniqueRoomId = `!test${Date.now()}:matrix.org`;
-      const result = await caller.servers.create({
-        name: "Test Server",
-        description: "A test server",
-        matrixRoomId: uniqueRoomId,
-        icon: "ipfs://hash",
-      });
-      expect(result).toBeDefined();
-    });
-
-    it("should retrieve a server by ID", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const server = await caller.servers.getById({ serverId: 1 });
-      expect(server).toBeDefined();
-    });
+  it("auth.me returns the user without passwordHash", async () => {
+    const caller = appRouter.createCaller(contextFor(alice));
+    const me = await caller.auth.me();
+    expect(me?.id).toBe(alice.id);
+    expect(me && "passwordHash" in me).toBe(false);
   });
 
-  describe("channels router", () => {
-    it("should list channels by server", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const channels = await caller.channels.listByServer({ serverId: 1 });
-      expect(Array.isArray(channels)).toBe(true);
+  it("alice creates a server and gets a #general channel", async () => {
+    const caller = appRouter.createCaller(contextFor(alice));
+    const { server, defaultChannel } = await caller.servers.create({
+      name: "Test Community",
+      description: "integration test server",
     });
 
-    it("should create a new channel", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const uniqueRoomId = `!general${Date.now()}:matrix.org`;
-      const result = await caller.channels.create({
-        serverId: 1,
-        name: "general",
-        description: "General discussion",
-        matrixRoomId: uniqueRoomId,
-        type: "text",
-      });
-      expect(result).toBeDefined();
-    });
+    expect(server.ownerId).toBe(alice.id);
+    expect(server.matrixRoomId).toMatch(/^!room_/);
+    expect(defaultChannel.name).toBe("general");
 
-    it("should retrieve a channel by ID", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const channel = await caller.channels.getById({ channelId: 1 });
-      expect(channel).toBeDefined();
-    });
+    serverId = server.id;
+    generalChannelId = defaultChannel.id;
+
+    const servers = await caller.servers.list();
+    expect(servers.some(s => s.id === serverId)).toBe(true);
   });
 
-  describe("messages router", () => {
-    it("should list messages by channel", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const messages = await caller.messages.listByChannel({
-        channelId: 1,
-        limit: 50,
-      });
-      expect(Array.isArray(messages)).toBe(true);
+  it("alice sends a message through the Matrix bridge", async () => {
+    const caller = appRouter.createCaller(contextFor(alice));
+    const msg = await caller.messages.send({
+      channelId: generalChannelId,
+      content: "hello sovereign world",
     });
+    expect(msg.matrixEventId).toMatch(/^\$ev_/);
 
-    it("should create a new message", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const uniqueEventId = `$event${Date.now()}:matrix.org`;
-      const result = await caller.messages.create({
-        channelId: 1,
-        content: "Hello, world!",
-        matrixEventId: uniqueEventId,
-        encrypted: true,
-      });
-      expect(result).toBeDefined();
+    const messages = await caller.messages.listByChannel({
+      channelId: generalChannelId,
+      limit: 50,
     });
+    expect(messages.at(-1)?.content).toBe("hello sovereign world");
+    expect(messages.at(-1)?.senderName).toBe("Alice");
   });
 
-  describe("fileShares router", () => {
-    it("should list file shares by channel", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const files = await caller.fileShares.listByChannel({ channelId: 1 });
-      expect(Array.isArray(files)).toBe(true);
-    });
-
-    it("should create a new file share", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const uniqueHash = `QmHash${Date.now()}`;
-      const result = await caller.fileShares.create({
-        channelId: 1,
-        filename: "test.pdf",
-        ipfsHash: uniqueHash,
-        fileSize: 1024000,
-        mimeType: "application/pdf",
-      });
-      expect(result).toBeDefined();
-    });
+  it("bob cannot read the channel before joining", async () => {
+    const caller = appRouter.createCaller(contextFor(bob));
+    await expect(
+      caller.messages.listByChannel({ channelId: generalChannelId, limit: 10 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  describe("soundboard router", () => {
-    it("should list soundboard clips by server", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const clips = await caller.soundboard.listByServer({
-        serverId: 1,
-        includeNitroOnly: false,
-      });
-      expect(Array.isArray(clips)).toBe(true);
-    });
+  it("bob discovers, joins, and posts", async () => {
+    const caller = appRouter.createCaller(contextFor(bob));
 
-    it("should create a new soundboard clip", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const uniqueHash = `QmSound${Date.now()}`;
-      const result = await caller.soundboard.create({
-        serverId: 1,
-        name: "airhorn",
-        ipfsHash: uniqueHash,
-        duration: 2000,
-        isNitroOnly: false,
-      });
-      expect(result).toBeDefined();
+    const publicServers = await caller.servers.listPublic();
+    expect(publicServers.some(s => s.id === serverId)).toBe(true);
+
+    await caller.servers.join({ serverId });
+
+    const msg = await caller.messages.send({
+      channelId: generalChannelId,
+      content: "bob was here",
     });
+    expect(msg.userId).toBe(bob.id);
+
+    const aliceCaller = appRouter.createCaller(contextFor(alice));
+    const messages = await aliceCaller.messages.listByChannel({
+      channelId: generalChannelId,
+      limit: 50,
+    });
+    expect(messages.at(-1)?.content).toBe("bob was here");
+    expect(messages.at(-1)?.senderName).toBe("Bob");
   });
 
-  describe("profile router", () => {
-    it("should get user profile", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const profile = await caller.profile.get();
-      expect(profile).toBeDefined();
-    });
+  it("only the owner can create channels", async () => {
+    const bobCaller = appRouter.createCaller(contextFor(bob));
+    await expect(
+      bobCaller.channels.create({ serverId, name: "sneaky", type: "text" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
-    it("should update user profile", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const result = await caller.profile.update({
-        walletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f42bE",
-        ensName: "alice.eth",
-        avatar: "ipfs://avatar",
-        bio: "Hello, I'm Alice",
-      });
-      expect(result).toBeDefined();
+    const aliceCaller = appRouter.createCaller(contextFor(alice));
+    const channel = await aliceCaller.channels.create({
+      serverId,
+      name: "announcements",
+      type: "text",
     });
+    expect(channel.name).toBe("announcements");
   });
 
-  describe("nitro router", () => {
-    it("should get nitro subscription", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const subscription = await caller.nitro.getSubscription();
-      expect(subscription).toBeDefined();
-    });
-
-    it("should create nitro subscription", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const uniqueTokenId = `${Date.now()}`;
-      const result = await caller.nitro.createSubscription({
-        walletAddress: "0x742d35Cc6634C0532925a3b844Bc9e7595f42bE",
-        nftContractAddress: "0x1234567890123456789012345678901234567890",
-        nftTokenId: uniqueTokenId,
-        tier: "pro",
-      });
-      expect(result).toBeDefined();
-    });
-  });
-
-  describe("serverMembers router", () => {
-    it("should list server members", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const members = await caller.serverMembers.list({ serverId: 1 });
-      expect(Array.isArray(members)).toBe(true);
-    });
-
-    it("should add server member", async () => {
-      const ctx = createAuthContext();
-      const caller = appRouter.createCaller(ctx);
-      const result = await caller.serverMembers.add({
-        serverId: 1,
-        userId: 2,
-        role: "member",
-      });
-      expect(result).toBeDefined();
-    });
+  it("lists members including the joiner", async () => {
+    const caller = appRouter.createCaller(contextFor(alice));
+    const members = await caller.serverMembers.list({ serverId });
+    const ids = members.map(m => m.userId);
+    expect(ids).toContain(alice.id);
+    expect(ids).toContain(bob.id);
   });
 });
