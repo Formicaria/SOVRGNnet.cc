@@ -61,6 +61,8 @@ export const servers = pgTable("servers", {
   ownerId: integer("ownerId").notNull(),
   icon: text("icon"), // IPFS hash or URL
   isPublic: boolean("isPublic").default(true).notNull(),
+  /** Shareable invite code (nanoid). Null until the owner creates one. */
+  inviteCode: varchar("inviteCode", { length: 32 }).unique(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
