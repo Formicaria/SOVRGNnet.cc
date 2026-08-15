@@ -1,14 +1,88 @@
 import { COOKIE_NAME } from "@shared/const";
+import { TRPCError } from "@trpc/server";
+import {
+  checkLoginRateLimit,
+  createSessionToken,
+  hashPassword,
+  resetLoginRateLimit,
+  setSessionCookie,
+  verifyPassword,
+} from "./_core/auth";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import * as db from "./db";
+import type { User } from "../drizzle/schema";
+
+const credentialsInput = z.object({
+  email: z.string().email().max(320),
+  password: z.string().min(8).max(256),
+});
+
+/** Public shape of a user — never expose passwordHash. */
+function toPublicUser(user: User) {
+  const { passwordHash: _passwordHash, ...publicUser } = user;
+  return publicUser;
+}
 
 export const appRouter = router({
   system: systemRouter,
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    me: publicProcedure.query(({ ctx }) =>
+      ctx.user ? toPublicUser(ctx.user) : null
+    ),
+
+    register: publicProcedure
+      .input(credentialsInput.extend({ name: z.string().min(1).max(100).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const existing = await db.getUserByEmail(input.email);
+        if (existing) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "An account with this email already exists.",
+          });
+        }
+
+        const passwordHash = await hashPassword(input.password);
+        const user = await db.createLocalUser(input.email, passwordHash, input.name);
+
+        const token = await createSessionToken(user.id);
+        setSessionCookie(ctx.req, ctx.res, token);
+        return toPublicUser(user);
+      }),
+
+    login: publicProcedure
+      .input(credentialsInput)
+      .mutation(async ({ ctx, input }) => {
+        const rateKey = `${ctx.req.ip ?? "unknown"}:${input.email.toLowerCase()}`;
+        if (!checkLoginRateLimit(rateKey)) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many login attempts. Try again in 15 minutes.",
+          });
+        }
+
+        const user = await db.getUserByEmail(input.email);
+        const valid =
+          user?.passwordHash != null &&
+          (await verifyPassword(input.password, user.passwordHash));
+
+        if (!user || !valid) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Invalid email or password.",
+          });
+        }
+
+        resetLoginRateLimit(rateKey);
+        await db.touchLastSignedIn(user.id);
+
+        const token = await createSessionToken(user.id);
+        setSessionCookie(ctx.req, ctx.res, token);
+        return toPublicUser(user);
+      }),
+
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });

@@ -1,42 +1,62 @@
 # Deployment — sovrgnnet.cc
 
-Production guide for hosting the full stack on our own hardware. Assumes a Linux host (x64 or ARM64/Pi 5) with Docker and Docker Compose installed.
-
-> Note: parts of this guide describe the *target* state. Until Roadmap Phases 0–2 land, the app itself is not production-ready; the infrastructure steps here can be prepared in parallel.
-
-## 1. DNS
-
-At the sovrgnnet.cc registrar, point A/AAAA records at the host:
+Production architecture: **Cloudflare (free) as the front door, your Proxmox homelab as the host.** Cloudflare cannot run this stack (it needs long-lived processes, Postgres, a Matrix homeserver), but its free tier provides everything in front: DNS, TLS at the edge, CDN/DDoS protection, and — the key piece — **Cloudflare Tunnel**, which connects your homelab outbound so you never port-forward or expose your home IP.
 
 ```
-sovrgnnet.cc            A     <host-ip>
-www.sovrgnnet.cc        CNAME sovrgnnet.cc
-matrix.sovrgnnet.cc     A     <host-ip>
+Internet ──▶ Cloudflare edge (DNS, TLS, proxy)
+                   │  (outbound-only tunnel, no open ports)
+                   ▼
+        cloudflared (in the compose stack)
+                   │
+     ┌─────────────┼──────────────┐
+     ▼             ▼              ▼
+   nginx ──▶ app (:3000)    Conduit (:8008)
+                   │
+             Postgres · IPFS
 ```
 
-## 2. Environment
+> Until Roadmap Phase 2 lands, the app itself is not production-ready; everything here can be prepared in parallel.
+
+## 1. Proxmox VM
+
+On the R640 (or any node): Ubuntu Server 24.04 VM, 4 vCPU / 8 GB RAM / 64 GB disk is comfortable for v1. Install Docker + Compose plugin. An LXC also works, but a VM avoids Docker-in-LXC nesting quirks.
 
 ```bash
 git clone https://github.com/mrknockknockgaming-droid/SOVRGNnet
 cd SOVRGNnet
-cp docker.env.template .env
+cp docker.env.template .env    # set real values; never commit .env
 ```
 
-Set at minimum: `DB_PASSWORD` and `DB_ROOT_PASSWORD` (strong random), `JWT_SECRET` (`openssl rand -base64 32`), `DOMAIN=sovrgnnet.cc`, `MATRIX_SERVER_NAME=sovrgnnet.cc` (the *domain in Matrix user IDs* — choose once, it cannot change later), `VITE_APP_TITLE=SOVRGNnet`. Never commit `.env`.
+Critical env values: `DB_PASSWORD` (strong random), `JWT_SECRET` (`openssl rand -base64 32`), `MATRIX_SERVER_NAME=sovrgnnet.cc` — this is the domain baked into every Matrix user ID (`@zach:sovrgnnet.cc`); choose once, it can never change.
 
-## 3. TLS
+## 2. Cloudflare Tunnel
 
-Use Let's Encrypt via certbot on the host (or swap nginx for Caddy/Traefik if preferred):
+In the Cloudflare dashboard (Zero Trust → Networks → Tunnels), create a tunnel named `sovrgnnet` and note the token. Add a `cloudflared` service to the compose stack:
 
-```bash
-sudo certbot certonly --standalone -d sovrgnnet.cc -d www.sovrgnnet.cc -d matrix.sovrgnnet.cc
+```yaml
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - sovrgnnet
 ```
 
-Mount the resulting certs into the nginx container (see `ssl` volume in compose) and set up a renewal hook that runs `docker compose exec nginx nginx -s reload`.
+Then map public hostnames to internal services in the tunnel config:
 
-## 4. Matrix federation (well-known delegation)
+| Public hostname | Service |
+|---|---|
+| `sovrgnnet.cc` | `http://app:3000` |
+| `www.sovrgnnet.cc` | `http://app:3000` |
+| `matrix.sovrgnnet.cc` | `http://matrix:8008` |
 
-So `@user:sovrgnnet.cc` works while Conduit lives on a subdomain, nginx must serve:
+Cloudflare creates the DNS records automatically. TLS terminates at Cloudflare's edge — no certbot needed. With the tunnel in place, the bundled nginx service becomes optional (keep it only if you want LAN-direct access).
+
+## 3. Matrix federation (well-known delegation)
+
+So `@user:sovrgnnet.cc` resolves while Conduit lives on a subdomain, the app (or a Cloudflare redirect/Worker route) must serve:
 
 `https://sovrgnnet.cc/.well-known/matrix/server`
 ```json
@@ -48,22 +68,28 @@ So `@user:sovrgnnet.cc` works while Conduit lives on a subdomain, nginx must ser
 { "m.homeserver": { "base_url": "https://matrix.sovrgnnet.cc" } }
 ```
 
-And proxy `matrix.sovrgnnet.cc` → `conduit:8008`. Verify with the [Matrix federation tester](https://federationtester.matrix.org) once live. Keep `CONDUIT_ALLOW_REGISTRATION=false` in production — accounts are provisioned by the app, not by strangers.
+Federation works through Cloudflare's proxy on 443. Verify with the [Matrix federation tester](https://federationtester.matrix.org). Keep `CONDUIT_ALLOW_REGISTRATION=false` in production — accounts are provisioned by the app.
 
-## 5. Launch
+**Cloudflare caveats to know:** free-tier proxied uploads cap at 100 MB per request (plan file uploads accordingly, or chunk); WebSockets are supported and pass through fine; IPFS swarm port 4001 cannot go through the tunnel — either skip public IPFS peering (files still serve via the app) or port-forward 4001 directly if you want DHT participation.
+
+## 4. Launch
 
 ```bash
 docker compose up -d --build
-docker compose ps          # all services healthy
+docker compose ps            # all healthy
 docker compose logs -f app
 ```
 
-Migrations run via `pnpm db:push` inside the app container (or bake into the image entrypoint — Phase 0 decision).
+Run migrations inside the app container (`pnpm db:push`) on first boot and after schema changes.
 
-## 6. Backups
+## 5. Backups
 
-`scripts/backup.sh` (being adapted to Postgres) should cron nightly: `pg_dump` of the app DB, tar of the Conduit data volume, and the IPFS pinset (`ipfs pin ls`). Test restore with `scripts/restore.sh` before you need it. Off-host copies are non-negotiable — a second box or object storage.
+Nightly cron: `pg_dump` of Postgres, tar of the Conduit volume, IPFS pinset export. Keep an off-VM copy — with three Proxmox hosts, replicating backups to a second node (or Proxmox Backup Server) is the natural move. Test `scripts/restore.sh` before you need it.
 
-## 7. Operations checklist
+## 6. Operations checklist
 
-Uptime monitoring on `https://sovrgnnet.cc` and `https://matrix.sovrgnnet.cc/_matrix/client/versions`; log rotation for the compose services; `docker compose pull && up -d` cadence for base-image updates; firewall allowing only 80/443 (and 4001 for IPFS swarm if public peering is wanted). Port 8008 and 5432 must never be exposed publicly.
+Uptime checks on `https://sovrgnnet.cc` and `https://matrix.sovrgnnet.cc/_matrix/client/versions`; log rotation; periodic `docker compose pull && docker compose up -d` for base images. Nothing listens on the WAN — the tunnel is outbound-only; keep 5432/8008 unexposed even on the LAN unless needed.
+
+## The desktop app (Tauri)
+
+The Discord-like client ships as a Tauri wrapper around the same web app: a native shell (Windows/macOS/Linux, ~10 MB installers) pointed at `https://sovrgnnet.cc`, with room to grow native features later (notifications, tray, deep links, auto-update). It lives in the roadmap as its own phase — the web app must work first, then the shell is thin.

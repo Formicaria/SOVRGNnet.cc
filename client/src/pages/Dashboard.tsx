@@ -1,4 +1,4 @@
-import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useWeb3 } from "@/contexts/Web3Context";
 import { useMatrix } from "@/contexts/MatrixContext";
 import { useIPFS } from "@/contexts/IPFSContext";
@@ -11,7 +11,7 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 
 export default function Dashboard() {
-  const { user, signOut } = useSupabaseAuth();
+  const { user, logout } = useAuth();
   const { address, ensName, isConnected, connect, disconnect } = useWeb3();
   const { isConnected: matrixConnected, error: matrixError } = useMatrix();
   const { isUploading } = useIPFS();
@@ -63,7 +63,7 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     try {
-      await signOut();
+      await logout();
       setLocation("/");
     } catch (err) {
       console.error("Failed to sign out:", err);
