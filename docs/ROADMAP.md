@@ -4,11 +4,11 @@ Decisions locked in: self-hosted Postgres, email/password auth first (wallet ide
 
 The guiding rule: **a small thing that works end-to-end beats a large thing that doesn't.** v1 is text chat that actually sends and receives. Everything else follows.
 
-## Phase 0 — Stabilize the foundation
+## Phase 0 — Stabilize the foundation ✅ (August 2026)
 
-Get the repo honest. Clean `pnpm install`, `pnpm check`, `pnpm test`, `pnpm build` all passing; GitHub Actions running them on every push. Strip Manus residue (vite-plugin-manus-runtime, Forge/OAuth env vars, manusTypes) and the deprecated `js-ipfs` dependency. Finish the rebrand in UI strings and compose defaults. Make the server fail fast if the configured port is taken instead of silently hopping. Rotate/retire the exposed Supabase credentials.
+Done: `pnpm install`, `pnpm check`, `pnpm test`, and `pnpm build` all pass locally; GitHub Actions CI runs the full gauntlet with a Postgres service container for integration tests (DB tests skip gracefully when no `DATABASE_URL` is set). Manus residue stripped — vite-plugin-manus-runtime, jsx-loc plugin, manusTypes, Map.tsx/map.ts (Forge API dead code), Forge/OAuth env vars — along with unused `js-ipfs`, `webtorrent`, and AWS SDK dependencies; lockfile re-resolved clean. Rebrand finished across UI, compose files, templates, and scripts. Dockerfile fixed (copied a nonexistent `client/dist`; client actually bundles into `dist/public`). Compose healthcheck switched to node (curl isn't in the Alpine image). Server now fails fast in production if its port is taken instead of silently hopping.
 
-**Exit criteria:** CI green, `docker compose up` builds and starts all five services on a clean machine.
+**Remaining (manual):** rotate/retire the exposed Supabase credentials; verify `docker compose up` end-to-end on the target host.
 
 ## Phase 1 — First-party auth
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Decentralized Discord - Backup Script
+# SOVRGNnet - Backup Script
 # Creates backups of all data for migration or disaster recovery
 
 set -e
@@ -16,7 +16,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_NAME="discord_backup_${TIMESTAMP}"
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Decentralized Discord - Backup Script${NC}"
+echo -e "${GREEN}SOVRGNnet - Backup Script${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 # Create backup directory
@@ -35,12 +35,12 @@ echo -e "${GREEN}✓ Database backed up${NC}"
 
 # Backup IPFS data
 echo -e "${YELLOW}Backing up IPFS data...${NC}"
-docker run --rm -v decentralized-discord_ipfs_data:/ipfs_data -v "$(pwd)/$BACKUP_DIR/$BACKUP_NAME":/backup alpine tar czf /backup/ipfs_data.tar.gz -C /ipfs_data .
+docker run --rm -v sovrgnnet_ipfs_data:/ipfs_data -v "$(pwd)/$BACKUP_DIR/$BACKUP_NAME":/backup alpine tar czf /backup/ipfs_data.tar.gz -C /ipfs_data .
 echo -e "${GREEN}✓ IPFS data backed up${NC}"
 
 # Backup Matrix data
 echo -e "${YELLOW}Backing up Matrix data...${NC}"
-docker run --rm -v decentralized-discord_matrix_data:/matrix_data -v "$(pwd)/$BACKUP_DIR/$BACKUP_NAME":/backup alpine tar czf /backup/matrix_data.tar.gz -C /matrix_data .
+docker run --rm -v sovrgnnet_matrix_data:/matrix_data -v "$(pwd)/$BACKUP_DIR/$BACKUP_NAME":/backup alpine tar czf /backup/matrix_data.tar.gz -C /matrix_data .
 echo -e "${GREEN}✓ Matrix data backed up${NC}"
 
 # Backup configuration files
@@ -53,7 +53,7 @@ echo -e "${GREEN}✓ Configuration files backed up${NC}"
 # Create backup metadata
 echo -e "${YELLOW}Creating backup metadata...${NC}"
 cat > "$BACKUP_DIR/$BACKUP_NAME/BACKUP_INFO.txt" << EOF
-Decentralized Discord Backup
+SOVRGNnet Backup
 ========================================
 Backup Date: $(date)
 Backup Name: $BACKUP_NAME

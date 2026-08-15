@@ -1,6 +1,6 @@
 version: '3.9'
 
-# Decentralized Discord - Docker Compose for Pi 5 with Cloud Storage
+# SOVRGNnet - Docker Compose for Pi 5 with Cloud Storage
 # This configuration uses:
 # - PlanetScale for MySQL database (cloud)
 # - NFT.storage for IPFS files (cloud)
@@ -13,7 +13,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: decentralized-discord-app
+    container_name: sovrgnnet-app
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -24,20 +24,10 @@ services:
       
       # JWT and Auth
       JWT_SECRET: ${JWT_SECRET}
-      VITE_APP_ID: ${VITE_APP_ID}
-      OAUTH_SERVER_URL: ${OAUTH_SERVER_URL}
-      VITE_OAUTH_PORTAL_URL: ${VITE_OAUTH_PORTAL_URL}
-      OWNER_OPEN_ID: ${OWNER_OPEN_ID}
-      OWNER_NAME: ${OWNER_NAME}
       
-      # Manus APIs
-      BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
-      BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
-      VITE_FRONTEND_FORGE_API_KEY: ${VITE_FRONTEND_FORGE_API_KEY}
-      VITE_FRONTEND_FORGE_API_URL: ${VITE_FRONTEND_FORGE_API_URL}
       
       # App Configuration
-      VITE_APP_TITLE: ${VITE_APP_TITLE:-Decentralized Discord}
+      VITE_APP_TITLE: ${VITE_APP_TITLE:-SOVRGNnet}
       VITE_APP_LOGO: ${VITE_APP_LOGO}
       VITE_ANALYTICS_ENDPOINT: ${VITE_ANALYTICS_ENDPOINT}
       VITE_ANALYTICS_WEBSITE_ID: ${VITE_ANALYTICS_WEBSITE_ID}
@@ -63,7 +53,7 @@ services:
       - ./logs:/app/logs
     
     networks:
-      - decentralized-discord
+      - sovrgnnet
     
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
@@ -76,7 +66,7 @@ services:
   # Stores federation data locally, connects to cloud for user data
   matrix:
     image: matrixconduit/matrix-conduit:latest
-    container_name: decentralized-discord-matrix
+    container_name: sovrgnnet-matrix
     restart: unless-stopped
     environment:
       CONDUIT_SERVER_NAME: ${MATRIX_SERVER_NAME:-matrix.local}
@@ -94,7 +84,7 @@ services:
       - "8008:8008"
     
     networks:
-      - decentralized-discord
+      - sovrgnnet
     
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8008/_matrix/client/versions"]
@@ -106,7 +96,7 @@ services:
   # Stores files locally, can pin to NFT.storage for backup
   ipfs:
     image: ipfs/kubo:latest
-    container_name: decentralized-discord-ipfs
+    container_name: sovrgnnet-ipfs
     restart: unless-stopped
     environment:
       IPFS_PROFILE: server
@@ -122,7 +112,7 @@ services:
       - "8080:8080"
     
     networks:
-      - decentralized-discord
+      - sovrgnnet
     
     healthcheck:
       test: ["CMD", "ipfs", "dag", "stat", "QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf7ytsQQP"]
@@ -133,7 +123,7 @@ services:
   # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
-    container_name: decentralized-discord-nginx
+    container_name: sovrgnnet-nginx
     restart: unless-stopped
     ports:
       - "80:80"
@@ -148,7 +138,7 @@ services:
       - app
     
     networks:
-      - decentralized-discord
+      - sovrgnnet
     
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
@@ -167,5 +157,5 @@ volumes:
     driver: local
 
 networks:
-  decentralized-discord:
+  sovrgnnet:
     driver: bridge

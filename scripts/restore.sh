@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Decentralized Discord - Restore Script
+# SOVRGNnet - Restore Script
 # Restores data from backup for migration or disaster recovery
 
 set -e
@@ -38,7 +38,7 @@ else
 fi
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Decentralized Discord - Restore Script${NC}"
+echo -e "${GREEN}SOVRGNnet - Restore Script${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo ""
 echo -e "${YELLOW}Restoring from backup: $BACKUP_NAME${NC}"
@@ -80,15 +80,15 @@ fi
 
 # Remove old volumes
 echo -e "${YELLOW}Removing old volumes...${NC}"
-docker volume rm decentralized-discord_db_data || true
-docker volume rm decentralized-discord_ipfs_data || true
-docker volume rm decentralized-discord_matrix_data || true
+docker volume rm sovrgnnet_db_data || true
+docker volume rm sovrgnnet_ipfs_data || true
+docker volume rm sovrgnnet_matrix_data || true
 
 # Create fresh volumes
 echo -e "${YELLOW}Creating new volumes...${NC}"
-docker volume create decentralized-discord_db_data
-docker volume create decentralized-discord_ipfs_data
-docker volume create decentralized-discord_matrix_data
+docker volume create sovrgnnet_db_data
+docker volume create sovrgnnet_ipfs_data
+docker volume create sovrgnnet_matrix_data
 
 # Restore database
 echo -e "${YELLOW}Restoring MySQL database...${NC}"
@@ -101,12 +101,12 @@ echo -e "${GREEN}✓ Database restored${NC}"
 
 # Restore IPFS data
 echo -e "${YELLOW}Restoring IPFS data...${NC}"
-docker run --rm -v decentralized-discord_ipfs_data:/ipfs_data -v "$BACKUP_PATH":/backup alpine tar xzf /backup/ipfs_data.tar.gz -C /ipfs_data
+docker run --rm -v sovrgnnet_ipfs_data:/ipfs_data -v "$BACKUP_PATH":/backup alpine tar xzf /backup/ipfs_data.tar.gz -C /ipfs_data
 echo -e "${GREEN}✓ IPFS data restored${NC}"
 
 # Restore Matrix data
 echo -e "${YELLOW}Restoring Matrix data...${NC}"
-docker run --rm -v decentralized-discord_matrix_data:/matrix_data -v "$BACKUP_PATH":/backup alpine tar xzf /backup/matrix_data.tar.gz -C /matrix_data
+docker run --rm -v sovrgnnet_matrix_data:/matrix_data -v "$BACKUP_PATH":/backup alpine tar xzf /backup/matrix_data.tar.gz -C /matrix_data
 echo -e "${GREEN}✓ Matrix data restored${NC}"
 
 # Start all services

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Decentralized Discord - Docker Setup Script for Raspberry Pi 5
+# SOVRGNnet - Docker Setup Script for Raspberry Pi 5
 # This script sets up Docker and deploys the application
 
 set -e
@@ -12,7 +12,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Decentralized Discord - Docker Setup${NC}"
+echo -e "${GREEN}SOVRGNnet - Docker Setup${NC}"
 echo -e "${GREEN}========================================${NC}"
 
 # Check if running on ARM64
@@ -63,9 +63,6 @@ if [ ! -f ".env" ]; then
     echo "  - DB_ROOT_PASSWORD"
     echo "  - DB_PASSWORD"
     echo "  - JWT_SECRET (generate: openssl rand -base64 32)"
-    echo "  - VITE_APP_ID"
-    echo "  - OWNER_OPEN_ID"
-    echo "  - OWNER_NAME"
     echo "  - REACT_APP_WALLET_CONNECT_PROJECT_ID"
     echo ""
     read -p "Press Enter after editing .env file..."
@@ -78,11 +75,11 @@ if [ ! -f "./scripts/init-db.sql" ]; then
     echo -e "${YELLOW}Creating database initialization script...${NC}"
     cat > ./scripts/init-db.sql << 'EOF'
 -- Initial database setup
-CREATE DATABASE IF NOT EXISTS decentralized_discord;
-USE decentralized_discord;
+CREATE DATABASE IF NOT EXISTS sovrgnnet;
+USE sovrgnnet;
 
 -- Grant permissions
-GRANT ALL PRIVILEGES ON decentralized_discord.* TO 'discord_user'@'%';
+GRANT ALL PRIVILEGES ON sovrgnnet.* TO 'sovrgn'@'%';
 FLUSH PRIVILEGES;
 EOF
     echo -e "${GREEN}✓ Database initialization script created${NC}"
@@ -106,9 +103,9 @@ docker-compose build --no-cache app
 
 # Create volumes
 echo -e "${YELLOW}Creating Docker volumes...${NC}"
-docker volume create decentralized-discord_db_data || true
-docker volume create decentralized-discord_matrix_data || true
-docker volume create decentralized-discord_ipfs_data || true
+docker volume create sovrgnnet_db_data || true
+docker volume create sovrgnnet_matrix_data || true
+docker volume create sovrgnnet_ipfs_data || true
 
 # Start services
 echo -e "${YELLOW}Starting services...${NC}"

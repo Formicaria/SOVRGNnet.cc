@@ -33,9 +33,8 @@ COPY package.json pnpm-lock.yaml ./
 # Install production dependencies only
 RUN npm install -g pnpm && pnpm install --prod --frozen-lockfile
 
-# Copy built application from builder stage
+# Copy built application from builder stage (client is bundled into dist/public)
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/client/dist ./client/dist
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
