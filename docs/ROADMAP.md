@@ -22,11 +22,11 @@ Done: server-side `matrixService` (REST client with injectable fetch) provisions
 
 **Deferred within phase:** live updates are 3-second polling for now; a `/sync`-backed SSE/WebSocket bridge replaces it in a later pass. E2EE stays in Phase 6.
 
-## Phase 3 — Files and media
+## Phase 3 — Files and media ✅ (August 2026)
 
-Server-side upload endpoint that pins to our Kubo node and records the `fileShares` row; images render inline, other files get download cards served via our own IPFS gateway (not a public one). Avatar upload for profiles. Defer WebTorrent distribution until file sharing is proven.
+Done: `ipfsService` (Kubo API client, injectable fetch) pins uploads to our own node. REST routes move the bytes — `POST /api/upload` (session-authenticated, membership-checked, 50 MB cap) records the `fileShares` row; `GET /api/files/:cid` streams back through the app with membership enforcement, so no public gateway and no leaking CIDs to outsiders. tRPC keeps the metadata surface (`fileShares.listByChannel`, now membership-checked; the client-side create mutation was removed — REST is the only write path). Dashboard merges messages and files into one timeline: images render inline, other files get download cards; upload via paperclip button or drag-and-drop onto the channel.
 
-**Exit criteria:** drag-and-drop a file into a channel, another user downloads it via sovrgnnet.cc.
+**Deferred:** avatar uploads (needs profile UI first); WebTorrent for large files.
 
 ## Phase 4 — Production deployment on sovrgnnet.cc
 

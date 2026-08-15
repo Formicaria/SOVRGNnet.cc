@@ -278,33 +278,17 @@ export const appRouter = router({
       }),
   }),
 
-  // File share operations
+  // File share metadata (uploads/downloads go through /api/upload and /api/files)
   fileShares: router({
     listByChannel: protectedProcedure
       .input(z.object({ channelId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        const channel = await db.getChannelById(input.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        await requireServerMembership(channel.serverId, ctx.user.id);
         return await db.getFileSharesByChannel(input.channelId);
-      }),
-
-    create: protectedProcedure
-      .input(z.object({
-        channelId: z.number(),
-        filename: z.string(),
-        ipfsHash: z.string(),
-        fileSize: z.number(),
-        mimeType: z.string().optional(),
-        torrentMagnetLink: z.string().optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        return await db.createFileShare(
-          input.channelId,
-          ctx.user.id,
-          input.filename,
-          input.ipfsHash,
-          input.fileSize,
-          input.mimeType,
-          input.torrentMagnetLink
-        );
       }),
   }),
 

@@ -15,8 +15,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 
@@ -28,6 +28,31 @@ function initials(name: string): string {
     .slice(0, 2)
     .toUpperCase();
 }
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+type TimelineItem =
+  | {
+      kind: "message";
+      id: string;
+      senderName: string | null;
+      createdAt: Date;
+      content: string;
+    }
+  | {
+      kind: "file";
+      id: string;
+      senderName: string | null;
+      createdAt: Date;
+      filename: string;
+      ipfsHash: string;
+      fileSize: number;
+      mimeType: string | null;
+    };
 
 export default function Dashboard() {
   const { user, loading, logout } = useAuth();
@@ -57,6 +82,10 @@ export default function Dashboard() {
   const messagesQuery = trpc.messages.listByChannel.useQuery(
     { channelId: selectedChannelId!, limit: 50 },
     { enabled: selectedChannelId != null, refetchInterval: 3000 }
+  );
+  const filesQuery = trpc.fileShares.listByChannel.useQuery(
+    { channelId: selectedChannelId! },
+    { enabled: selectedChannelId != null, refetchInterval: 5000 }
   );
 
   const createServer = trpc.servers.create.useMutation({
@@ -93,9 +122,63 @@ export default function Dashboard() {
     onError: e => setError(e.message),
   });
 
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadFile = async (file: File) => {
+    if (selectedChannelId == null) return;
+    try {
+      setIsUploading(true);
+      setError(null);
+      const res = await fetch(
+        `/api/upload?channelId=${selectedChannelId}&filename=${encodeURIComponent(file.name)}`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file,
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? `Upload failed (${res.status})`);
+      }
+      await utils.fileShares.listByChannel.invalidate({ channelId: selectedChannelId });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const servers = serversQuery.data ?? [];
   const channels = channelsQuery.data ?? [];
   const messages = messagesQuery.data ?? [];
+  const files = filesQuery.data ?? [];
+
+  const timeline: TimelineItem[] = useMemo(() => {
+    const items: TimelineItem[] = [
+      ...messages.map(m => ({
+        kind: "message" as const,
+        id: `m${m.id}`,
+        senderName: m.senderName,
+        createdAt: new Date(m.createdAt),
+        content: m.content,
+      })),
+      ...files.map(f => ({
+        kind: "file" as const,
+        id: `f${f.id}`,
+        senderName: f.senderName,
+        createdAt: new Date(f.createdAt),
+        filename: f.filename,
+        ipfsHash: f.ipfsHash,
+        fileSize: f.fileSize,
+        mimeType: f.mimeType,
+      })),
+    ];
+    return items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }, [messages, files]);
   const selectedServer = servers.find(s => s.id === selectedServerId) ?? null;
   const selectedChannel = channels.find(c => c.id === selectedChannelId) ?? null;
 
@@ -118,7 +201,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+  }, [timeline.length]);
 
   useEffect(() => {
     if (!loading && !user) setLocation("/");
@@ -360,7 +443,24 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        <div
+          className={`flex-1 overflow-y-auto px-4 py-3 space-y-3 ${
+            isDragging ? "outline-2 outline-dashed outline-purple-500 -outline-offset-8 rounded-lg" : ""
+          }`}
+          onDragOver={e => {
+            if (selectedChannelId != null) {
+              e.preventDefault();
+              setIsDragging(true);
+            }
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={e => {
+            e.preventDefault();
+            setIsDragging(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file) void uploadFile(file);
+          }}
+        >
           {servers.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 gap-2">
               <p className="text-lg text-slate-300">Welcome to SOVRGNnet.</p>
@@ -370,26 +470,52 @@ export default function Dashboard() {
               </p>
             </div>
           )}
-          {messages.map(msg => (
-            <div key={msg.id} className="flex gap-3">
+          {timeline.map(item => (
+            <div key={item.id} className="flex gap-3">
               <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold shrink-0">
-                {initials(msg.senderName ?? "?")}
+                {initials(item.senderName ?? "?")}
               </div>
               <div className="min-w-0">
                 <div className="flex items-baseline gap-2">
                   <span className="font-medium text-sm">
-                    {msg.senderName ?? "Unknown"}
+                    {item.senderName ?? "Unknown"}
                   </span>
                   <span className="text-[11px] text-slate-500">
-                    {new Date(msg.createdAt).toLocaleTimeString([], {
+                    {item.createdAt.toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
                     })}
                   </span>
                 </div>
-                <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
-                  {msg.content}
-                </p>
+                {item.kind === "message" ? (
+                  <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
+                    {item.content}
+                  </p>
+                ) : item.mimeType?.startsWith("image/") ? (
+                  <a href={`/api/files/${item.ipfsHash}`} target="_blank" rel="noreferrer">
+                    <img
+                      src={`/api/files/${item.ipfsHash}`}
+                      alt={item.filename}
+                      className="mt-1 max-w-sm max-h-72 rounded-lg border border-slate-800 object-contain"
+                    />
+                  </a>
+                ) : (
+                  <a
+                    href={`/api/files/${item.ipfsHash}`}
+                    download={item.filename}
+                    className="mt-1 flex items-center gap-3 rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 max-w-sm hover:border-purple-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4 text-purple-400 shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block text-sm text-slate-200 truncate">
+                        {item.filename}
+                      </span>
+                      <span className="block text-[11px] text-slate-500">
+                        {formatBytes(item.fileSize)}
+                      </span>
+                    </span>
+                  </a>
+                )}
               </div>
             </div>
           ))}
@@ -399,6 +525,29 @@ export default function Dashboard() {
         {selectedChannel && (
           <div className="p-4 pt-0">
             <div className="flex gap-2 rounded-lg bg-slate-900 border border-slate-800 p-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={e => {
+                  const file = e.target.files?.[0];
+                  if (file) void uploadFile(file);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                size="icon"
+                variant="ghost"
+                disabled={isUploading}
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach a file"
+              >
+                {isUploading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Paperclip className="w-4 h-4" />
+                )}
+              </Button>
               <Input
                 value={messageInput}
                 onChange={e => setMessageInput(e.target.value)}
