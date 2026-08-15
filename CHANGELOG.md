@@ -71,6 +71,54 @@
   authenticated, membership-enforced upload/download routes; images inline
   and file cards in a unified channel timeline; paperclip + drag-and-drop.
 
+### The pivot: a network of servers, not a website
+
+Recorded in [ADR 0001](docs/adr/0001-multi-server-client.md) and
+[ADR 0002](docs/adr/0002-windows-bundled-server.md). The short version: the
+current design *cannot* have end-to-end encryption, because the app server
+holds every user's Matrix token and reads every message in plaintext. Moving
+keys into the client is the same change that makes a multi-server client
+possible — one pivot, not two.
+
+- **Instance identity** — `GET /api/instance` lets a server introduce itself to
+  a client that has never seen it. The id is derived by hashing the Matrix
+  server name rather than stored, so it survives a database restore and can't
+  be forged without also taking the server name.
+- **Invites name their server.** The old format was a bare code, which assumed
+  you were already on the right instance — fine for one deployment, ambiguous
+  the moment a client holds four. Now `https://host/invite/<code>` plus
+  `sovrgn://invite/<host>/<code>` for the desktop hand-off. A bare code is
+  explicitly rejected unless there's a server to resolve it against.
+- **Connection layer** (`shared/connections.ts`, shared by web and desktop):
+  probes a host *before* showing a login screen, so a typo produces "that isn't
+  a SOVRGNnet server" rather than a password prompt on a stranger's website.
+  De-duplicates by instance id, so the same box at a LAN address and later a
+  domain stays one entry. Keeps unreachable servers rather than deleting a
+  community because a laptop was shut for the night.
+- **Host rail and add-server flow** — two steps, look then join, with
+  encryption status stated plainly every time.
+- **Tauri scaffold** (`desktop/`) — `sovrgn://` deep links including cold-start
+  replay, single-instance focus, per-server credentials in the OS keychain.
+- **The browser's honest limit:** sessions are httpOnly cookies scoped to one
+  origin, so a page served by one server cannot authenticate against another.
+  On the web this is an address book; switching hosts navigates there. The
+  desktop client is what makes it a switchboard, and the UI says so.
+
+### Server administration
+
+- **Settings live in the database now**, not environment variables, so an owner
+  can rename their instance or close registration from the client instead of
+  over SSH. The environment remains the bootstrap default; stored values win.
+- `admin.getSettings` / `updateSettings` / `listUsers` / `setUserRole`, as a
+  normal authenticated API — administering a box in your closet from your
+  laptop is the ordinary case, not a special one.
+- **Fixed: nobody was ever an administrator.** The installer and QUICKSTART
+  both promised "the first account you create becomes the admin."
+  `adminProcedure` existed and checked `role === 'admin'`, but
+  `createLocalUser` never assigned it — so the admin surface was unreachable on
+  every instance ever created. First registration now takes the role, and an
+  admin can't demote themselves out of existence.
+
 ### Website
 
 - sovrgnnet.cc grew from one landing page into a real site: a docs section

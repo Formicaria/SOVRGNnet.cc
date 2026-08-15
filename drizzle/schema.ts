@@ -184,6 +184,30 @@ export const serverBans = pgTable("serverBans", {
 export type ServerBan = typeof serverBans.$inferSelect;
 export type InsertServerBan = typeof serverBans.$inferInsert;
 
+/**
+ * Instance-wide settings, editable by an administrator from the client.
+ *
+ * These used to be environment variables, which meant reconfiguring an
+ * instance required SSH and a restart. A server owner should be able to rename
+ * their instance or close registration from the app they already have open.
+ *
+ * Exactly one row, id = 1. Environment variables remain the bootstrap
+ * defaults for a fresh install; once a row exists it wins.
+ */
+export const instanceSettings = pgTable("instanceSettings", {
+  id: integer("id").primaryKey().default(1),
+  name: varchar("name", { length: 120 }),
+  description: text("description"),
+  /** open = anyone may register · invite = invite required · closed = nobody */
+  joinPolicy: varchar("joinPolicy", { length: 16 }).default("invite").notNull(),
+  /** Whether to appear in the sovrgnnet.cc directory. Opt-in, always. */
+  listed: boolean("listed").default(false).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type InstanceSettings = typeof instanceSettings.$inferSelect;
+export type InsertInstanceSettings = typeof instanceSettings.$inferInsert;
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   profiles: many(userProfiles),

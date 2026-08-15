@@ -56,28 +56,48 @@ export function instanceId(): string {
   return createHash("sha256").update(`sovrgnnet:instance:${seed}`).digest("hex").slice(0, 16);
 }
 
-function joinPolicy(): JoinPolicy {
-  const raw = (process.env.INSTANCE_JOIN_POLICY ?? "invite").toLowerCase();
-  return raw === "open" || raw === "closed" ? raw : "invite";
+export function normalizeJoinPolicy(raw: string | null | undefined): JoinPolicy {
+  const value = (raw ?? "").toLowerCase();
+  return value === "open" || value === "closed" ? value : "invite";
 }
 
-export function instanceInfo(version: string): InstanceInfo {
+/**
+ * Settings an administrator has saved, if any.
+ *
+ * Kept as a parameter rather than fetched here so this stays a pure function —
+ * the route does the I/O, and tests don't need a database.
+ */
+export type StoredSettings = {
+  name?: string | null;
+  description?: string | null;
+  joinPolicy?: string | null;
+  listed?: boolean | null;
+} | null;
+
+export function instanceInfo(version: string, stored: StoredSettings = null): InstanceInfo {
   const publicMatrix = process.env.MATRIX_PUBLIC_URL?.trim();
 
   return {
     product: "sovrgnnet",
     apiVersion: 1,
     id: instanceId(),
-    name: process.env.INSTANCE_NAME?.trim() || ENV.matrixServerName || "A SOVRGNnet server",
-    description: process.env.INSTANCE_DESCRIPTION?.trim() || null,
+    // Saved settings win; the environment is only the bootstrap default for
+    // an instance nobody has configured yet.
+    name:
+      stored?.name?.trim() ||
+      process.env.INSTANCE_NAME?.trim() ||
+      ENV.matrixServerName ||
+      "A SOVRGNnet server",
+    description:
+      stored?.description?.trim() || process.env.INSTANCE_DESCRIPTION?.trim() || null,
     matrixServerName: ENV.matrixServerName,
     // Only advertise the homeserver once an operator has published one.
     // Clients use its presence to decide whether direct sync (and therefore
     // encryption) is available here at all.
     matrixBaseUrl: publicMatrix || null,
-    joinPolicy: joinPolicy(),
+    joinPolicy: normalizeJoinPolicy(stored?.joinPolicy ?? process.env.INSTANCE_JOIN_POLICY),
     encryption: Boolean(publicMatrix),
-    listed: process.env.INSTANCE_LISTED === "true",
+    listed: stored?.listed ?? process.env.INSTANCE_LISTED === "true",
     software: { name: "sovrgnnet", version },
   };
 }
