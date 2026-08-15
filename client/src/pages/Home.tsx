@@ -1,4 +1,4 @@
-import { useSupabaseAuth } from "@/contexts/SupabaseAuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useWeb3 } from "@/contexts/Web3Context";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { useLocation } from "wouter";
 import { useState } from "react";
 
 export default function Home() {
-  const { user, loading, signInWithGoogle, signInWithEmail, signUp } = useSupabaseAuth();
+  const { user, loading, login, register } = useAuth();
   const { isConnected, connect } = useWeb3();
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
@@ -22,9 +22,9 @@ export default function Home() {
       setAuthLoading(true);
       setAuthError(null);
       if (isSignUp) {
-        await signUp(email, password);
+        await register(email, password);
       } else {
-        await signInWithEmail(email, password);
+        await login(email, password);
       }
       setEmail("");
       setPassword("");
@@ -225,14 +225,6 @@ export default function Home() {
         </Card>
 
         <div className="space-y-2">
-          <Button
-            size="lg"
-            onClick={signInWithGoogle}
-            variant="outline"
-            className="w-full border-slate-600"
-          >
-            Sign In with Google
-          </Button>
           <Button
             size="lg"
             variant="outline"

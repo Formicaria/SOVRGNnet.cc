@@ -10,11 +10,11 @@ Done: `pnpm install`, `pnpm check`, `pnpm test`, and `pnpm build` all pass local
 
 **Remaining (manual):** rotate/retire the exposed Supabase credentials; verify `docker compose up` end-to-end on the target host.
 
-## Phase 1 — First-party auth
+## Phase 1 — First-party auth ✅ (August 2026)
 
-Replace Supabase Auth with our own: `users` table gains a `passwordHash` (argon2id); tRPC `auth.register` / `auth.login` / `auth.logout` issuing the existing session cookie; `authenticateRequest` verifies our JWT and loads the DB user by integer id — fixing the identity mismatch at the root. Client's SupabaseAuthContext becomes a thin AuthContext over tRPC. Rate-limit login, add password reset via email later (not a v1 blocker).
+Done: Supabase Auth fully replaced with our own. `users` gained `passwordHash` (scrypt — no native deps) and a unique email; fresh Postgres migration history generated (the scaffold's old migrations were unusable MySQL files). tRPC `auth.register`/`login`/`logout`/`me` issue an HS256 session JWT in an httpOnly `SameSite=Lax` cookie; `authenticateRequest` verifies it and loads the DB user by integer id — the identity mismatch is fixed at the root. In-memory login rate limiting (10 attempts / 15 min per IP+email). Client got a thin `AuthContext` over tRPC; Supabase context, OAuth callback page, obsolete compose variants, and the `@supabase/supabase-js` dependency are gone. Also fixed along the way: a broken `drizzle.config.ts` and dead Google-OAuth login button. 19 unit tests pass (hashing, tokens, rate limiting, logout); full register→login→me→logout integration test lands with the Phase 2 DB test suite.
 
-**Exit criteria:** register → login → protected API call → logout works against local Postgres; tests cover the token path.
+**Remaining (later):** password reset via email; wallet-signature login as an optional identity layer (post-v1).
 
 ## Phase 2 — Matrix bridge and real messaging (the heart of v1)
 
@@ -37,6 +37,10 @@ DNS for sovrgnnet.cc and matrix.sovrgnnet.cc; TLS via Let's Encrypt; nginx front
 ## Phase 5 — Community features
 
 Invites and membership (make `serverMembers` real: join via invite link, roles enforced in API), user presence, typing indicators, message editing/deletion, reactions (schema already has the column), moderation basics (kick/ban mapped to Matrix power levels).
+
+## Phase 5.5 — Desktop app (Tauri)
+
+Once messaging works in the browser, wrap it: a Tauri shell targeting sovrgnnet.cc with native notifications, system tray, and auto-update. Thin by design — all product logic stays in the web app.
 
 ## Phase 6 — The sovereign extras (post-v1)
 
