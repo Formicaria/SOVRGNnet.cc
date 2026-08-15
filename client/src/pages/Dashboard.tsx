@@ -15,7 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download } from "lucide-react";
+import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy } from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -39,6 +39,8 @@ type TimelineItem =
   | {
       kind: "message";
       id: string;
+      dbId: number;
+      senderId: number;
       senderName: string | null;
       createdAt: Date;
       content: string;
@@ -121,6 +123,27 @@ export default function Dashboard() {
     },
     onError: e => setError(e.message),
   });
+  const deleteMessage = trpc.messages.delete.useMutation({
+    onSuccess: async () => {
+      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+    },
+    onError: e => setError(e.message),
+  });
+  const createInvite = trpc.servers.createInvite.useMutation({
+    onSuccess: res => setInviteCode(res.code),
+    onError: e => setError(e.message),
+  });
+  const leaveServer = trpc.servers.leave.useMutation({
+    onSuccess: async () => {
+      setSelectedServerId(null);
+      setSelectedChannelId(null);
+      await utils.servers.list.invalidate();
+    },
+    onError: e => setError(e.message),
+  });
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
 
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -162,6 +185,8 @@ export default function Dashboard() {
       ...messages.map(m => ({
         kind: "message" as const,
         id: `m${m.id}`,
+        dbId: m.id,
+        senderId: m.userId,
         senderName: m.senderName,
         createdAt: new Date(m.createdAt),
         content: m.content,
@@ -350,8 +375,76 @@ export default function Dashboard() {
 
       {/* Channel list */}
       <aside className="w-60 bg-slate-900/60 border-r border-slate-800 flex flex-col">
-        <div className="h-12 px-4 flex items-center border-b border-slate-800 font-semibold truncate">
-          {selectedServer?.name ?? "SOVRGNnet"}
+        <div className="h-12 px-4 flex items-center gap-2 border-b border-slate-800">
+          <span className="font-semibold truncate flex-1">
+            {selectedServer?.name ?? "SOVRGNnet"}
+          </span>
+          {selectedServer && selectedServer.ownerId === user.id && (
+            <Dialog
+              open={inviteOpen}
+              onOpenChange={open => {
+                setInviteOpen(open);
+                if (open && selectedServerId) {
+                  setInviteCopied(false);
+                  createInvite.mutate({ serverId: selectedServerId });
+                }
+              }}
+            >
+              <DialogTrigger asChild>
+                <button
+                  className="text-slate-400 hover:text-purple-400 transition-colors"
+                  title="Invite people"
+                >
+                  <UserPlus className="w-4 h-4" />
+                </button>
+              </DialogTrigger>
+              <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
+                <DialogHeader>
+                  <DialogTitle>Invite people</DialogTitle>
+                  <DialogDescription>
+                    Anyone with this link can join {selectedServer.name}.
+                  </DialogDescription>
+                </DialogHeader>
+                {inviteCode ? (
+                  <div className="flex gap-2">
+                    <Input
+                      readOnly
+                      value={`${window.location.origin}/invite/${inviteCode}`}
+                      className="bg-slate-800 border-slate-700 font-mono text-sm"
+                    />
+                    <Button
+                      size="icon"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(
+                          `${window.location.origin}/invite/${inviteCode}`
+                        );
+                        setInviteCopied(true);
+                      }}
+                    >
+                      {inviteCopied ? (
+                        <Check className="w-4 h-4" />
+                      ) : (
+                        <Copy className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <Loader2 className="w-5 h-5 animate-spin text-purple-500" />
+                )}
+              </DialogContent>
+            </Dialog>
+          )}
+          {selectedServer && selectedServer.ownerId !== user.id && (
+            <button
+              className="text-slate-400 hover:text-red-400 transition-colors"
+              title="Leave server"
+              onClick={() =>
+                selectedServerId && leaveServer.mutate({ serverId: selectedServerId })
+              }
+            >
+              <DoorOpen className="w-4 h-4" />
+            </button>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
           {channels.map(channel => (
@@ -471,11 +564,11 @@ export default function Dashboard() {
             </div>
           )}
           {timeline.map(item => (
-            <div key={item.id} className="flex gap-3">
+            <div key={item.id} className="flex gap-3 group">
               <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold shrink-0">
                 {initials(item.senderName ?? "?")}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="font-medium text-sm">
                     {item.senderName ?? "Unknown"}
@@ -486,6 +579,17 @@ export default function Dashboard() {
                       minute: "2-digit",
                     })}
                   </span>
+                  {item.kind === "message" &&
+                    (item.senderId === user.id ||
+                      selectedServer?.ownerId === user.id) && (
+                      <button
+                        className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-all"
+                        title="Delete message"
+                        onClick={() => deleteMessage.mutate({ messageId: item.dbId })}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                 </div>
                 {item.kind === "message" ? (
                   <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">

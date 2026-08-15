@@ -11,6 +11,7 @@ import {
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { nanoid } from "nanoid";
 import { z } from "zod";
 import * as db from "./db";
 import * as matrix from "./matrixService";
@@ -176,6 +177,78 @@ export const appRouter = router({
         await requireServerMembership(input.serverId, ctx.user.id);
         return await db.getServerById(input.serverId);
       }),
+
+    /** Owner creates (or returns the existing) shareable invite code. */
+    createInvite: protectedProcedure
+      .input(z.object({ serverId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const server = await db.getServerById(input.serverId);
+        if (!server) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Server not found." });
+        }
+        if (server.ownerId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only the server owner can create invites.",
+          });
+        }
+        if (server.inviteCode) return { code: server.inviteCode };
+
+        const code = nanoid(10);
+        await db.setServerInviteCode(server.id, code);
+        return { code };
+      }),
+
+    /** Join via invite code — works for private servers too. */
+    joinByInvite: protectedProcedure
+      .input(z.object({ code: z.string().min(1).max(32) }))
+      .mutation(async ({ ctx, input }) => {
+        const server = await db.getServerByInviteCode(input.code);
+        if (!server) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Invalid invite." });
+        }
+        if (!(await db.isServerMember(server.id, ctx.user.id))) {
+          const creds = await ensureMatrixCredentials(ctx.user.id);
+          const channels = await db.getChannelsByServer(server.id);
+          await joinServerRooms(
+            creds.accessToken,
+            server.matrixRoomId,
+            channels.map(c => c.matrixRoomId)
+          );
+          await db.addServerMember(server.id, ctx.user.id, "member");
+        }
+        return { serverId: server.id, serverName: server.name };
+      }),
+
+    /** Leave a server (owners can't leave their own). */
+    leave: protectedProcedure
+      .input(z.object({ serverId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const server = await db.getServerById(input.serverId);
+        if (!server) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Server not found." });
+        }
+        if (server.ownerId === ctx.user.id) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Owners cannot leave their own server.",
+          });
+        }
+
+        const creds = await db.getMatrixCredentials(ctx.user.id);
+        if (creds) {
+          const channels = await db.getChannelsByServer(server.id);
+          for (const roomId of [server.matrixRoomId, ...channels.map(c => c.matrixRoomId)]) {
+            try {
+              await matrix.leaveRoom(creds.accessToken, roomId);
+            } catch {
+              // Best-effort; membership removal below is authoritative.
+            }
+          }
+        }
+        await db.removeServerMember(server.id, ctx.user.id);
+        return { left: true } as const;
+      }),
   }),
 
   // Channel operations
@@ -275,6 +348,47 @@ export const appRouter = router({
           eventId,
           false
         );
+      }),
+
+    /** Delete a message — author or server owner. Redacts on Matrix too. */
+    delete: protectedProcedure
+      .input(z.object({ messageId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.messageId);
+        if (!message) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Message not found." });
+        }
+        const channel = await db.getChannelById(message.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        const server = await db.getServerById(channel.serverId);
+        const isAuthor = message.userId === ctx.user.id;
+        const isOwner = server?.ownerId === ctx.user.id;
+        if (!isAuthor && !isOwner) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only delete your own messages.",
+          });
+        }
+
+        // Redact as the author when possible, else as the acting owner.
+        const creds = await db.getMatrixCredentials(
+          isAuthor ? ctx.user.id : message.userId
+        ) ?? await db.getMatrixCredentials(ctx.user.id);
+        if (creds) {
+          try {
+            await matrix.redactEvent(
+              creds.accessToken,
+              channel.matrixRoomId,
+              message.matrixEventId
+            );
+          } catch {
+            // DB deletion below is authoritative for the app's view.
+          }
+        }
+        await db.deleteMessage(message.id);
+        return { deleted: true } as const;
       }),
   }),
 

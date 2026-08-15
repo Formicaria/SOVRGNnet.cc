@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Loader2, Zap, Lock, Users, MessageCircle } from "lucide-react";
 import { useLocation } from "wouter";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function Home() {
   const { user, loading, login, register } = useAuth();
@@ -16,6 +16,16 @@ export default function Home() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  // If the user arrived via an invite link before signing in, resume it.
+  useEffect(() => {
+    if (!user) return;
+    const pending = sessionStorage.getItem("pending_invite");
+    if (pending) {
+      sessionStorage.removeItem("pending_invite");
+      setLocation(`/invite/${pending}`);
+    }
+  }, [user, setLocation]);
 
   const handleEmailAuth = async () => {
     try {

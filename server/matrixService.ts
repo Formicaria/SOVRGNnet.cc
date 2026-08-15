@@ -195,6 +195,33 @@ export async function sendMessage(
   return res.event_id;
 }
 
+/** Redact (delete) an event. Returns the redaction event id. */
+export async function redactEvent(
+  accessToken: string,
+  roomId: string,
+  eventId: string,
+  reason?: string
+): Promise<string> {
+  const txnId = `sovrgn_redact_${Date.now()}_${nanoid(8)}`;
+  const res = await matrixRequest<{ event_id: string }>(
+    "PUT",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/redact/${encodeURIComponent(eventId)}/${txnId}`,
+    reason ? { reason } : {},
+    accessToken
+  );
+  return res.event_id;
+}
+
+/** Leave a room. */
+export async function leaveRoom(accessToken: string, roomId: string): Promise<void> {
+  await matrixRequest(
+    "POST",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/leave`,
+    {},
+    accessToken
+  );
+}
+
 export type MatrixMessage = {
   eventId: string;
   sender: string;

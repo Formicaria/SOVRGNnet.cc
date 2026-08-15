@@ -163,4 +163,76 @@ describe.skipIf(!process.env.DATABASE_URL)("Platform flow (DB + fake homeserver)
     expect(ids).toContain(alice.id);
     expect(ids).toContain(bob.id);
   });
+
+  it("invite links: owner creates, a third user joins by code", async () => {
+    const aliceCaller = appRouter.createCaller(contextFor(alice));
+    const { code } = await aliceCaller.servers.createInvite({ serverId });
+    expect(code).toBeTruthy();
+
+    // Idempotent: asking again returns the same code.
+    const again = await aliceCaller.servers.createInvite({ serverId });
+    expect(again.code).toBe(code);
+
+    const carol = (await db.createLocalUser(
+      `carol_${Date.now()}@test.cc`,
+      "x",
+      "Carol"
+    )) as AuthenticatedUser;
+    const carolCaller = appRouter.createCaller(contextFor(carol));
+    const joined = await carolCaller.servers.joinByInvite({ code });
+    expect(joined.serverId).toBe(serverId);
+
+    const messages = await carolCaller.messages.listByChannel({
+      channelId: generalChannelId,
+      limit: 10,
+    });
+    expect(Array.isArray(messages)).toBe(true);
+  });
+
+  it("message deletion: author can, others cannot, owner can moderate", async () => {
+    const bobCaller = appRouter.createCaller(contextFor(bob));
+    const aliceCaller = appRouter.createCaller(contextFor(alice));
+
+    const msg = await bobCaller.messages.send({
+      channelId: generalChannelId,
+      content: "delete me",
+    });
+
+    // Alice (owner) is allowed; a random author check first: bob deletes his own.
+    await bobCaller.messages.delete({ messageId: msg.id });
+    const after = await bobCaller.messages.listByChannel({
+      channelId: generalChannelId,
+      limit: 50,
+    });
+    expect(after.some(m => m.id === msg.id)).toBe(false);
+
+    // Owner moderation: alice deletes bob's second message.
+    const msg2 = await bobCaller.messages.send({
+      channelId: generalChannelId,
+      content: "moderate me",
+    });
+    await aliceCaller.messages.delete({ messageId: msg2.id });
+
+    // Bob cannot delete alice's message.
+    const aliceMsg = await aliceCaller.messages.send({
+      channelId: generalChannelId,
+      content: "untouchable",
+    });
+    await expect(
+      bobCaller.messages.delete({ messageId: aliceMsg.id })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("leaving: members can leave, owners cannot", async () => {
+    const bobCaller = appRouter.createCaller(contextFor(bob));
+    await bobCaller.servers.leave({ serverId });
+    await expect(
+      bobCaller.messages.listByChannel({ channelId: generalChannelId, limit: 10 })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    const aliceCaller = appRouter.createCaller(contextFor(alice));
+    await expect(
+      aliceCaller.servers.leave({ serverId })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
 });
