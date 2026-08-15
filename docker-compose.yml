@@ -107,6 +107,19 @@ services:
       timeout: 10s
       retries: 3
 
+  # Cloudflare Tunnel — outbound-only ingress, no forwarded ports.
+  # Runs only when started with: docker compose --profile tunnel up -d
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: sovrgnnet-tunnel
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - sovrgnnet
+
   # Nginx Reverse Proxy (optional but recommended)
   nginx:
     image: nginx:alpine
