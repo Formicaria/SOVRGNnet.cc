@@ -19,12 +19,16 @@ export function registerInstanceRoutes(app: Express): void {
    * response doesn't say `product: "sovrgnnet"`, it isn't one of ours and the
    * client can say so plainly instead of failing at a login screen.
    */
-  app.get("/api/instance", (_req, res) => {
+  app.get("/api/instance", async (_req, res) => {
+    // Short cache: an admin renaming their server should see it propagate in
+    // a minute, not on the next restart.
     res.set("Cache-Control", "public, max-age=60");
     // A client on a different origin has to be able to read this — that's the
     // entire point of a multi-server client.
     res.set("Access-Control-Allow-Origin", "*");
-    res.json(instanceInfo(APP_VERSION));
+
+    const stored = await db.getInstanceSettings().catch(() => null);
+    res.json(instanceInfo(APP_VERSION, stored));
   });
 
   app.options("/api/instance", (_req, res) => {
@@ -60,7 +64,10 @@ export function registerInstanceRoutes(app: Express): void {
         return res.status(404).json({ error: "This invite is no longer valid" });
       }
 
-      const instance = instanceInfo(APP_VERSION);
+      const instance = instanceInfo(
+        APP_VERSION,
+        await db.getInstanceSettings().catch(() => null)
+      );
       res.json({
         valid: true,
         server: {

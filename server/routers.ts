@@ -1,4 +1,4 @@
-import { COOKIE_NAME } from "@shared/const";
+import { APP_VERSION, COOKIE_NAME } from "@shared/const";
 import { inviteDeepLink, inviteUrl } from "@shared/invite";
 import { TRPCError } from "@trpc/server";
 import {
@@ -11,7 +11,8 @@ import {
 } from "./_core/auth";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { instanceInfo, normalizeJoinPolicy } from "./instance";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import * as db from "./db";
@@ -62,8 +63,19 @@ export const appRouter = router({
           });
         }
 
+        // Whoever registers first is the person who set this instance up, so
+        // they get the keys to it. Every account after that is an ordinary
+        // user until an admin says otherwise. Without this nobody is ever an
+        // admin and the instance has no administrator at all.
+        const isFirstAccount = (await db.countUsers()) === 0;
+
         const passwordHash = await hashPassword(input.password);
-        const user = await db.createLocalUser(input.email, passwordHash, input.name);
+        const user = await db.createLocalUser(
+          input.email,
+          passwordHash,
+          input.name,
+          isFirstAccount ? "admin" : "user"
+        );
 
         const token = await createSessionToken(user.id);
         setSessionCookie(ctx.req, ctx.res, token);
@@ -803,6 +815,79 @@ export const appRouter = router({
       .input(z.object({ serverId: z.number() }))
       .query(async ({ ctx, input }) => {
         return await getServerRole(input.serverId, ctx.user.id);
+      }),
+  }),
+
+  /**
+   * Instance administration.
+   *
+   * Everything a server owner would otherwise SSH in to change. Restricted to
+   * accounts with the instance-level admin role — which is the first account
+   * registered, and anyone they promote.
+   *
+   * Works the same whether the client is on the same machine as the server or
+   * across the internet: administering a box in your closet from the laptop
+   * in your hand is the point, not a special case.
+   */
+  admin: router({
+    getSettings: adminProcedure.query(async () => {
+      const stored = await db.getInstanceSettings();
+      const info = instanceInfo(APP_VERSION, stored);
+      return {
+        name: info.name,
+        description: info.description,
+        joinPolicy: info.joinPolicy,
+        listed: info.listed,
+        // Read-only facts an admin needs to see but cannot change here:
+        // the Matrix name is permanent, and encryption depends on deployment.
+        matrixServerName: info.matrixServerName,
+        encryption: info.encryption,
+        instanceId: info.id,
+        version: info.software.version,
+        /** True once an admin has saved anything; false means env defaults. */
+        configured: stored != null,
+      };
+    }),
+
+    updateSettings: adminProcedure
+      .input(
+        z.object({
+          name: z.string().min(1).max(120).optional(),
+          description: z.string().max(500).nullable().optional(),
+          joinPolicy: z.enum(["open", "invite", "closed"]).optional(),
+          listed: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const saved = await db.saveInstanceSettings(input);
+        return {
+          name: saved.name,
+          description: saved.description,
+          joinPolicy: normalizeJoinPolicy(saved.joinPolicy),
+          listed: saved.listed,
+        };
+      }),
+
+    /** Everyone with an account on this instance. */
+    listUsers: adminProcedure.query(async () => {
+      return await db.listUsers();
+    }),
+
+    /** Grant or revoke instance administration. */
+    setUserRole: adminProcedure
+      .input(z.object({ userId: z.number(), role: z.enum(["user", "admin"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (input.userId === ctx.user.id && input.role === "user") {
+          // An instance with no administrator can only be repaired from a
+          // database console, which is exactly what this surface exists to
+          // avoid needing.
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "You can't remove your own admin access.",
+          });
+        }
+        await db.setUserRole(input.userId, input.role);
+        return { role: input.role } as const;
       }),
   }),
 

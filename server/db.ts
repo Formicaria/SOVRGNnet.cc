@@ -1,7 +1,7 @@
 import { eq, and, sql, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { InsertUser, users, servers, channels, messages, fileShares, soundboardClips, nitroSubscriptions, serverMembers, serverBans, userProfiles } from "../drizzle/schema";
+import { InsertUser, users, servers, channels, messages, fileShares, soundboardClips, nitroSubscriptions, serverMembers, serverBans, userProfiles, instanceSettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -119,7 +119,8 @@ export async function getUserByEmail(email: string) {
 export async function createLocalUser(
   email: string,
   passwordHash: string,
-  name?: string
+  name?: string,
+  role: "user" | "admin" = "user"
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -132,9 +133,24 @@ export async function createLocalUser(
       passwordHash,
       name: name ?? email.split("@")[0],
       loginMethod: "password",
+      role,
     })
     .returning();
   return result[0];
+}
+
+/**
+ * How many accounts exist.
+ *
+ * Used to decide whether a registration is the very first one — the person
+ * setting the instance up — and therefore its administrator.
+ */
+export async function countUsers(): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db.select({ count: sql<number>`count(*)::int` }).from(users);
+  return Number(rows[0]?.count ?? 0);
 }
 
 export async function touchLastSignedIn(userId: number): Promise<void> {
@@ -632,6 +648,77 @@ export async function getServerBans(serverId: number) {
     .from(serverBans)
     .leftJoin(users, eq(serverBans.userId, users.id))
     .where(eq(serverBans.serverId, serverId));
+}
+
+/** Everyone with an account here, for the admin surface. Never exposes hashes. */
+export async function listUsers() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      createdAt: users.createdAt,
+      lastSignedIn: users.lastSignedIn,
+    })
+    .from(users)
+    .orderBy(users.createdAt);
+}
+
+export async function setUserRole(userId: number, role: "user" | "admin"): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, userId));
+}
+
+// Instance settings — one row, id 1. Absent until an admin saves something,
+// at which point it takes precedence over the environment.
+export async function getInstanceSettings() {
+  const db = await getDb();
+  if (!db) return null;
+
+  try {
+    const rows = await db
+      .select()
+      .from(instanceSettings)
+      .where(eq(instanceSettings.id, 1))
+      .limit(1);
+    return rows[0] ?? null;
+  } catch {
+    // A server that can't read its own settings should still serve traffic
+    // on environment defaults rather than fail to start.
+    return null;
+  }
+}
+
+export async function saveInstanceSettings(values: {
+  name?: string | null;
+  description?: string | null;
+  joinPolicy?: string;
+  listed?: boolean;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await getInstanceSettings();
+  if (existing) {
+    const result = await db
+      .update(instanceSettings)
+      .set({ ...values, updatedAt: new Date() })
+      .where(eq(instanceSettings.id, 1))
+      .returning();
+    return result[0];
+  }
+
+  const result = await db
+    .insert(instanceSettings)
+    .values({ id: 1, ...values })
+    .returning();
+  return result[0];
 }
 
 /** The Matrix user id for an app user, if they've been provisioned. */

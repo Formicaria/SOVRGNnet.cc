@@ -92,6 +92,16 @@ The client side landed too: `ConnectionsContext` owns the known-servers list, th
 
 **Remaining:** sign-in per server in the desktop client, and replacing the webview with a native UI.
 
+## Phase 7.5 — The desktop app hosts a server 🚧
+
+On Windows, installing the app should mean you're hosting — not just connecting. [ADR 0002](adr/0002-windows-bundled-server.md) records how: **WSL2**, running the identical Linux stack, rather than a second homeserver implementation. Conduit ships Linux binaries only, and swapping to Dendrite on Windows would mean two config formats, two sets of quirks, and two upgrade paths forever — a permanent tax to serve the platform least likely to be hosting anything.
+
+Done: settings moved out of environment variables into an `instanceSettings` table, with the environment as bootstrap defaults and stored values winning once an admin saves. `admin.getSettings` / `updateSettings` / `listUsers` / `setUserRole` give the client everything an owner would otherwise SSH in to change — as a normal authenticated API, so administering a box in your closet from your laptop is the ordinary case rather than a special one.
+
+**Fixed here, and it was a real one:** the first account was documented as becoming the instance admin and never did. `adminProcedure` existed and checked `role === 'admin'`, but `createLocalUser` never assigned it — so no account on any instance was ever an administrator, and the admin surface was unreachable. First registration now takes the role, and an admin can't demote themselves out of existence.
+
+**Remaining:** WSL2 provisioning from the installer, lifecycle supervision, LAN reachability (WSL2's NAT address changes across reboots), and surfacing backups somewhere visible in Windows rather than inside the distro.
+
 ## Phase 8 — Client-side Matrix
 
 The client syncs directly with each homeserver instead of the app proxying. Still plaintext — this step is about moving the transport, not encrypting it, and separating the two keeps each reviewable. Replaces the 3-second polling loop with a real `/sync` stream. Conduit stops being loopback-only and moves behind the tunnel with proper delegation.
