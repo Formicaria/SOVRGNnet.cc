@@ -19,7 +19,16 @@ import {
   ensureMatrixCredentials,
   joinServerRooms,
   requireServerMembership,
+  syncPowerLevels,
 } from "./matrixBridge";
+import {
+  atLeast,
+  getServerRole,
+  requireAuthorityOver,
+  requireServerRole,
+  type ServerRole,
+} from "./permissions";
+import * as presence from "./presence";
 import type { User } from "../drizzle/schema";
 
 const credentialsInput = z.object({
@@ -159,6 +168,12 @@ export const appRouter = router({
         if (await db.isServerMember(server.id, ctx.user.id)) {
           return { joined: true } as const;
         }
+        if (await db.isServerBanned(server.id, ctx.user.id)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You've been banned from this server.",
+          });
+        }
 
         const creds = await ensureMatrixCredentials(ctx.user.id);
         const channels = await db.getChannelsByServer(server.id);
@@ -178,7 +193,7 @@ export const appRouter = router({
         return await db.getServerById(input.serverId);
       }),
 
-    /** Owner creates (or returns the existing) shareable invite code. */
+    /** Admins and up create (or return the existing) shareable invite code. */
     createInvite: protectedProcedure
       .input(z.object({ serverId: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -186,12 +201,7 @@ export const appRouter = router({
         if (!server) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Server not found." });
         }
-        if (server.ownerId !== ctx.user.id) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Only the server owner can create invites.",
-          });
-        }
+        await requireServerRole(input.serverId, ctx.user.id, "admin");
         if (server.inviteCode) return { code: server.inviteCode };
 
         const code = nanoid(10);
@@ -206,6 +216,12 @@ export const appRouter = router({
         const server = await db.getServerByInviteCode(input.code);
         if (!server) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Invalid invite." });
+        }
+        if (await db.isServerBanned(server.id, ctx.user.id)) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You've been banned from this server.",
+          });
         }
         if (!(await db.isServerMember(server.id, ctx.user.id))) {
           const creds = await ensureMatrixCredentials(ctx.user.id);
@@ -272,12 +288,7 @@ export const appRouter = router({
         if (!server) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Server not found." });
         }
-        if (server.ownerId !== ctx.user.id) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Only the server owner can create channels.",
-          });
-        }
+        await requireServerRole(input.serverId, ctx.user.id, "admin");
 
         const creds = await ensureMatrixCredentials(ctx.user.id);
         const roomId = await matrix.createChannelRoom(

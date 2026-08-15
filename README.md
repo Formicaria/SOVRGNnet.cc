@@ -4,7 +4,26 @@
 
 Production target: **[sovrgnnet.cc](https://sovrgnnet.cc)** · Operated by [Formicaria](https://formicaria.us)
 
-> **Status: v0.1.0 alpha.** Text chat works end-to-end: accounts, servers, channels, and messages riding on a real Matrix homeserver. Voice, file sharing, and E2EE are on the [roadmap](docs/ROADMAP.md). See [CHANGELOG.md](CHANGELOG.md) for what shipped.
+> **Status: v0.1.0 alpha.** Text chat, file sharing, and invites work end-to-end on a real Matrix homeserver. Voice and E2EE are on the [roadmap](docs/ROADMAP.md). See [CHANGELOG.md](CHANGELOG.md) for what shipped.
+
+## Run it
+
+```bash
+git clone https://github.com/Formicaria/SOVRGNnet.cc.git sovrgnnet
+cd sovrgnnet
+./install.sh
+```
+
+The installer asks how people should reach your instance, generates every
+password and secret, and starts the stack. **No domain and no accounts are
+required** — one of the options gets you a public `https://` link with no
+signup anywhere. The app migrates its own database on boot, so there's no
+separate setup step to forget.
+
+Never done this before? [**QUICKSTART.md**](QUICKSTART.md) walks through it
+assuming no prior experience.
+
+Day to day: `./sovrgnnet status | start | stop | url | backup | update`
 
 ## What it is
 
@@ -48,21 +67,35 @@ Requirements: Node 22+, pnpm 10, and a Postgres instance (or run `docker compose
 ```bash
 pnpm install
 cp .env.example .env        # fill in DATABASE_URL, JWT_SECRET at minimum
-pnpm db:push                # generate + run migrations
-pnpm dev                    # starts server + Vite on :3000
+pnpm dev                    # migrates on boot, then serves on :3000
 ```
+
+`pnpm db:push` regenerates migration SQL after a schema change; you don't need
+it to run the app. The server applies pending migrations itself at startup.
 
 Useful commands: `pnpm check` (typecheck), `pnpm test` (vitest), `pnpm build` (production build), `pnpm format`.
 
 ## Deployment
 
-The full stack deploys with Docker Compose behind nginx. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the sovrgnnet.cc production guide, including DNS, TLS, and the Matrix well-known configuration.
+`./install.sh` covers every hosting shape below; these are the underlying
+compose profiles if you'd rather drive it yourself.
 
-```bash
-cp docker.env.template .env
-# edit .env — set real passwords and secrets
-docker compose up -d
-```
+| Profile | Command | Reachable at |
+|---|---|---|
+| *(none)* | `docker compose up -d` | `http://<lan-ip>:3000` |
+| `quick` | `docker compose --profile quick up -d` | random `*.trycloudflare.com`, no account |
+| `tunnel` | `docker compose --profile tunnel up -d` | your domain, via a Cloudflare tunnel token |
+| `proxy` | `docker compose --profile proxy up -d` | your domain, your own TLS certs in `./ssl` |
+
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the sovrgnnet.cc production
+guide, including DNS, TLS, and the Matrix well-known configuration.
+
+Two settings are worth knowing about:
+
+- `MATRIX_SERVER_NAME` is baked into every Matrix user and room ID at creation
+  time. Changing it after first launch orphans existing chat history.
+- `MATRIX_ALLOW_FEDERATION` defaults to `false`. Your homeserver talks to
+  nobody until you turn it on.
 
 ## Documentation
 

@@ -14,6 +14,12 @@ build/
 .env.test.local
 .env.production.local
 .env.production
+# install.sh / restore.sh keep timestamped copies of your old settings
+.env.backup.*
+.env.before-restore.*
+
+# Backups contain secrets and user data — never commit them
+backups/
 
 # IDE and editor files
 .vscode/

@@ -222,6 +222,151 @@ export async function leaveRoom(accessToken: string, roomId: string): Promise<vo
   );
 }
 
+/**
+ * Edit a message.
+ *
+ * Matrix models an edit as a *new* event that points back at the original
+ * with an `m.replace` relation — the original is never mutated. Clients that
+ * understand the relation render the replacement; ones that don't still see
+ * the fallback body, which is why it's prefixed with "* " by convention.
+ */
+export async function editMessage(
+  accessToken: string,
+  roomId: string,
+  originalEventId: string,
+  newBody: string
+): Promise<string> {
+  const txnId = `sovrgn_edit_${Date.now()}_${nanoid(8)}`;
+  const res = await matrixRequest<{ event_id: string }>(
+    "PUT",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+    {
+      msgtype: "m.text",
+      body: `* ${newBody}`,
+      "m.new_content": { msgtype: "m.text", body: newBody },
+      "m.relates_to": { rel_type: "m.replace", event_id: originalEventId },
+    },
+    accessToken
+  );
+  return res.event_id;
+}
+
+/** React to a message (an `m.annotation` relation carrying the emoji). */
+export async function sendReaction(
+  accessToken: string,
+  roomId: string,
+  targetEventId: string,
+  emoji: string
+): Promise<string> {
+  const txnId = `sovrgn_react_${Date.now()}_${nanoid(8)}`;
+  const res = await matrixRequest<{ event_id: string }>(
+    "PUT",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.reaction/${txnId}`,
+    {
+      "m.relates_to": {
+        rel_type: "m.annotation",
+        event_id: targetEventId,
+        key: emoji,
+      },
+    },
+    accessToken
+  );
+  return res.event_id;
+}
+
+/**
+ * Tell the room someone is typing.
+ *
+ * Fire-and-forget by design: a dropped typing notification is not worth
+ * failing a request over.
+ */
+export async function setTyping(
+  accessToken: string,
+  roomId: string,
+  matrixUserId: string,
+  typing: boolean,
+  timeoutMs = 8000
+): Promise<void> {
+  await matrixRequest(
+    "PUT",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/typing/${encodeURIComponent(matrixUserId)}`,
+    typing ? { typing: true, timeout: timeoutMs } : { typing: false },
+    accessToken
+  );
+}
+
+/** Power levels: what a Matrix room understands about authority. */
+export const POWER_LEVELS = {
+  owner: 100,
+  admin: 75,
+  moderator: 50,
+  member: 0,
+} as const;
+
+/**
+ * Grant a user a power level in a room.
+ *
+ * Power levels live in a single `m.room.power_levels` state event, so raising
+ * one user means reading the current state, amending it, and writing it back.
+ */
+export async function setPowerLevel(
+  accessToken: string,
+  roomId: string,
+  matrixUserId: string,
+  level: number
+): Promise<void> {
+  const current = await matrixRequest<{ users?: Record<string, number> }>(
+    "GET",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.power_levels/`,
+    undefined,
+    accessToken
+  );
+
+  const users = { ...(current?.users ?? {}) };
+  if (level <= 0) {
+    delete users[matrixUserId];
+  } else {
+    users[matrixUserId] = level;
+  }
+
+  await matrixRequest(
+    "PUT",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.power_levels/`,
+    { ...current, users },
+    accessToken
+  );
+}
+
+/** Remove someone from a room. They can be re-invited or rejoin if public. */
+export async function kickUser(
+  accessToken: string,
+  roomId: string,
+  matrixUserId: string,
+  reason?: string
+): Promise<void> {
+  await matrixRequest(
+    "POST",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/kick`,
+    reason ? { user_id: matrixUserId, reason } : { user_id: matrixUserId },
+    accessToken
+  );
+}
+
+/** Ban someone from a room. Unlike a kick, this survives rejoin attempts. */
+export async function banUser(
+  accessToken: string,
+  roomId: string,
+  matrixUserId: string,
+  reason?: string
+): Promise<void> {
+  await matrixRequest(
+    "POST",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/ban`,
+    reason ? { user_id: matrixUserId, reason } : { user_id: matrixUserId },
+    accessToken
+  );
+}
+
 export type MatrixMessage = {
   eventId: string;
   sender: string;
