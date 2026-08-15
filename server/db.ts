@@ -1,7 +1,7 @@
 import { eq, and, sql, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { InsertUser, users, servers, channels, messages, fileShares, soundboardClips, nitroSubscriptions, serverMembers, userProfiles } from "../drizzle/schema";
+import { InsertUser, users, servers, channels, messages, fileShares, soundboardClips, nitroSubscriptions, serverMembers, serverBans, userProfiles } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -259,6 +259,8 @@ export async function getMessagesByChannel(channelId: number, limit: number = 50
       content: messages.content,
       matrixEventId: messages.matrixEventId,
       createdAt: messages.createdAt,
+      editedAt: messages.editedAt,
+      reactions: messages.reactions,
       senderName: users.name,
     })
     .from(messages)
@@ -529,4 +531,182 @@ export async function getServerMembers(serverId: number) {
   if (!db) throw new Error("Database not available");
 
   return await db.select().from(serverMembers).where(eq(serverMembers.serverId, serverId));
+}
+
+/** Members with display names and Matrix ids, owners first. */
+export async function getServerMembersDetailed(serverId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .select({
+      userId: serverMembers.userId,
+      role: serverMembers.role,
+      joinedAt: serverMembers.joinedAt,
+      name: users.name,
+      email: users.email,
+      matrixUserId: userProfiles.matrixUserId,
+    })
+    .from(serverMembers)
+    .leftJoin(users, eq(serverMembers.userId, users.id))
+    .leftJoin(userProfiles, eq(serverMembers.userId, userProfiles.userId))
+    .where(eq(serverMembers.serverId, serverId));
+}
+
+export async function getServerMemberRole(
+  serverId: number,
+  userId: number
+): Promise<'owner' | 'admin' | 'moderator' | 'member' | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select({ role: serverMembers.role })
+    .from(serverMembers)
+    .where(and(eq(serverMembers.serverId, serverId), eq(serverMembers.userId, userId)))
+    .limit(1);
+  return rows[0]?.role ?? null;
+}
+
+export async function setServerMemberRole(
+  serverId: number,
+  userId: number,
+  role: 'owner' | 'admin' | 'moderator' | 'member'
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(serverMembers)
+    .set({ role })
+    .where(and(eq(serverMembers.serverId, serverId), eq(serverMembers.userId, userId)));
+}
+
+export async function banServerMember(
+  serverId: number,
+  userId: number,
+  bannedBy: number,
+  reason?: string
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const already = await isServerBanned(serverId, userId);
+  if (already) return;
+
+  await db.insert(serverBans).values({ serverId, userId, bannedBy, reason });
+}
+
+export async function unbanServerMember(serverId: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .delete(serverBans)
+    .where(and(eq(serverBans.serverId, serverId), eq(serverBans.userId, userId)));
+}
+
+export async function isServerBanned(serverId: number, userId: number): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select({ id: serverBans.id })
+    .from(serverBans)
+    .where(and(eq(serverBans.serverId, serverId), eq(serverBans.userId, userId)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function getServerBans(serverId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .select({
+      userId: serverBans.userId,
+      reason: serverBans.reason,
+      createdAt: serverBans.createdAt,
+      name: users.name,
+    })
+    .from(serverBans)
+    .leftJoin(users, eq(serverBans.userId, users.id))
+    .where(eq(serverBans.serverId, serverId));
+}
+
+/** The Matrix user id for an app user, if they've been provisioned. */
+export async function getMatrixUserId(userId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select({ matrixUserId: userProfiles.matrixUserId })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, userId))
+    .limit(1);
+  return rows[0]?.matrixUserId ?? null;
+}
+
+/** Replace a message's text and stamp it as edited. */
+export async function updateMessageContent(messageId: number, content: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .update(messages)
+    .set({ content, editedAt: new Date(), updatedAt: new Date() })
+    .where(eq(messages.id, messageId))
+    .returning();
+  return result[0];
+}
+
+/** emoji -> list of user ids who reacted with it */
+export type ReactionMap = Record<string, number[]>;
+
+export async function setMessageReactions(
+  messageId: number,
+  reactions: ReactionMap
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(messages)
+    .set({ reactions, updatedAt: new Date() })
+    .where(eq(messages.id, messageId));
+}
+
+/**
+ * Add or remove one user's reaction, returning the updated map.
+ *
+ * Read-modify-write on a JSON column: two people reacting in the same
+ * millisecond could lose one reaction. That's an acceptable trade for now
+ * against a separate table and a join on every message fetch — and reactions
+ * are cheap to re-add. Revisit if it ever actually bites.
+ */
+export async function toggleMessageReaction(
+  messageId: number,
+  userId: number,
+  emoji: string
+): Promise<ReactionMap> {
+  const message = await getMessageById(messageId);
+  if (!message) throw new Error("Message not found");
+
+  const current: ReactionMap = { ...((message.reactions as ReactionMap | null) ?? {}) };
+  const reactors = new Set(current[emoji] ?? []);
+
+  if (reactors.has(userId)) {
+    reactors.delete(userId);
+  } else {
+    reactors.add(userId);
+  }
+
+  if (reactors.size === 0) {
+    delete current[emoji];
+  } else {
+    current[emoji] = [...reactors];
+  }
+
+  await setMessageReactions(messageId, current);
+  return current;
 }

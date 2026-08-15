@@ -94,7 +94,10 @@ export const messages = pgTable("messages", {
   content: text("content").notNull(),
   matrixEventId: varchar("matrixEventId", { length: 255 }).notNull().unique(),
   encrypted: boolean("encrypted").default(true).notNull(),
-  reactions: json("reactions"), // JSON object of emoji -> user list
+  /** { "👍": [userId, ...] } — see db.toggleMessageReaction */
+  reactions: json("reactions"),
+  /** Set the first time a message is edited; null means never edited. */
+  editedAt: timestamp("editedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
@@ -161,6 +164,25 @@ export const serverMembers = pgTable("serverMembers", {
 
 export type ServerMember = typeof serverMembers.$inferSelect;
 export type InsertServerMember = typeof serverMembers.$inferInsert;
+
+/**
+ * Server bans.
+ *
+ * A kick removes the membership row; a ban also records the person here so
+ * they can't simply walk back in through discovery or an invite link.
+ * Matrix-level bans block the rooms; this blocks the app.
+ */
+export const serverBans = pgTable("serverBans", {
+  id: serial("id").primaryKey(),
+  serverId: integer("serverId").notNull(),
+  userId: integer("userId").notNull(),
+  bannedBy: integer("bannedBy").notNull(),
+  reason: text("reason"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ServerBan = typeof serverBans.$inferSelect;
+export type InsertServerBan = typeof serverBans.$inferInsert;
 
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({

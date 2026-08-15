@@ -1,144 +1,146 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# Put a SOVRGNnet backup back — onto this machine or a brand new one.
+#
+#   ./scripts/restore.sh                              pick from a list
+#   ./scripts/restore.sh sovrgnnet_backup_20260815_120000
+#
+# This replaces everything currently on this instance. You'll be asked to
+# confirm before anything is overwritten.
 
-# SOVRGNnet - Restore Script
-# Restores data from backup for migration or disaster recovery
+set -euo pipefail
 
-set -e
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_DIR"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-if [ $# -eq 0 ]; then
-    echo -e "${RED}Usage: $0 <backup_name_or_path>${NC}"
-    echo ""
-    echo "Examples:"
-    echo "  $0 discord_backup_20260219_120000"
-    echo "  $0 ./backups/discord_backup_20260219_120000.tar.gz"
-    echo ""
-    echo "Available backups:"
-    ls -lh ./backups/*.tar.gz 2>/dev/null || echo "No backups found"
-    exit 1
-fi
-
-BACKUP_SOURCE="$1"
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 BACKUP_DIR="./backups"
 
-# Handle both directory and tar.gz formats
-if [[ "$BACKUP_SOURCE" == *.tar.gz ]]; then
-    echo -e "${YELLOW}Extracting backup archive...${NC}"
-    BACKUP_NAME=$(basename "$BACKUP_SOURCE" .tar.gz)
-    tar xzf "$BACKUP_SOURCE" -C "$BACKUP_DIR"
-    BACKUP_PATH="$BACKUP_DIR/$BACKUP_NAME"
+if docker compose version >/dev/null 2>&1; then
+  DC="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  DC="docker-compose"
 else
-    BACKUP_NAME="$BACKUP_SOURCE"
-    BACKUP_PATH="$BACKUP_DIR/$BACKUP_NAME"
+  echo -e "${RED}Docker Compose isn't installed.${NC}" >&2; exit 1
 fi
 
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}SOVRGNnet - Restore Script${NC}"
-echo -e "${GREEN}========================================${NC}"
-echo ""
-echo -e "${YELLOW}Restoring from backup: $BACKUP_NAME${NC}"
+# ------------------------------------------------------------ pick a backup
 
-# Check if backup exists
-if [ ! -d "$BACKUP_PATH" ]; then
-    echo -e "${RED}Error: Backup not found at $BACKUP_PATH${NC}"
+BACKUP_SOURCE="${1:-}"
+
+if [ -z "$BACKUP_SOURCE" ]; then
+  mapfile -t FOUND < <(ls -1t "$BACKUP_DIR"/*.tar.gz 2>/dev/null || true)
+  if [ "${#FOUND[@]}" -eq 0 ]; then
+    echo -e "${RED}No backups found in $BACKUP_DIR${NC}"
+    echo -e "${DIM}Copy your backup file there first, then run this again.${NC}"
     exit 1
+  fi
+  echo -e "${BOLD}Which backup?${NC}\n"
+  for i in "${!FOUND[@]}"; do
+    printf '    %s%d%s  %s  %s(%s)%s\n' "$BOLD" "$((i + 1))" "$NC" \
+      "$(basename "${FOUND[$i]}")" "$DIM" "$(du -h "${FOUND[$i]}" | cut -f1)" "$NC"
+  done
+  echo ""
+  read -r -p "  Pick a number [1]: " choice </dev/tty
+  choice="${choice:-1}"
+  BACKUP_SOURCE="${FOUND[$((choice - 1))]:-}"
+  [ -n "$BACKUP_SOURCE" ] || { echo -e "${RED}That wasn't one of the options.${NC}"; exit 1; }
 fi
 
-# Check if backup info exists
-if [ ! -f "$BACKUP_PATH/BACKUP_INFO.txt" ]; then
-    echo -e "${RED}Error: Invalid backup format (missing BACKUP_INFO.txt)${NC}"
-    exit 1
+# Accept a bare name, a path, or an archive.
+if [ ! -e "$BACKUP_SOURCE" ] && [ -e "$BACKUP_DIR/$BACKUP_SOURCE.tar.gz" ]; then
+  BACKUP_SOURCE="$BACKUP_DIR/$BACKUP_SOURCE.tar.gz"
+fi
+[ -e "$BACKUP_SOURCE" ] || { echo -e "${RED}Can't find $BACKUP_SOURCE${NC}"; exit 1; }
+
+if [[ "$BACKUP_SOURCE" == *.tar.gz ]]; then
+  BACKUP_NAME="$(basename "$BACKUP_SOURCE" .tar.gz)"
+  mkdir -p "$BACKUP_DIR"
+  tar xzf "$BACKUP_SOURCE" -C "$BACKUP_DIR"
+  BACKUP_PATH="$BACKUP_DIR/$BACKUP_NAME"
+  EXTRACTED=1
+else
+  BACKUP_PATH="$BACKUP_SOURCE"
+  EXTRACTED=0
 fi
 
-echo -e "${GREEN}✓ Backup found${NC}"
-cat "$BACKUP_PATH/BACKUP_INFO.txt"
-echo ""
+[ -d "$BACKUP_PATH" ] || { echo -e "${RED}$BACKUP_PATH isn't a backup folder.${NC}"; exit 1; }
 
-# Confirm restore
-read -p "$(echo -e ${YELLOW}Proceed with restore? This will overwrite existing data. \(y/n\)${NC}) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo -e "${RED}Restore cancelled${NC}"
-    exit 1
+# ------------------------------------------------------------------ confirm
+
+echo ""
+[ -f "$BACKUP_PATH/BACKUP_INFO.txt" ] && sed -n '1,8p' "$BACKUP_PATH/BACKUP_INFO.txt"
+echo ""
+echo -e "${YELLOW}${BOLD}This replaces everything on this instance${NC}"
+echo -e "${DIM}Current accounts, messages, and files will be overwritten by the backup.${NC}"
+echo ""
+read -r -p "  Type 'restore' to continue: " answer </dev/tty
+[ "$answer" = "restore" ] || { echo "Cancelled — nothing changed."; exit 0; }
+
+PROJECT="$($DC config --format json 2>/dev/null | sed -n 's/.*"name":"\([^"]*\)".*/\1/p' | head -1)"
+PROJECT="${PROJECT:-$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]')}"
+
+# ------------------------------------------------------------------- settings
+
+if [ -f "$BACKUP_PATH/env.backup" ]; then
+  echo -e "\n${YELLOW}Settings...${NC}"
+  [ -f .env ] && cp .env ".env.before-restore.$(date +%Y%m%d%H%M%S)"
+  cp "$BACKUP_PATH/env.backup" .env
+  chmod 600 .env
+  echo -e "${GREEN}  ✓ restored (your previous .env was kept alongside)${NC}"
 fi
 
-# Stop running services
-echo -e "${YELLOW}Stopping services...${NC}"
-docker-compose down || true
+# Stop the app so nothing writes while we swap the data underneath it.
+echo -e "\n${YELLOW}Pausing services...${NC}"
+$DC stop app >/dev/null 2>&1 || true
 
-# Restore configuration files
-echo -e "${YELLOW}Restoring configuration files...${NC}"
-if [ -f "$BACKUP_PATH/.env.backup" ]; then
-    cp "$BACKUP_PATH/.env.backup" .env
-    echo -e "${GREEN}✓ .env restored${NC}"
+# ------------------------------------------------------------------- volumes
+
+restore_volume() {
+  local archive="$1" volume="$2" label="$3"
+  [ -f "$archive" ] || { echo -e "${DIM}  - no $label in this backup${NC}"; return; }
+  echo -e "${YELLOW}$label...${NC}"
+  $DC stop "$4" >/dev/null 2>&1 || true
+  docker volume create "$volume" >/dev/null
+  docker run --rm \
+    -v "$volume:/data" \
+    -v "$(pwd)/$(dirname "$archive"):/backup:ro" \
+    alpine sh -c "rm -rf /data/* /data/..?* 2>/dev/null; tar xzf /backup/$(basename "$archive") -C /data"
+  echo -e "${GREEN}  ✓ restored${NC}"
+}
+
+restore_volume "$BACKUP_PATH/matrix_data.tar.gz" "${PROJECT}_matrix_data" "Chat history" "matrix"
+restore_volume "$BACKUP_PATH/ipfs_data.tar.gz"   "${PROJECT}_ipfs_data"   "Shared files" "ipfs"
+
+# ------------------------------------------------------------------ database
+
+if [ -f "$BACKUP_PATH/database.sql" ]; then
+  echo -e "${YELLOW}Database...${NC}"
+  $DC up -d db >/dev/null
+  for _ in $(seq 1 30); do
+    $DC exec -T db pg_isready -U sovrgn -d sovrgnnet >/dev/null 2>&1 && break
+    sleep 2
+  done
+  $DC exec -T db psql -U sovrgn -d sovrgnnet -v ON_ERROR_STOP=0 < "$BACKUP_PATH/database.sql" >/dev/null
+  echo -e "${GREEN}  ✓ restored${NC}"
 fi
 
-# Remove old volumes
-echo -e "${YELLOW}Removing old volumes...${NC}"
-docker volume rm sovrgnnet_db_data || true
-docker volume rm sovrgnnet_ipfs_data || true
-docker volume rm sovrgnnet_matrix_data || true
+# --------------------------------------------------------------------- start
 
-# Create fresh volumes
-echo -e "${YELLOW}Creating new volumes...${NC}"
-docker volume create sovrgnnet_db_data
-docker volume create sovrgnnet_ipfs_data
-docker volume create sovrgnnet_matrix_data
+echo -e "\n${YELLOW}Starting back up...${NC}"
+ACCESS_MODE="$(sed -n 's/^SOVRGNNET_ACCESS_MODE=//p' .env 2>/dev/null | tail -1)"
+case "$ACCESS_MODE" in
+  quick)  PROFILES="--profile quick" ;;
+  tunnel) PROFILES="--profile tunnel" ;;
+  proxy)  PROFILES="--profile proxy" ;;
+  *)      PROFILES="" ;;
+esac
+# shellcheck disable=SC2086
+$DC $PROFILES up -d
 
-# Restore database
-echo -e "${YELLOW}Restoring MySQL database...${NC}"
-docker-compose up -d db
-echo -e "${YELLOW}Waiting for database to be ready...${NC}"
-sleep 15
-
-docker-compose exec -T db mysql -u root -p"$(grep DB_ROOT_PASSWORD .env | cut -d '=' -f2)" < "$BACKUP_PATH/database.sql"
-echo -e "${GREEN}✓ Database restored${NC}"
-
-# Restore IPFS data
-echo -e "${YELLOW}Restoring IPFS data...${NC}"
-docker run --rm -v sovrgnnet_ipfs_data:/ipfs_data -v "$BACKUP_PATH":/backup alpine tar xzf /backup/ipfs_data.tar.gz -C /ipfs_data
-echo -e "${GREEN}✓ IPFS data restored${NC}"
-
-# Restore Matrix data
-echo -e "${YELLOW}Restoring Matrix data...${NC}"
-docker run --rm -v sovrgnnet_matrix_data:/matrix_data -v "$BACKUP_PATH":/backup alpine tar xzf /backup/matrix_data.tar.gz -C /matrix_data
-echo -e "${GREEN}✓ Matrix data restored${NC}"
-
-# Start all services
-echo -e "${YELLOW}Starting services...${NC}"
-docker-compose up -d
-
-# Wait for services to be ready
-echo -e "${YELLOW}Waiting for services to be ready...${NC}"
-sleep 10
-
-# Check service health
-echo -e "${YELLOW}Checking service health...${NC}"
-docker-compose ps
+[ "$EXTRACTED" -eq 1 ] && rm -rf "$BACKUP_PATH"
 
 echo ""
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Restore Complete!${NC}"
-echo -e "${GREEN}========================================${NC}"
-echo ""
-echo -e "${GREEN}Services are running at:${NC}"
-echo "  - Application: http://localhost:3000"
-echo "  - Matrix: http://localhost:8008"
-echo "  - IPFS: http://localhost:5001"
-echo ""
-echo -e "${YELLOW}Post-restore steps:${NC}"
-echo "1. Review .env file for any configuration changes needed"
-echo "2. Update DNS records to point to this server"
-echo "3. Update firewall rules if migrating to new network"
-echo "4. Test application at http://localhost:3000"
-echo "5. Configure SSL/HTTPS if needed"
-echo ""
-echo -e "${YELLOW}Useful commands:${NC}"
-echo "  - View logs: docker-compose logs -f app"
-echo "  - Verify data: docker-compose exec db mysql -u root -p -e 'SHOW DATABASES;'"
+echo -e "${GREEN}${BOLD}Restored.${NC}"
+echo -e "${DIM}Check it with: ./sovrgnnet status${NC}"
 echo ""

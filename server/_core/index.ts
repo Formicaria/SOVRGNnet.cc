@@ -6,6 +6,7 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 // First-party auth: session cookie resolved in createContext
 import { appRouter } from "../routers";
 import { registerFileRoutes } from "../fileRoutes";
+import { runMigrations, waitForDatabase } from "../migrate";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -29,6 +30,23 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Bring the schema up to date before serving traffic. Self-hosters should
+  // never have to run a migration command by hand.
+  if (process.env.DATABASE_URL) {
+    const reachable = await waitForDatabase();
+    if (reachable) {
+      try {
+        await runMigrations();
+      } catch (error) {
+        console.error("[Migrate] Migration failed:", error);
+        if (process.env.NODE_ENV === "production") process.exit(1);
+      }
+    } else if (process.env.NODE_ENV === "production") {
+      console.error("Cannot reach the database. Exiting.");
+      process.exit(1);
+    }
+  }
+
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
