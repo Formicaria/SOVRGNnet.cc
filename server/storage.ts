@@ -1,4 +1,4 @@
-// File storage helpers for Decentralized Discord
+// File storage helpers for SOVRGNnet
 // Currently disabled - implement your own S3 or storage solution
 
 export async function storagePut(

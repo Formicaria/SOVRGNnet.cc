@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: decentralized-discord-app
+    container_name: sovrgnnet-app
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -14,15 +14,6 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://sovrgn:${DB_PASSWORD}@db:5432/sovrgnnet
       JWT_SECRET: ${JWT_SECRET}
-      VITE_APP_ID: ${VITE_APP_ID}
-      OAUTH_SERVER_URL: ${OAUTH_SERVER_URL}
-      VITE_OAUTH_PORTAL_URL: ${VITE_OAUTH_PORTAL_URL}
-      OWNER_OPEN_ID: ${OWNER_OPEN_ID}
-      OWNER_NAME: ${OWNER_NAME}
-      BUILT_IN_FORGE_API_URL: ${BUILT_IN_FORGE_API_URL}
-      BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
-      VITE_FRONTEND_FORGE_API_KEY: ${VITE_FRONTEND_FORGE_API_KEY}
-      VITE_FRONTEND_FORGE_API_URL: ${VITE_FRONTEND_FORGE_API_URL}
       VITE_APP_TITLE: ${VITE_APP_TITLE:-SOVRGNnet}
       VITE_APP_LOGO: ${VITE_APP_LOGO}
       VITE_ANALYTICS_ENDPOINT: ${VITE_ANALYTICS_ENDPOINT}
@@ -40,9 +31,10 @@ services:
     volumes:
       - ./logs:/app/logs
     networks:
-      - decentralized-discord
+      - sovrgnnet
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      # node-based check: curl/wget are not present in the Alpine runtime image
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -60,7 +52,7 @@ services:
     volumes:
       - db_data:/var/lib/postgresql/data
     networks:
-      - decentralized-discord
+      - sovrgnnet
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sovrgn -d sovrgnnet"]
       interval: 10s
@@ -70,7 +62,7 @@ services:
   # Matrix Homeserver (Conduit - lightweight)
   matrix:
     image: matrixconduit/matrix-conduit:latest
-    container_name: decentralized-discord-matrix
+    container_name: sovrgnnet-matrix
     restart: unless-stopped
     environment:
       CONDUIT_SERVER_NAME: ${MATRIX_SERVER_NAME:-matrix.local}
@@ -85,7 +77,7 @@ services:
     ports:
       - "8008:8008"
     networks:
-      - decentralized-discord
+      - sovrgnnet
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8008/_matrix/client/versions"]
       interval: 30s
@@ -95,7 +87,7 @@ services:
   # IPFS Node
   ipfs:
     image: ipfs/kubo:latest
-    container_name: decentralized-discord-ipfs
+    container_name: sovrgnnet-ipfs
     restart: unless-stopped
     environment:
       IPFS_PROFILE: server
@@ -108,7 +100,7 @@ services:
       - "5001:5001"
       - "8080:8080"
     networks:
-      - decentralized-discord
+      - sovrgnnet
     healthcheck:
       test: ["CMD", "ipfs", "dag", "stat", "QmUNLLsPACCz1vLxQVkXqqLX5R1X345qqfHbsf7ytsQQP"]
       interval: 30s
@@ -118,7 +110,7 @@ services:
   # Nginx Reverse Proxy (optional but recommended)
   nginx:
     image: nginx:alpine
-    container_name: decentralized-discord-nginx
+    container_name: sovrgnnet-nginx
     restart: unless-stopped
     ports:
       - "80:80"
@@ -130,7 +122,7 @@ services:
     depends_on:
       - app
     networks:
-      - decentralized-discord
+      - sovrgnnet
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
       interval: 30s
@@ -150,5 +142,5 @@ volumes:
     driver: local
 
 networks:
-  decentralized-discord:
+  sovrgnnet:
     driver: bridge

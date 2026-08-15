@@ -53,7 +53,7 @@ export default function Home() {
               <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold">
                 DD
               </div>
-              <h1 className="text-2xl font-bold">Decentralized Discord</h1>
+              <h1 className="text-2xl font-bold">SOVRGNnet</h1>
             </div>
             <Button onClick={() => setLocation("/dashboard")} size="lg">
               Go to Dashboard
@@ -167,7 +167,7 @@ export default function Home() {
           <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-4xl mx-auto mb-6">
             DD
           </div>
-          <h1 className="text-5xl font-bold mb-4">Decentralized Discord</h1>
+          <h1 className="text-5xl font-bold mb-4">SOVRGNnet</h1>
           <p className="text-xl text-slate-300">
             A Web3-native communication platform with end-to-end encryption and true decentralization.
           </p>

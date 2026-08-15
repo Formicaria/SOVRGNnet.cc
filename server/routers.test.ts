@@ -29,7 +29,9 @@ function createAuthContext(userId: number = 1): TrpcContext {
   };
 }
 
-describe("tRPC Routers", () => {
+// Integration tests — require a live Postgres (DATABASE_URL). CI provides one;
+// locally run `docker compose up db` or they are skipped.
+describe.skipIf(!process.env.DATABASE_URL)("tRPC Routers", () => {
   describe("auth router", () => {
     it("should return current user with me query", async () => {
       const ctx = createAuthContext();

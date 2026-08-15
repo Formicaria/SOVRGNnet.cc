@@ -24,9 +24,6 @@ services:
       VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
       # Auth
       JWT_SECRET: ${JWT_SECRET}
-      VITE_APP_ID: ${VITE_APP_ID}
-      OAUTH_SERVER_URL: ${OAUTH_SERVER_URL}
-      VITE_OAUTH_PORTAL_URL: ${VITE_OAUTH_PORTAL_URL}
     depends_on:
       - matrix
       - ipfs

@@ -7,7 +7,9 @@ vi.mock("./db", async () => {
   return actual;
 });
 
-describe("Database Functions", () => {
+// Integration tests — require a live Postgres (DATABASE_URL). CI provides one;
+// locally run `docker compose up db` or they are skipped.
+describe.skipIf(!process.env.DATABASE_URL)("Database Functions", () => {
   describe("Server operations", () => {
     it("should create a server with required fields", async () => {
       const uniqueRoomId = `!testroom${Date.now()}:matrix.org`;
