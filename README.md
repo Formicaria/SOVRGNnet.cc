@@ -4,7 +4,7 @@
 
 Production target: **[sovrgnnet.cc](https://sovrgnnet.cc)** · Operated by [Formicaria](https://formicaria.us)
 
-> **Status: pre-alpha.** The scaffolding is real (auth flow, database schema, tRPC API, Matrix/IPFS service stack), but core messaging is not wired end-to-end yet. See [docs/AUDIT.md](docs/AUDIT.md) for an honest assessment and [docs/ROADMAP.md](docs/ROADMAP.md) for the plan.
+> **Status: v0.1.0 alpha.** Text chat works end-to-end: accounts, servers, channels, and messages riding on a real Matrix homeserver. Voice, file sharing, and E2EE are on the [roadmap](docs/ROADMAP.md). See [CHANGELOG.md](CHANGELOG.md) for what shipped.
 
 ## What it is
 

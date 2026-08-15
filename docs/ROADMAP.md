@@ -16,11 +16,11 @@ Done: Supabase Auth fully replaced with our own. `users` gained `passwordHash` (
 
 **Remaining (later):** password reset via email; wallet-signature login as an optional identity layer (post-v1).
 
-## Phase 2 — Matrix bridge and real messaging (the heart of v1)
+## Phase 2 — Matrix bridge and real messaging ✅ (August 2026)
 
-Server-side Matrix service that provisions a Matrix account per SOVRGNnet user (Conduit shared-secret or appservice registration), stores the mapping in `userProfiles.matrixUserId`, and holds access tokens server-side. Rework the matrix router: create space (server), create room (channel), join, send message, fetch history — all authenticated, all using `MATRIX_HOMESERVER_URL` from env. Client gets live updates via a `/sync` bridge over WebSocket or SSE. The Dashboard becomes a real three-pane app: server list, channel list, working message pane.
+Done: server-side `matrixService` (REST client with injectable fetch) provisions one Matrix account per user on first use — deterministic localpart/password derived from the app secret, tokens held in `userProfiles.matrixAccessToken`, never sent to the browser. Servers are Spaces, channels are child rooms, `messages.send` goes through the homeserver and records the event id. Membership is enforced on every read/write; `servers.join` joins the space and all rooms. Dashboard is a real three-pane chat app (rail / channels / messages) with create, discover, and join flows. Integration test suite runs the full two-user flow (create → post → forbidden-before-join → join → post → permissions) against Postgres with a mocked homeserver.
 
-**Exit criteria:** two accounts in two browsers exchange messages in a channel through Conduit; history survives reload.
+**Deferred within phase:** live updates are 3-second polling for now; a `/sync`-backed SSE/WebSocket bridge replaces it in a later pass. E2EE stays in Phase 6.
 
 ## Phase 3 — Files and media
 
