@@ -20,11 +20,13 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy, Pencil, SmilePlus, X } from "lucide-react";
+import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy, Pencil, SmilePlus, X, Globe } from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import MemberList from "@/components/MemberList";
+import AddServerDialog from "@/components/AddServerDialog";
+import { useConnections } from "@/contexts/ConnectionsContext";
 
 /** Reactions people actually reach for, without shipping an emoji picker. */
 const QUICK_REACTIONS = ["👍", "😂", "🔥", "❤️", "👀", "🎉"] as const;
@@ -71,6 +73,8 @@ type TimelineItem =
 
 export default function Dashboard() {
   const { user, loading, logout } = useAuth();
+  const { connections, current, multiplexes } = useConnections();
+  const [addServerOpen, setAddServerOpen] = useState(false);
   const [, setLocation] = useLocation();
 
   const [selectedServerId, setSelectedServerId] = useState<number | null>(null);
@@ -319,8 +323,45 @@ export default function Dashboard() {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
-      {/* Server rail */}
+      {/* Server rail. The strip at the top is *hosts* — different machines
+          people run — and below it, the communities on the current host. */}
       <aside className="w-[72px] bg-slate-900 flex flex-col items-center py-3 gap-2 border-r border-slate-800">
+        {connections.length > 1 && (
+          <>
+            {connections.map(connection => {
+              const active = connection.id === current?.id;
+              return (
+                <Tooltip key={connection.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => {
+                        if (active) return;
+                        // In a browser, another server is another origin with
+                        // its own session — switching means going there.
+                        if (!multiplexes) {
+                          window.location.href = `${connection.secure ? "https" : "http"}://${connection.host}`;
+                        }
+                      }}
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all ${
+                        active
+                          ? "bg-slate-700 text-white ring-2 ring-purple-500"
+                          : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+                      }`}
+                    >
+                      {initials(connection.name)}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <span className="font-medium">{connection.name}</span>
+                    <span className="block text-[11px] opacity-70">{connection.host}</span>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+            <div className="w-8 h-px bg-slate-700 my-1" />
+          </>
+        )}
+
         {servers.map(server => (
           <Tooltip key={server.id}>
             <TooltipTrigger asChild>
@@ -425,6 +466,19 @@ export default function Dashboard() {
             </div>
           </DialogContent>
         </Dialog>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setAddServerOpen(true)}
+              className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 hover:rounded-xl flex items-center justify-center transition-all"
+            >
+              <Globe className="w-5 h-5 text-sky-400" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Add another server</TooltipContent>
+        </Tooltip>
+        <AddServerDialog open={addServerOpen} onOpenChange={setAddServerOpen} />
 
         <div className="mt-auto">
           <Tooltip>
