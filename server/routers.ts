@@ -18,6 +18,7 @@ import * as matrix from "./matrixService";
 import {
   ensureMatrixCredentials,
   joinServerRooms,
+  removeFromServerRooms,
   requireServerMembership,
   syncPowerLevels,
 } from "./matrixBridge";
@@ -314,6 +315,57 @@ export const appRouter = router({
         await requireServerMembership(channel.serverId, ctx.user.id);
         return channel;
       }),
+
+    /** "I'm typing" — call while someone is composing. */
+    setTyping: protectedProcedure
+      .input(z.object({ channelId: z.number(), typing: z.boolean().default(true) }))
+      .mutation(async ({ ctx, input }) => {
+        const channel = await db.getChannelById(input.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        await requireServerMembership(channel.serverId, ctx.user.id);
+
+        if (input.typing) {
+          presence.noteTyping(input.channelId, ctx.user.id);
+        } else {
+          presence.clearTyping(input.channelId, ctx.user.id);
+        }
+
+        // Also tell Matrix, so people watching from Element see it too.
+        const [creds, matrixUserId] = await Promise.all([
+          db.getMatrixCredentials(ctx.user.id),
+          db.getMatrixUserId(ctx.user.id),
+        ]);
+        if (creds && matrixUserId) {
+          matrix
+            .setTyping(creds.accessToken, channel.matrixRoomId, matrixUserId, input.typing)
+            .catch(() => {
+              // A lost typing notification is not worth surfacing.
+            });
+        }
+
+        return { ok: true } as const;
+      }),
+
+    /** Names of everyone currently typing here, excluding you. */
+    whoIsTyping: protectedProcedure
+      .input(z.object({ channelId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const channel = await db.getChannelById(input.channelId);
+        if (!channel) return [];
+        await requireServerMembership(channel.serverId, ctx.user.id);
+
+        // Reading the channel is a sign of life, so it doubles as a heartbeat.
+        presence.noteActivity(ctx.user.id);
+
+        const userIds = presence.getTypingUserIds(input.channelId, ctx.user.id);
+        if (userIds.length === 0) return [];
+
+        const members = await db.getServerMembersDetailed(channel.serverId);
+        const nameById = new Map(members.map(m => [m.userId, m.name]));
+        return userIds.map(id => ({ userId: id, name: nameById.get(id) ?? "Someone" }));
+      }),
   }),
 
   // Message operations
@@ -351,6 +403,8 @@ export const appRouter = router({
           input.content
         );
 
+        presence.clearTyping(input.channelId, ctx.user.id);
+
         // E2EE lands in a later phase; until then messages are plaintext.
         return await db.createMessage(
           input.channelId,
@@ -361,7 +415,96 @@ export const appRouter = router({
         );
       }),
 
-    /** Delete a message — author or server owner. Redacts on Matrix too. */
+    /** Edit your own message. Moderators can't rewrite what others said. */
+    edit: protectedProcedure
+      .input(z.object({
+        messageId: z.number(),
+        content: z.string().min(1).max(4000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.messageId);
+        if (!message) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Message not found." });
+        }
+        if (message.userId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only edit your own messages.",
+          });
+        }
+
+        const channel = await db.getChannelById(message.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        await requireServerMembership(channel.serverId, ctx.user.id);
+
+        const creds = await db.getMatrixCredentials(ctx.user.id);
+        if (creds) {
+          try {
+            await matrix.editMessage(
+              creds.accessToken,
+              channel.matrixRoomId,
+              message.matrixEventId,
+              input.content
+            );
+          } catch {
+            // The homeserver keeps the original; our copy is what the app shows.
+          }
+        }
+
+        return await db.updateMessageContent(message.id, input.content);
+      }),
+
+    /** Toggle one emoji reaction for the current user. */
+    react: protectedProcedure
+      .input(z.object({
+        messageId: z.number(),
+        // Emoji only — this is a reaction, not a second message body.
+        emoji: z.string().min(1).max(16),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.messageId);
+        if (!message) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Message not found." });
+        }
+        const channel = await db.getChannelById(message.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        await requireServerMembership(channel.serverId, ctx.user.id);
+
+        const existing = (message.reactions as db.ReactionMap | null) ?? {};
+        const wasReacted = (existing[input.emoji] ?? []).includes(ctx.user.id);
+
+        const reactions = await db.toggleMessageReaction(
+          message.id,
+          ctx.user.id,
+          input.emoji
+        );
+
+        // Matrix has no "unreact" beyond redacting the annotation event, and
+        // we don't track annotation ids yet — so only additions propagate.
+        if (!wasReacted) {
+          const creds = await db.getMatrixCredentials(ctx.user.id);
+          if (creds) {
+            try {
+              await matrix.sendReaction(
+                creds.accessToken,
+                channel.matrixRoomId,
+                message.matrixEventId,
+                input.emoji
+              );
+            } catch {
+              // Cosmetic on the Matrix side; the app's copy is authoritative.
+            }
+          }
+        }
+
+        return reactions;
+      }),
+
+    /** Delete a message — the author, or a moderator and above. */
     delete: protectedProcedure
       .input(z.object({ messageId: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -373,17 +516,22 @@ export const appRouter = router({
         if (!channel) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
         }
-        const server = await db.getServerById(channel.serverId);
         const isAuthor = message.userId === ctx.user.id;
-        const isOwner = server?.ownerId === ctx.user.id;
-        if (!isAuthor && !isOwner) {
+        const role = await getServerRole(channel.serverId, ctx.user.id);
+        if (!role) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this server.",
+          });
+        }
+        if (!isAuthor && !atLeast(role, "moderator")) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "You can only delete your own messages.",
           });
         }
 
-        // Redact as the author when possible, else as the acting owner.
+        // Redact as the author when possible, else as the acting moderator.
         const creds = await db.getMatrixCredentials(
           isAuthor ? ctx.user.id : message.userId
         ) ?? await db.getMatrixCredentials(ctx.user.id);
@@ -500,13 +648,148 @@ export const appRouter = router({
       }),
   }),
 
-  // Server members (joining happens via servers.join)
+  // Server members (joining happens via servers.join / servers.joinByInvite)
   serverMembers: router({
+    /** Everyone in the server, with role and whether they're around. */
     list: protectedProcedure
       .input(z.object({ serverId: z.number() }))
       .query(async ({ ctx, input }) => {
         await requireServerMembership(input.serverId, ctx.user.id);
-        return await db.getServerMembers(input.serverId);
+        presence.noteActivity(ctx.user.id);
+
+        const server = await db.getServerById(input.serverId);
+        const members = await db.getServerMembersDetailed(input.serverId);
+
+        // The owner may predate the membership table; make sure they appear.
+        const rows = members.some(m => m.userId === server?.ownerId)
+          ? members
+          : server
+            ? [
+                {
+                  userId: server.ownerId,
+                  role: "owner" as const,
+                  joinedAt: server.createdAt,
+                  name: null as string | null,
+                  email: null as string | null,
+                  matrixUserId: null as string | null,
+                },
+                ...members,
+              ]
+            : members;
+
+        const online = presence.onlineUserIds(rows.map(r => r.userId));
+        const rank: Record<string, number> = { owner: 0, admin: 1, moderator: 2, member: 3 };
+
+        return rows
+          .map(r => ({
+            userId: r.userId,
+            name: r.name,
+            role: r.userId === server?.ownerId ? ("owner" as const) : r.role,
+            joinedAt: r.joinedAt,
+            online: online.has(r.userId),
+          }))
+          .sort(
+            (a, b) =>
+              rank[a.role] - rank[b.role] ||
+              (a.name ?? "").localeCompare(b.name ?? "")
+          );
+      }),
+
+    /** Promote or demote. Only the owner hands out admin. */
+    setRole: protectedProcedure
+      .input(z.object({
+        serverId: z.number(),
+        userId: z.number(),
+        role: z.enum(["admin", "moderator", "member"]),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { actorRole } = await requireAuthorityOver(
+          input.serverId,
+          ctx.user.id,
+          input.userId
+        );
+
+        // You can't hand out authority at or above your own.
+        const granting: ServerRole = input.role;
+        const rankOf: Record<ServerRole, number> = {
+          owner: 4, admin: 3, moderator: 2, member: 1,
+        };
+        if (rankOf[granting] >= rankOf[actorRole]) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can't grant a role equal to or above your own.",
+          });
+        }
+
+        await db.setServerMemberRole(input.serverId, input.userId, input.role);
+        await syncPowerLevels(
+          input.serverId,
+          ctx.user.id,
+          input.userId,
+          matrix.POWER_LEVELS[input.role]
+        );
+
+        return { role: input.role } as const;
+      }),
+
+    /** Remove someone. They can come back through discovery or an invite. */
+    kick: protectedProcedure
+      .input(z.object({ serverId: z.number(), userId: z.number(), reason: z.string().max(500).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireAuthorityOver(input.serverId, ctx.user.id, input.userId);
+        await removeFromServerRooms(
+          input.serverId,
+          ctx.user.id,
+          input.userId,
+          "kick",
+          input.reason
+        );
+        await db.removeServerMember(input.serverId, input.userId);
+        return { kicked: true } as const;
+      }),
+
+    /** Remove someone and keep them out. */
+    ban: protectedProcedure
+      .input(z.object({ serverId: z.number(), userId: z.number(), reason: z.string().max(500).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireAuthorityOver(input.serverId, ctx.user.id, input.userId);
+        await removeFromServerRooms(
+          input.serverId,
+          ctx.user.id,
+          input.userId,
+          "ban",
+          input.reason
+        );
+        await db.removeServerMember(input.serverId, input.userId);
+        await db.banServerMember(
+          input.serverId,
+          input.userId,
+          ctx.user.id,
+          input.reason
+        );
+        return { banned: true } as const;
+      }),
+
+    unban: protectedProcedure
+      .input(z.object({ serverId: z.number(), userId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireServerRole(input.serverId, ctx.user.id, "moderator");
+        await db.unbanServerMember(input.serverId, input.userId);
+        return { unbanned: true } as const;
+      }),
+
+    listBans: protectedProcedure
+      .input(z.object({ serverId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await requireServerRole(input.serverId, ctx.user.id, "moderator");
+        return await db.getServerBans(input.serverId);
+      }),
+
+    /** Your own role here — the client uses this to decide what to show. */
+    myRole: protectedProcedure
+      .input(z.object({ serverId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        return await getServerRole(input.serverId, ctx.user.id);
       }),
   }),
 

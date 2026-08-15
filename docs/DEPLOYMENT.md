@@ -76,20 +76,62 @@ Federation works through Cloudflare's proxy on 443. Verify with the [Matrix fede
 ## 4. Launch
 
 ```bash
-docker compose up -d --build
-docker compose ps            # all healthy
-docker compose logs -f app
+./install.sh                 # choose 3 — "my own domain, through Cloudflare"
 ```
 
-Run migrations inside the app container (`pnpm db:push`) on first boot and after schema changes.
+It finds an existing tunnel token in `.env` if one is there, keeps every
+secret already generated, and starts the stack with the `tunnel` profile.
+Equivalent by hand:
+
+```bash
+docker compose --profile tunnel up -d --build
+./sovrgnnet status
+./sovrgnnet logs app
+```
+
+**No migration step.** The app waits for Postgres and applies pending
+migrations itself on every boot. `pnpm db:push` is a development command for
+*generating* new migration SQL after a schema change — it was never able to
+run inside the production image, which has no `drizzle-kit`.
+
+Two settings deserve a moment's thought before first launch:
+
+- `MATRIX_SERVER_NAME` is written into every Matrix user and room ID at
+  creation time. Changing it later orphans all existing history. For
+  sovrgnnet.cc that's `matrix.sovrgnnet.cc`.
+- `MATRIX_ALLOW_FEDERATION` defaults to `false`. Turn it on deliberately, once
+  the well-known delegation above is verified — federation means other
+  homeservers can reach yours.
 
 ## 5. Backups
 
-Nightly cron: `pg_dump` of Postgres, tar of the Conduit volume, IPFS pinset export. Keep an off-VM copy — with three Proxmox hosts, replicating backups to a second node (or Proxmox Backup Server) is the natural move. Test `scripts/restore.sh` before you need it.
+`./sovrgnnet backup` writes a single archive containing a `pg_dump` of
+Postgres, the Conduit volume, the IPFS blockstore, and your `.env`. Nightly
+via cron:
+
+```
+0 3 * * * cd /root/sovrgnnet && ./sovrgnnet backup >> logs/backup.log 2>&1
+```
+
+Keep an off-VM copy — with three Proxmox hosts, replicating to a second node
+(or Proxmox Backup Server) is the natural move. The archive contains your
+secrets; treat it like a password file. Test `./scripts/restore.sh` before you
+need it, not after.
 
 ## 6. Operations checklist
 
-Uptime checks on `https://sovrgnnet.cc` and `https://matrix.sovrgnnet.cc/_matrix/client/versions`; log rotation; periodic `docker compose pull && docker compose up -d` for base images. Nothing listens on the WAN — the tunnel is outbound-only; keep 5432/8008 unexposed even on the LAN unless needed.
+Uptime checks on `https://sovrgnnet.cc` and
+`https://matrix.sovrgnnet.cc/_matrix/client/versions`. Log rotation is
+configured in compose (10 MB × 5 per service). Periodic
+`docker compose pull && ./sovrgnnet start` for base images; `./sovrgnnet
+update` for app changes.
+
+Nothing listens on the WAN — the tunnel is outbound-only. Postgres is not
+published at all; Conduit (8008) and the IPFS API (5001) bind to loopback
+only, which matters: 5001 is an unauthenticated admin API, and anyone who
+reaches it owns the node. Conduit registration is gated behind
+`MATRIX_REGISTRATION_TOKEN`, so the homeserver isn't an open signup target
+even once it's publicly routable.
 
 ## The desktop app (Tauri)
 
