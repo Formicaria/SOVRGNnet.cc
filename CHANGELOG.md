@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- File sharing over IPFS: uploads pin to the instance's own Kubo node;
+  authenticated, membership-enforced upload/download routes; images inline
+  and file cards in a unified channel timeline; paperclip + drag-and-drop.
+
 ## v0.1.0 — 2026-08-15 (alpha)
 
 First working release: a self-hosted, Discord-style platform with real

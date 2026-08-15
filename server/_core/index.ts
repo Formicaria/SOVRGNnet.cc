@@ -5,6 +5,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 // First-party auth: session cookie resolved in createContext
 import { appRouter } from "../routers";
+import { registerFileRoutes } from "../fileRoutes";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -33,6 +34,8 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  // File upload/download (bytes go through REST, metadata through tRPC)
+  registerFileRoutes(app);
   // Auth endpoints live in the tRPC auth router
   // tRPC API
   app.use(
