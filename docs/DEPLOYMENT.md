@@ -48,15 +48,16 @@ Then map public hostnames to internal services in the tunnel config:
 
 | Public hostname | Service |
 |---|---|
-| `sovrgnnet.cc` | `http://app:3000` |
-| `www.sovrgnnet.cc` | `http://app:3000` |
-| `matrix.sovrgnnet.cc` | `http://matrix:8008` |
+| `app.sovrgnnet.cc` | `http://app:3000` (via tunnel) |
+| `matrix.sovrgnnet.cc` | `http://matrix:8008` (via tunnel) |
+
+The apex `sovrgnnet.cc` (+ `www`) hosts the static landing site from `site/` on **Cloudflare Pages** (see `site/README.md`) — it stays up even if the homelab is down, and it serves the Matrix well-known files.
 
 Cloudflare creates the DNS records automatically. TLS terminates at Cloudflare's edge — no certbot needed. With the tunnel in place, the bundled nginx service becomes optional (keep it only if you want LAN-direct access).
 
 ## 3. Matrix federation (well-known delegation)
 
-So `@user:sovrgnnet.cc` resolves while Conduit lives on a subdomain, the app (or a Cloudflare redirect/Worker route) must serve:
+So `@user:sovrgnnet.cc` resolves while Conduit lives on a subdomain, the apex must serve two well-known files. These ship as static files in `site/.well-known/matrix/` and deploy automatically with the Pages site:
 
 `https://sovrgnnet.cc/.well-known/matrix/server`
 ```json
