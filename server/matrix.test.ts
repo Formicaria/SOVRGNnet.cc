@@ -1,135 +1,146 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-describe('Matrix Integration', () => {
-  describe('Homeserver Discovery', () => {
-    it('should identify available homeservers', async () => {
-      const homeservers = [
-        'https://matrix-client.matrix.org',
-        'https://matrix.gitter.im',
-        'https://matrix.org',
-      ];
+process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-matrix-tests";
 
-      for (const homeserver of homeservers) {
-        try {
-          const response = await fetch(`${homeserver}/_matrix/client/versions`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-          });
-          
-          // At least one should be available
-          if (response.ok) {
-            expect(response.status).toBe(200);
-            const data = await response.json();
-            expect(data).toHaveProperty('versions');
-            return; // Success - at least one homeserver is available
-          }
-        } catch (err) {
-          // Continue to next homeserver
-        }
-      }
-      
-      // If we get here, at least one homeserver should have been reachable
-      // This is expected to pass in most environments
-    });
+import {
+  __setFetchForTests,
+  createChannelRoom,
+  createSpace,
+  deriveMatrixPassword,
+  getRoomMessages,
+  localpartForUser,
+  MatrixError,
+  registerOrLogin,
+  sendMessage,
+} from "./matrixService";
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+const fetchMock = vi.fn();
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  __setFetchForTests(fetchMock as unknown as typeof fetch);
+});
+
+afterEach(() => {
+  __setFetchForTests((...args) => fetch(...args));
+});
+
+describe("Matrix account provisioning", () => {
+  it("derives deterministic localparts and passwords", () => {
+    expect(localpartForUser(7)).toBe("sovrgn_7");
+    expect(deriveMatrixPassword(7)).toBe(deriveMatrixPassword(7));
+    expect(deriveMatrixPassword(7)).not.toBe(deriveMatrixPassword(8));
   });
 
-  describe('Guest Registration', () => {
-    it('should attempt guest registration', async () => {
-      const homeserver = 'https://matrix-client.matrix.org';
-      
-      try {
-        const response = await fetch(`${homeserver}/_matrix/client/v3/register?kind=guest`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        });
+  it("registers a new account", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { user_id: "@sovrgn_7:test", access_token: "tok_a" })
+    );
 
-        // Guest registration may fail on some servers, but the endpoint should exist
-        expect([200, 400, 403, 429]).toContain(response.status);
-      } catch (err) {
-        // Network error is acceptable in test environment
-        expect(err).toBeDefined();
-      }
-    });
+    const creds = await registerOrLogin(7);
+    expect(creds).toEqual({ userId: "@sovrgn_7:test", accessToken: "tok_a" });
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/_matrix/client/v3/register");
+    expect(JSON.parse(init.body).username).toBe("sovrgn_7");
   });
 
-  describe('Room Operations', () => {
-    it('should validate room creation parameters', () => {
-      const roomName = 'test-room';
-      const sanitizedName = roomName.toLowerCase().replace(/\s+/g, '-');
-      
-      expect(sanitizedName).toBe('test-room');
-      expect(sanitizedName).not.toContain(' ');
-    });
+  it("falls back to login when the account exists", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(400, { errcode: "M_USER_IN_USE", error: "taken" })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, { user_id: "@sovrgn_7:test", access_token: "tok_b" })
+      );
 
-    it('should handle room name sanitization', () => {
-      const testCases = [
-        { input: 'My Room', expected: 'my-room' },
-        { input: 'Test  Room', expected: 'test-room' }, // Multiple spaces become single dash
-        { input: 'UPPERCASE', expected: 'uppercase' },
-      ];
-
-      testCases.forEach(({ input, expected }) => {
-        const result = input.toLowerCase().replace(/\s+/g, '-');
-        expect(result).toBe(expected);
-      });
-    });
+    const creds = await registerOrLogin(7);
+    expect(creds.accessToken).toBe("tok_b");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/_matrix/client/v3/login");
   });
 
-  describe('Error Handling', () => {
-    it('should handle network errors gracefully', async () => {
-      const invalidHomeserver = 'https://invalid-matrix-server-12345.example.com';
-      
-      try {
-        await fetch(`${invalidHomeserver}/_matrix/client/versions`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        });
-      } catch (err) {
-        expect(err).toBeDefined();
-        expect(err instanceof Error).toBe(true);
-      }
-    });
+  it("surfaces other registration failures as MatrixError", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(403, { errcode: "M_FORBIDDEN", error: "registration disabled" })
+    );
 
-    it('should validate error messages', () => {
-      const errorMessage = 'Matrix client not initialized';
-      expect(errorMessage).toContain('Matrix');
-      expect(errorMessage.length).toBeGreaterThan(0);
-    });
+    await expect(registerOrLogin(7)).rejects.toThrowError(MatrixError);
+  });
+});
+
+describe("Rooms and messaging", () => {
+  it("creates a space with m.space creation content", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { room_id: "!space:test" }));
+
+    const roomId = await createSpace("tok", "My Server");
+    expect(roomId).toBe("!space:test");
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.creation_content).toEqual({ type: "m.space" });
   });
 
-  describe('Message Handling', () => {
-    it('should validate message content', () => {
-      const validMessages = [
-        'Hello, world!',
-        'Test message with special chars: !@#$%',
-        'Multi-line\nmessage',
-      ];
+  it("creates a channel room and links it to the space", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { room_id: "!chan:test" }))
+      .mockResolvedValueOnce(jsonResponse(200, {}));
 
-      validMessages.forEach(msg => {
-        expect(msg).toBeTruthy();
-        expect(typeof msg).toBe('string');
-      });
-    });
-
-    it('should reject empty messages', () => {
-      const emptyMessages = ['', '   ', '\n'];
-
-      emptyMessages.forEach(msg => {
-        expect(msg.trim()).toBe('');
-      });
-    });
+    const roomId = await createChannelRoom("tok", "!space:test", "general");
+    expect(roomId).toBe("!chan:test");
+    expect(String(fetchMock.mock.calls[1][0])).toContain(
+      "/state/m.space.child/"
+    );
   });
 
-  describe('User Identification', () => {
-    it('should generate valid Matrix user IDs', () => {
-      const userId = 'user123';
-      const hostname = 'matrix.org';
-      const matrixUserId = `@user_${userId.substring(0, 8)}:${hostname}`;
+  it("sends a message and returns the event id", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { event_id: "$ev1" }));
 
-      expect(matrixUserId).toMatch(/^@user_/);
-      expect(matrixUserId).toContain(':');
-      expect(matrixUserId).toContain(hostname);
-    });
+    const eventId = await sendMessage("tok", "!chan:test", "hello world");
+    expect(eventId).toBe("$ev1");
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/send/m.room.message/");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ msgtype: "m.text", body: "hello world" });
+  });
+
+  it("fetches, filters, and orders room messages oldest-first", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        chunk: [
+          {
+            type: "m.room.message",
+            event_id: "$new",
+            sender: "@a:test",
+            origin_server_ts: 2000,
+            content: { msgtype: "m.text", body: "second" },
+          },
+          {
+            type: "m.room.member",
+            event_id: "$member",
+            sender: "@a:test",
+            origin_server_ts: 1500,
+            content: {},
+          },
+          {
+            type: "m.room.message",
+            event_id: "$old",
+            sender: "@b:test",
+            origin_server_ts: 1000,
+            content: { msgtype: "m.text", body: "first" },
+          },
+        ],
+      })
+    );
+
+    const msgs = await getRoomMessages("tok", "!chan:test");
+    expect(msgs.map(m => m.body)).toEqual(["first", "second"]);
+    expect(msgs[0].sender).toBe("@b:test");
   });
 });
