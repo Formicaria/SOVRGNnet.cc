@@ -17,6 +17,14 @@
   pending migrations via drizzle-orm's runtime migrator. There is no longer a
   migration step to forget — and the old instructions could not have worked,
   since `drizzle-kit` is a dev dependency absent from the production image.
+- **`scripts/install-lxc.sh`** — a second install with no Docker at all.
+  PostgreSQL, Conduit, Kubo, and the app as plain systemd services, each under
+  its own unprivileged user with `ProtectSystem=strict` and a single writable
+  path. Built for a Proxmox LXC; works on any bare Debian or Ubuntu machine.
+  Kubo's download is checksum-verified. See [docs/LXC.md](docs/LXC.md).
+- **`sovrgnnet` drives either install.** It detects Docker vs. native and
+  translates to `docker compose` or `systemctl`; `backup.sh` does the same.
+  One set of commands regardless of how you installed.
 - **[QUICKSTART.md](QUICKSTART.md)** — setup written for someone who has never
   done this before, including what to do when it goes wrong.
 

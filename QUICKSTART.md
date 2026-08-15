@@ -158,6 +158,21 @@ or run SOVRGNnet on a machine that isn't busy.
 
 ---
 
+## Running it without Docker
+
+If you're on Proxmox and would rather use an LXC container — lighter, no
+Docker layer — there's a second installer that sets everything up as ordinary
+system services:
+
+```bash
+apt update && apt install -y git
+git clone https://github.com/Formicaria/SOVRGNnet.cc.git /opt/sovrgnnet
+/opt/sovrgnnet/scripts/install-lxc.sh
+```
+
+Same questions, same result, same `sovrgnnet` commands afterward.
+[docs/LXC.md](docs/LXC.md) has the details, including creating the container.
+
 ## What's actually running
 
 Not required reading, but useful if you're curious.

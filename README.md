@@ -23,7 +23,11 @@ separate setup step to forget.
 Never done this before? [**QUICKSTART.md**](QUICKSTART.md) walks through it
 assuming no prior experience.
 
-Day to day: `./sovrgnnet status | start | stop | url | backup | update`
+**No Docker?** [`scripts/install-lxc.sh`](docs/LXC.md) installs everything as
+plain systemd services — PostgreSQL, Conduit, Kubo, and the app. Built for a
+Proxmox LXC, fine on any bare Debian box.
+
+Day to day, either install: `sovrgnnet status | start | stop | url | backup | update`
 
 ## What it is
 
@@ -99,6 +103,8 @@ Two settings are worth knowing about:
 
 ## Documentation
 
+- [QUICKSTART.md](QUICKSTART.md) — setup for someone who's never done this before
+- [docs/LXC.md](docs/LXC.md) — native install, no Docker (Proxmox LXC or bare Debian)
 - [docs/AUDIT.md](docs/AUDIT.md) — current state of the codebase: what works, what's broken, what's missing
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phased plan from here to a live platform
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the pieces fit together

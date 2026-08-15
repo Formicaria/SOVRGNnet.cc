@@ -40,6 +40,8 @@ The migration story was quietly broken: the documented `docker compose exec app 
 
 Also caught here: `MATRIX_SERVER_NAME` was never passed to the app container, so Matrix space-child links were being built with `via: ["localhost"]`.
 
+A second install path landed alongside it: `scripts/install-lxc.sh` puts PostgreSQL, Conduit, Kubo, and the app on the machine as plain systemd services — no Docker, no nesting — each under its own unprivileged user with `ProtectSystem=strict`. Built for a Proxmox LXC, fine on any bare Debian box. `sovrgnnet` and `backup.sh` detect which install they're on and translate to `docker compose` or `systemctl` accordingly, so the command surface is identical either way. See [LXC.md](LXC.md).
+
 **Deferred:** a Windows/macOS one-click bundle — the Tauri app in Phase 5.5 partly covers this.
 
 ## Phase 4 — Production deployment on sovrgnnet.cc
