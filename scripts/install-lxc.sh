@@ -74,7 +74,22 @@ lan_ip() {
   printf '%s' "${ip:-localhost}"
 }
 
+banner() {
+  printf '\n'
+  printf '%s   ███████╗ ██████╗ ██╗   ██╗██████╗  ██████╗ ███╗   ██╗%s\n' "$PURPLE" "$RESET"
+  printf '%s   ██╔════╝██╔═══██╗██║   ██║██╔══██╗██╔════╝ ████╗  ██║%s\n' "$PURPLE" "$RESET"
+  printf '%s   ███████╗██║   ██║██║   ██║██████╔╝██║  ███╗██╔██╗ ██║%s\n' "$PURPLE" "$RESET"
+  printf '%s   ╚════██║██║   ██║╚██╗ ██╔╝██╔══██╗██║   ██║██║╚██╗██║%s\n' "$PURPLE" "$RESET"
+  printf '%s   ███████║╚██████╔╝ ╚████╔╝ ██║  ██║╚██████╔╝██║ ╚████║%s\n' "$PURPLE" "$RESET"
+  printf '%s   ╚══════╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝%s\n' "$PURPLE" "$RESET"
+  printf '\n   %sYour own chat network. Your hardware. Your rules.%s\n' "$DIM" "$RESET"
+  printf '   %snative install · no docker · systemd services%s\n' "$DIM" "$RESET"
+  printf '\n'
+}
+
 # ------------------------------------------------------------------ preflight
+
+banner
 
 step "Checking this machine"
 

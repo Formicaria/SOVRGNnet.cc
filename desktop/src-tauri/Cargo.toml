@@ -1,0 +1,33 @@
+[package]
+name = "sovrgnnet-desktop"
+version = "0.1.0"
+description = "SOVRGNnet desktop client"
+authors = ["Formicaria"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["time"] }
+# Per-server credentials belong in the OS keychain, not in browser storage —
+# doubly so once this process holds Matrix encryption keys.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+[features]
+# Enabled by `tauri build` for production bundles.
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

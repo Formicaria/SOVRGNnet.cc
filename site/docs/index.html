@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Documentation — SOVRGNnet</title>
+  <meta name="description" content="Install, run, and understand your own SOVRGNnet instance." />
+  <meta name="theme-color" content="#0a0614" />
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <nav>
+        <a class="logo" href="/">SOVRGN<b>net</b></a>
+        <div class="links">
+          <a href="/docs/" aria-current="page">Docs</a>
+          <a href="/docs/install.html">Install</a>
+          <a href="/docs/operating.html">Operating</a>
+          <a href="/docs/architecture.html">Architecture</a>
+          <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main class="doc">
+    <div class="wrap">
+      <h1>Documentation</h1>
+      <p class="subtitle">
+        Everything you need to run your own instance — starting from no prior
+        experience, ending at production.
+      </p>
+
+      <div class="grid">
+        <a class="card" href="/docs/install.html">
+          <div class="icon">▸</div>
+          <h3>Installing</h3>
+          <p>From a bare machine to a working chat network. Both install
+             paths — Docker, or plain systemd services in an LXC — plus the
+             four ways people can reach you.</p>
+        </a>
+        <a class="card" href="/docs/operating.html">
+          <div class="icon">◎</div>
+          <h3>Running it</h3>
+          <p>The eight commands you'll actually use. Backups that restore,
+             updates that don't break, and what to do when something is red.</p>
+        </a>
+        <a class="card" href="/docs/architecture.html">
+          <div class="icon">◈</div>
+          <h3>How it works</h3>
+          <p>Why a server is a Matrix Space, why the browser never talks to
+             Matrix, where your data physically sits, and what's deliberately
+             absent.</p>
+        </a>
+        <a class="card" href="/docs/security.html">
+          <div class="icon">⚿</div>
+          <h3>Security &amp; privacy</h3>
+          <p>What's protected, what isn't, which ports listen where, and an
+             honest account of the encryption story.</p>
+        </a>
+      </div>
+
+      <h2>Start here</h2>
+      <p>
+        If you have a spare computer and ten minutes, that's the whole
+        prerequisite list. No domain name, no Cloudflare account, no credit
+        card, nothing to sign up for.
+      </p>
+<pre><code>git clone https://github.com/Formicaria/SOVRGNnet.cc.git sovrgnnet
+cd sovrgnnet
+./install.sh</code></pre>
+      <p class="muted">
+        <a href="/docs/install.html">The walkthrough, in detail →</a>
+      </p>
+
+      <h2>In the repository</h2>
+      <p>
+        These live alongside the code, so they change when it does.
+      </p>
+      <table>
+        <tr>
+          <th>Document</th>
+          <th>What it covers</th>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/QUICKSTART.md">QUICKSTART.md</a></td>
+          <td>Setup assuming no prior experience, including what to do when it goes wrong</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/LXC.md">docs/LXC.md</a></td>
+          <td>Native install with no Docker — Proxmox LXC or bare Debian/Ubuntu</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/DEPLOYMENT.md">docs/DEPLOYMENT.md</a></td>
+          <td>Production hosting: DNS, TLS, Matrix well-known delegation, backups</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/ARCHITECTURE.md">docs/ARCHITECTURE.md</a></td>
+          <td>How the pieces fit together, in engineering detail</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/ROADMAP.md">docs/ROADMAP.md</a></td>
+          <td>What's done, what's next, and what was deliberately deferred</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/CHANGELOG.md">CHANGELOG.md</a></td>
+          <td>What shipped, when</td>
+        </tr>
+      </table>
+
+      <h2>Where things stand</h2>
+      <p>
+        <strong>v0.1.0 alpha.</strong> Working today: accounts, servers,
+        channels, text chat over a real Matrix homeserver, file sharing on your
+        own IPFS node, invite links, roles and moderation, message editing,
+        reactions, typing indicators.
+      </p>
+      <p class="muted">
+        Not yet: end-to-end encryption, voice and video, password reset by
+        email, mobile apps. See <a href="/docs/security.html">security</a> for
+        what that means in practice.
+      </p>
+
+      <h2>Getting help</h2>
+      <p>
+        Bugs and questions go to
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/issues">GitHub issues</a>.
+        A failing install is a bug in the installer, not a mistake you made —
+        include what <code>sovrgnnet status</code> and <code>sovrgnnet logs</code>
+        say and it's usually diagnosable from that alone.
+      </p>
+
+      <div class="next-prev">
+        <a href="/docs/install.html"><span>Next</span> Installing →</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <span class="logo">SOVRGN<b>net</b></span>
+      <span>MIT © 2026 · <a href="https://formicaria.us">Formicaria</a></span>
+      <div class="links">
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        <a href="/legal.html">Legal</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

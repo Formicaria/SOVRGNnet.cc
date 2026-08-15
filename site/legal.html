@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Legal — SOVRGNnet</title>
+  <meta name="description" content="Licence, privacy, and terms for sovrgnnet.cc and the SOVRGNnet software." />
+  <meta name="theme-color" content="#0a0614" />
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <nav>
+        <a class="logo" href="/">SOVRGN<b>net</b></a>
+        <div class="links">
+          <a href="/docs/">Docs</a>
+          <a href="/docs/install.html">Install</a>
+          <a href="/legal.html" aria-current="page">Legal</a>
+          <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main class="doc">
+    <div class="wrap narrow">
+      <h1>Legal</h1>
+      <p class="subtitle">
+        Licence, privacy, and terms. Written to be read, not to be
+        clicked past.
+      </p>
+
+      <div class="note">
+        <strong>The short version</strong>
+        The software is MIT licensed — do what you like with it. This website
+        collects nothing. If you run your own instance, you are its operator and
+        its data is yours alone; we never see it and cannot access it.
+      </div>
+
+      <h2>Three different things</h2>
+      <p>
+        "SOVRGNnet" means three separate things, and the rules differ for each.
+        Muddling them is how privacy policies end up dishonest.
+      </p>
+      <table>
+        <tr><th>Thing</th><th>Who runs it</th><th>Governed by</th></tr>
+        <tr>
+          <td><strong>The software</strong></td>
+          <td>Nobody — it's source code</td>
+          <td>The MIT licence, below</td>
+        </tr>
+        <tr>
+          <td><strong>This website</strong><br /><span class="muted">sovrgnnet.cc</span></td>
+          <td>Formicaria</td>
+          <td>The privacy notice and terms below</td>
+        </tr>
+        <tr>
+          <td><strong>Your instance</strong></td>
+          <td><strong>You</strong></td>
+          <td>Whatever you decide — see "If you run an instance"</td>
+        </tr>
+      </table>
+
+      <h2 id="licence">Licence</h2>
+      <p>
+        SOVRGNnet is released under the MIT licence. In practice: use it
+        commercially, modify it, distribute it, run it privately, fork it and
+        never speak to us again. Keep the copyright notice, and understand
+        there's no warranty.
+      </p>
+<pre><code>MIT License
+
+Copyright (c) 2026 Formicaria
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</code></pre>
+      <p class="muted">
+        SOVRGNnet builds on other open-source projects under their own licences,
+        including Matrix/Conduit, IPFS/Kubo, PostgreSQL, React, and the rest of
+        the dependency tree.
+      </p>
+
+      <h2 id="privacy">Privacy notice — this website</h2>
+      <p>
+        This applies to <strong>sovrgnnet.cc</strong>, the static site you're
+        reading. It does not apply to any SOVRGNnet instance, including your own.
+      </p>
+
+      <h3>What we collect</h3>
+      <p>
+        Nothing, deliberately. There are no analytics, no tracking pixels, no
+        advertising, no third-party embeds, and no fonts or scripts loaded from
+        anyone else's servers. This site sets <strong>no cookies</strong> and
+        stores nothing in your browser.
+      </p>
+      <p>
+        There's no account to create here and no form to fill in, so there is
+        nothing for us to store about you.
+      </p>
+
+      <h3>What our host sees</h3>
+      <p>
+        The site is served by Cloudflare Pages. Like any web host, Cloudflare
+        processes technical request data — IP address, user agent, requested
+        page — to deliver the page and defend against abuse. We don't attach
+        identities to it or use it to build a profile of you. This is handled
+        under
+        <a href="https://www.cloudflare.com/privacypolicy/" rel="noopener">Cloudflare's privacy policy</a>.
+      </p>
+
+      <h3>Links elsewhere</h3>
+      <p>
+        We link to GitHub and other sites. Once you follow a link, you're under
+        that site's policy, not ours.
+      </p>
+
+      <h3>Your rights</h3>
+      <p>
+        Rights over personal data — access, correction, erasure, portability,
+        objection — apply to data a controller actually holds. We hold none from
+        this website, so there's nothing to disclose or delete. If you believe
+        otherwise, write to
+        <a href="mailto:privacy@formicaria.us">privacy@formicaria.us</a> and
+        we'll answer.
+      </p>
+
+      <h2 id="instances">If you run an instance</h2>
+      <p>
+        Once you install SOVRGNnet, <strong>you are the operator</strong>. Your
+        instance runs on your hardware, under your control. Formicaria has no
+        access to it, receives no telemetry from it, and cannot see, moderate,
+        retrieve, or delete anything on it. We could not comply with a request
+        about your instance's data even if we wanted to, because we don't have it.
+      </p>
+      <p>That also means the responsibilities are genuinely yours:</p>
+      <ul>
+        <li><strong>You are the data controller</strong> for everyone on your
+            instance. If you're in the UK or EU and running it for anyone beyond
+            your own household, data protection law likely applies to you.</li>
+        <li><strong>Tell your users the truth about encryption.</strong>
+            Messages are stored as plaintext on your server and you can read
+            them. People deserve to know that before they type.
+            <a href="/docs/security.html">The details are here.</a></li>
+        <li><strong>You're responsible for what's shared</strong> on your
+            instance, and for your own backups and security.</li>
+        <li><strong>Local law applies to you</strong>, not to us.</li>
+      </ul>
+      <div class="note">
+        <strong>Running one for other people?</strong>
+        Write down what you collect, how long you keep it, who can see it, and
+        how someone gets their data removed — then tell your users where to find
+        it. It takes twenty minutes and it's the difference between sovereignty
+        and just moving the problem.
+      </div>
+
+      <h2 id="terms">Terms — this website</h2>
+      <p>
+        You're welcome to read, link to, and quote this site. The software's
+        terms are the MIT licence above; nothing here narrows it.
+      </p>
+      <p>
+        The site and its documentation are provided as they are, without
+        warranty. We try to keep them accurate, but SOVRGNnet is alpha software
+        under active development and documentation drifts. To the fullest extent
+        the law allows, Formicaria isn't liable for loss arising from use of this
+        site or the software — including data loss on an instance you operate.
+        Take backups.
+      </p>
+      <p>
+        The SOVRGNnet name and logo belong to Formicaria. The MIT licence covers
+        the code, not the branding: fork freely, but don't imply your fork is the
+        official project.
+      </p>
+
+      <h2 id="security">Reporting a security problem</h2>
+      <p>
+        Email <a href="mailto:security@formicaria.us">security@formicaria.us</a>
+        rather than opening a public issue. Include what you found and how to
+        reproduce it. You'll get an acknowledgement, and credit in the changelog
+        if you'd like it.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        SOVRGNnet is a project of <a href="https://formicaria.us">Formicaria</a>.
+      </p>
+      <ul>
+        <li>Privacy — <a href="mailto:privacy@formicaria.us">privacy@formicaria.us</a></li>
+        <li>Security — <a href="mailto:security@formicaria.us">security@formicaria.us</a></li>
+        <li>Everything else — <a href="https://github.com/Formicaria/SOVRGNnet.cc/issues">GitHub issues</a></li>
+      </ul>
+
+      <p class="muted fine-print">
+        Last updated 15 August 2026. This page is written in plain language and
+        is not legal advice; if you operate an instance for others, get advice
+        appropriate to where you are.
+      </p>
+
+      <div class="next-prev">
+        <a href="/docs/security.html"><span>Back</span> ← Security &amp; privacy</a>
+        <a href="/docs/"><span>Next</span> Documentation →</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <span class="logo">SOVRGN<b>net</b></span>
+      <span>MIT © 2026 · <a href="https://formicaria.us">Formicaria</a></span>
+      <div class="links">
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        <a href="/legal.html">Legal</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

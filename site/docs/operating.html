@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Running it — SOVRGNnet</title>
+  <meta name="description" content="The commands you'll actually use: status, backups, updates, and what to do when something goes red." />
+  <meta name="theme-color" content="#0a0614" />
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <nav>
+        <a class="logo" href="/">SOVRGN<b>net</b></a>
+        <div class="links">
+          <a href="/docs/">Docs</a>
+          <a href="/docs/install.html">Install</a>
+          <a href="/docs/operating.html" aria-current="page">Operating</a>
+          <a href="/docs/architecture.html">Architecture</a>
+          <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main class="doc">
+    <div class="wrap narrow">
+      <h1>Running it</h1>
+      <p class="subtitle">
+        Eight commands cover everything. They work the same whether you
+        installed with Docker or as systemd services.
+      </p>
+
+      <h2>The commands</h2>
+      <table>
+        <tr><th>Command</th><th>What it does</th></tr>
+        <tr><td><code>sovrgnnet status</code></td><td>Is everything healthy?</td></tr>
+        <tr><td><code>sovrgnnet url</code></td><td>What address do people use?</td></tr>
+        <tr><td><code>sovrgnnet start</code></td><td>Turn it on</td></tr>
+        <tr><td><code>sovrgnnet stop</code></td><td>Turn it off — your data stays</td></tr>
+        <tr><td><code>sovrgnnet restart</code></td><td>Off and on again</td></tr>
+        <tr><td><code>sovrgnnet logs</code></td><td>Watch what it's doing</td></tr>
+        <tr><td><code>sovrgnnet backup</code></td><td>Save a copy of everything</td></tr>
+        <tr><td><code>sovrgnnet update</code></td><td>Get the latest version</td></tr>
+      </table>
+      <p class="muted">
+        On the Docker install, run them from inside the repository folder as
+        <code>./sovrgnnet</code>. On the LXC install they're on your PATH from
+        anywhere.
+      </p>
+
+      <h2>Backups</h2>
+      <p>
+        <code>sovrgnnet backup</code> writes a single archive into
+        <code>backups/</code> containing four things: a dump of the database
+        (accounts, servers, channels, messages), the Matrix homeserver's own
+        store, the actual bytes of every shared file, and your settings.
+      </p>
+      <div class="warning">
+        <strong>Copy it somewhere else</strong>
+        A backup that lives on the machine that fails isn't a backup. Put it on
+        a USB drive, another computer, a different Proxmox node — anywhere but
+        there. The archive contains your secrets; treat it like a password file.
+      </div>
+      <p>Nightly, at 3am:</p>
+<pre><code>crontab -e
+<span class="c"># then add:</span>
+0 3 * * * cd /path/to/sovrgnnet &amp;&amp; ./sovrgnnet backup >/dev/null 2>&amp;1</code></pre>
+
+      <h3>Restoring</h3>
+      <p>
+        On the same machine or a brand new one, install SOVRGNnet as normal,
+        put your backup file in <code>backups/</code>, then:
+      </p>
+<pre><code>./scripts/restore.sh</code></pre>
+      <p class="muted">
+        It lists what it found, tells you exactly what's about to be
+        overwritten, and makes you type <code>restore</code> before touching
+        anything. Test it before you need it — a backup you've never restored
+        is a hypothesis, not a backup.
+      </p>
+
+      <h2>Updating</h2>
+<pre><code>sovrgnnet update</code></pre>
+      <p>
+        Pulls the latest code, rebuilds, and restarts. <strong>Database changes
+        apply themselves</strong> — the app brings its own schema up to date on
+        every boot, so there's never a migration command to remember.
+      </p>
+      <p class="muted">
+        Take a backup first if the instance holds anything you'd miss. It's one
+        command and it costs a minute.
+      </p>
+
+      <h2>Adding people</h2>
+      <p>
+        Invite links are the way in. A server owner or admin clicks the invite
+        icon and gets a link that works for anyone, including on private
+        servers. Public servers also show up under <em>Discover</em>.
+      </p>
+
+      <h3>Roles</h3>
+      <table>
+        <tr><th>Role</th><th>Can</th></tr>
+        <tr><td><strong>Owner</strong></td>
+            <td>Everything, including handing out admin. Can't be removed or
+                demoted by anyone.</td></tr>
+        <tr><td><strong>Admin</strong></td>
+            <td>Create channels, create invite links, plus everything a
+                moderator can do.</td></tr>
+        <tr><td><strong>Moderator</strong></td>
+            <td>Delete anyone's messages, remove and ban members.</td></tr>
+        <tr><td><strong>Member</strong></td>
+            <td>Read, post, edit and delete their own messages, react, share
+                files.</td></tr>
+      </table>
+      <p>
+        Two rules the server enforces regardless of what the interface shows:
+        you can only act on someone ranked <em>below</em> you, and you can't
+        grant a role at or above your own. That's what stops two admins
+        removing each other, or a moderator demoting whoever promoted them.
+      </p>
+      <p class="muted">
+        Moderators can delete messages but never edit them. Rewriting what
+        somebody said, under their name, isn't a moderation power worth having.
+      </p>
+
+      <h3>Removing someone</h3>
+      <p>
+        <strong>Remove from server</strong> takes them out; they can return
+        through an invite or public discovery. <strong>Ban</strong> takes them
+        out and keeps them out — recorded both in the app and on the Matrix
+        rooms, so neither route back in works.
+      </p>
+
+      <h2>When something is red</h2>
+<pre><code>sovrgnnet status     <span class="c"># which piece is unhappy?</span>
+sovrgnnet logs       <span class="c"># what is it saying?</span></code></pre>
+
+      <h3>The app keeps restarting</h3>
+      <p>
+        Almost always the database. The app applies its own migrations at
+        startup and exits deliberately if it can't reach PostgreSQL, so a
+        restart loop usually means the database didn't come up. Check the
+        database service first, then the logs.
+      </p>
+
+      <h3>Messages send but nobody receives them</h3>
+      <p>
+        That's the Matrix homeserver. On the LXC install:
+        <code>journalctl -u conduit -n 50</code>. On Docker:
+        <code>./sovrgnnet logs matrix</code>.
+      </p>
+
+      <h3>Uploads fail</h3>
+      <p>
+        The IPFS node. Files cap at 50 MB per upload. After an unclean shutdown
+        IPFS sometimes leaves a stale lock — remove <code>repo.lock</code> from
+        its data directory and restart.
+      </p>
+
+      <h3>Starting completely over</h3>
+      <p>
+        On the Docker install, <code>docker compose down -v</code> erases
+        everything — all accounts, all messages, all files — and then
+        <code>./install.sh</code> sets it up fresh. There is no undo. Back up
+        first.
+      </p>
+
+      <div class="next-prev">
+        <a href="/docs/install.html"><span>Back</span> ← Installing</a>
+        <a href="/docs/architecture.html"><span>Next</span> How it works →</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <span class="logo">SOVRGN<b>net</b></span>
+      <span>MIT © 2026 · <a href="https://formicaria.us">Formicaria</a></span>
+      <div class="links">
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        <a href="/legal.html">Legal</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

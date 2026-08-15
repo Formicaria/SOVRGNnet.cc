@@ -1,4 +1,5 @@
 import { COOKIE_NAME } from "@shared/const";
+import { inviteDeepLink, inviteUrl } from "@shared/invite";
 import { TRPCError } from "@trpc/server";
 import {
   checkLoginRateLimit,
@@ -203,11 +204,23 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Server not found." });
         }
         await requireServerRole(input.serverId, ctx.user.id, "admin");
-        if (server.inviteCode) return { code: server.inviteCode };
 
-        const code = nanoid(10);
-        await db.setServerInviteCode(server.id, code);
-        return { code };
+        let code = server.inviteCode;
+        if (!code) {
+          code = nanoid(10);
+          await db.setServerInviteCode(server.id, code);
+        }
+
+        // The link has to name the server, not just the code — a client
+        // connected to several servers can't resolve a bare code. Derived
+        // from the Host header so it's correct behind a tunnel or proxy,
+        // where the app has no reliable idea of its own public address.
+        const host = String(ctx.req.headers["x-forwarded-host"] ?? ctx.req.headers.host ?? "");
+        return {
+          code,
+          url: host ? inviteUrl(host, code) : null,
+          deepLink: host ? inviteDeepLink(host, code) : null,
+        };
       }),
 
     /** Join via invite code — works for private servers too. */

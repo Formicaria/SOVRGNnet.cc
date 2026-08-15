@@ -4,134 +4,23 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SOVRGNnet — Sovereign Communications</title>
-  <meta name="description" content="SOVRGNnet is a self-hosted, Discord-style platform built on Matrix and IPFS. Your community, your hardware, your rules." />
+  <meta name="description" content="A self-hosted, Discord-style platform built on Matrix and IPFS. One command to install. No domain, no accounts, no landlord." />
   <meta property="og:title" content="SOVRGNnet — Sovereign Communications" />
-  <meta property="og:description" content="A self-hosted, Discord-style platform built on Matrix and IPFS. Your community, your hardware, your rules." />
+  <meta property="og:description" content="A self-hosted, Discord-style platform built on Matrix and IPFS. One command to install. No domain, no accounts, no landlord." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://sovrgnnet.cc" />
   <meta name="theme-color" content="#0a0614" />
-  <style>
-    :root {
-      --bg: #0a0614;
-      --bg-2: #120b22;
-      --panel: #170f2b;
-      --border: #2c1f4d;
-      --text: #e8e3f5;
-      --muted: #9c92b8;
-      --accent: #a855f7;
-      --accent-2: #ec4899;
-      --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html { scroll-behavior: smooth; }
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      line-height: 1.6;
-    }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
-
-    header {
-      position: sticky; top: 0; z-index: 10;
-      background: rgba(10, 6, 20, 0.85);
-      backdrop-filter: blur(10px);
-      border-bottom: 1px solid var(--border);
-    }
-    nav { display: flex; align-items: center; gap: 24px; height: 64px; }
-    .logo {
-      font-family: var(--mono); font-weight: 700; font-size: 1.1rem;
-      letter-spacing: 0.06em; color: var(--text);
-    }
-    .logo b { color: var(--accent); }
-    nav .links { margin-left: auto; display: flex; gap: 20px; font-size: 0.92rem; }
-    nav .links a { color: var(--muted); }
-    nav .links a:hover { color: var(--text); text-decoration: none; }
-
-    .hero { padding: 96px 0 72px; text-align: center; position: relative; overflow: hidden; }
-    .hero::before {
-      content: ""; position: absolute; inset: -40% -20% auto;
-      height: 130%; pointer-events: none;
-      background:
-        radial-gradient(600px 340px at 30% 20%, rgba(168, 85, 247, 0.16), transparent 70%),
-        radial-gradient(520px 300px at 72% 12%, rgba(236, 72, 153, 0.10), transparent 70%);
-    }
-    .hero > * { position: relative; }
-    .tag {
-      display: inline-block; font-family: var(--mono); font-size: 0.75rem;
-      letter-spacing: 0.14em; color: var(--accent);
-      border: 1px solid var(--border); border-radius: 999px;
-      padding: 6px 14px; margin-bottom: 26px; background: var(--bg-2);
-    }
-    h1 {
-      font-size: clamp(2.3rem, 6vw, 3.8rem); line-height: 1.08;
-      letter-spacing: -0.02em; font-weight: 800;
-    }
-    h1 .grad {
-      background: linear-gradient(100deg, var(--accent), var(--accent-2));
-      -webkit-background-clip: text; background-clip: text; color: transparent;
-    }
-    .sub {
-      margin: 22px auto 0; max-width: 620px;
-      color: var(--muted); font-size: 1.12rem;
-    }
-    .cta { margin-top: 38px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-    .btn {
-      display: inline-block; padding: 12px 26px; border-radius: 10px;
-      font-weight: 600; font-size: 0.98rem; transition: transform 0.15s, box-shadow 0.15s;
-    }
-    .btn:hover { text-decoration: none; transform: translateY(-1px); }
-    .btn-primary {
-      background: linear-gradient(100deg, var(--accent), var(--accent-2));
-      color: white; box-shadow: 0 8px 28px rgba(168, 85, 247, 0.35);
-    }
-    .btn-ghost { border: 1px solid var(--border); color: var(--text); background: var(--bg-2); }
-    .status-note { margin-top: 18px; font-size: 0.82rem; color: var(--muted); font-family: var(--mono); }
-
-    section { padding: 72px 0; }
-    section h2 {
-      font-size: 1.7rem; letter-spacing: -0.01em; margin-bottom: 10px;
-    }
-    section .lead { color: var(--muted); max-width: 640px; margin-bottom: 40px; }
-
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
-    .card {
-      background: var(--panel); border: 1px solid var(--border);
-      border-radius: 14px; padding: 26px;
-    }
-    .card .icon { font-size: 1.5rem; margin-bottom: 14px; }
-    .card h3 { font-size: 1.05rem; margin-bottom: 8px; }
-    .card p { color: var(--muted); font-size: 0.94rem; }
-    .card p code { font-family: var(--mono); font-size: 0.85em; color: var(--accent); }
-
-    .stack { border-top: 1px solid var(--border); background: var(--bg-2); }
-    .stack-row {
-      display: flex; flex-wrap: wrap; gap: 12px; font-family: var(--mono); font-size: 0.85rem;
-    }
-    .chip {
-      border: 1px solid var(--border); border-radius: 8px;
-      padding: 8px 14px; color: var(--muted); background: var(--panel);
-    }
-
-    footer {
-      border-top: 1px solid var(--border); padding: 36px 0 48px;
-      color: var(--muted); font-size: 0.88rem;
-    }
-    .foot { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
-    .foot .links { margin-left: auto; display: flex; gap: 18px; }
-  </style>
+  <link rel="stylesheet" href="/assets/style.css" />
 </head>
 <body>
   <header>
     <div class="wrap">
       <nav>
-        <span class="logo">SOVRGN<b>net</b></span>
+        <a class="logo" href="/">SOVRGN<b>net</b></a>
         <div class="links">
           <a href="#why">Why</a>
           <a href="#how">How it works</a>
-          <a href="#stack">Stack</a>
+          <a href="/docs/">Docs</a>
           <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
         </div>
       </nav>
@@ -144,19 +33,40 @@
         <span class="tag">SELF-HOSTED · OPEN PROTOCOLS · MIT</span>
         <h1>Your community.<br /><span class="grad">Your hardware. Your rules.</span></h1>
         <p class="sub">
-          SOVRGNnet is a Discord-style platform you actually own — messaging on
-          Matrix, files on IPFS, running on hardware you control under a domain
-          you hold. No landlord. No lock-in.
+          A Discord-style platform you actually own — messaging on Matrix, files
+          on IPFS, running on a computer you control. One command to install. No
+          domain required, no account with anybody, no landlord.
         </p>
         <div class="cta">
-          <a class="btn btn-primary" href="https://app.sovrgnnet.cc">Open the app</a>
+          <a class="btn btn-primary" href="/docs/install.html">Install it</a>
           <a class="btn btn-ghost" href="https://github.com/Formicaria/SOVRGNnet.cc">View source</a>
         </div>
-        <p class="status-note">v0.1.0 alpha — text chat is live; voice, files &amp; E2EE on the roadmap</p>
+        <p class="status-note">v0.1.0 alpha — chat, files, invites &amp; moderation work; voice and E2EE are next</p>
       </div>
     </div>
 
-    <section id="why">
+    <section id="start">
+      <div class="wrap">
+        <h2>Three lines and about ten minutes</h2>
+        <p class="lead">
+          On any spare computer — an old laptop, a Raspberry Pi, a mini PC in a
+          closet. The installer generates every password, sets up the database,
+          and tells you where to point your browser.
+        </p>
+<pre><code>git clone https://github.com/Formicaria/SOVRGNnet.cc.git sovrgnnet
+cd sovrgnnet
+./install.sh</code></pre>
+        <p class="small-muted">
+          It asks one real question: whether this is just for your house, or
+          whether friends should reach it over the internet. Pick the second and
+          you get a public <code>https://</code> link in about a minute —
+          <strong>with no account anywhere and no domain of your own</strong>.
+          <a href="/docs/install.html">Full walkthrough →</a>
+        </p>
+      </div>
+    </section>
+
+    <section id="why" class="stack">
       <div class="wrap">
         <h2>Why sovereign?</h2>
         <p class="lead">
@@ -168,32 +78,32 @@
           <div class="card">
             <div class="icon">⌂</div>
             <h3>Runs on your metal</h3>
-            <p>One Docker Compose stack: app, Postgres, Matrix homeserver, IPFS.
-               A homelab node or a small VPS is all it takes.</p>
+            <p>Docker Compose or plain systemd services — your choice. A homelab
+               node, a Proxmox container, or a small VPS is all it takes.</p>
           </div>
           <div class="card">
             <div class="icon">⇄</div>
             <h3>Open protocol underneath</h3>
             <p>Every message is a Matrix event on your own homeserver. Federate
-               with the wider Matrix network — or don't. Your call.</p>
+               with the wider Matrix network — or don't. It ships closed.</p>
           </div>
           <div class="card">
             <div class="icon">⚿</div>
             <h3>Identity you control</h3>
             <p>Accounts live in your database, not a third-party auth cloud.
-               Optional wallet-based identity is on the roadmap.</p>
+               Passwords are scrypt-hashed; sessions are httpOnly cookies.</p>
           </div>
           <div class="card">
             <div class="icon">◈</div>
             <h3>Files without a middleman</h3>
-            <p>Attachments pin to your own IPFS node and serve from your
-               gateway. No upload service, no disappearing links.</p>
+            <p>Attachments pin to your own IPFS node and stream back through the
+               app with membership checks. No upload service, no dead links.</p>
           </div>
           <div class="card">
             <div class="icon">▣</div>
             <h3>Familiar where it counts</h3>
-            <p>Server rail, channel list, message pane. If you've used Discord,
-               you already know how to use SOVRGNnet.</p>
+            <p>Server rail, channel list, message pane, member list. Invites,
+               roles, reactions, editing. You already know how to use it.</p>
           </div>
           <div class="card">
             <div class="icon">§</div>
@@ -205,7 +115,7 @@
       </div>
     </section>
 
-    <section id="how" class="stack">
+    <section id="how">
       <div class="wrap">
         <h2>How it works</h2>
         <p class="lead">
@@ -224,14 +134,39 @@
             <h3>2 · The server is the client</h3>
             <p>The browser never touches Matrix directly. The app provisions a
                Matrix account per user and acts on their behalf — one identity,
-               server-enforced permissions.</p>
+               permissions enforced server-side on every read and write.</p>
           </div>
           <div class="card">
-            <h3>3 · Front door on Cloudflare</h3>
-            <p>DNS, TLS, and an outbound-only tunnel mean no forwarded ports
-               and no exposed home IP — the free tier covers all of it.</p>
+            <h3>3 · Nothing listens on your router</h3>
+            <p>Public access, when you want it, runs over an outbound-only
+               tunnel. No forwarded ports, no exposed home IP.</p>
           </div>
         </div>
+        <p class="mt-lg">
+          <a href="/docs/architecture.html">The longer version, including what's deliberately not there →</a>
+        </p>
+      </div>
+    </section>
+
+    <section id="honest" class="stack">
+      <div class="wrap narrow">
+        <h2>What it isn't, yet</h2>
+        <p class="lead lead-wide">
+          Worth knowing before you trust it with anything that matters.
+        </p>
+        <div class="warning">
+          <strong>Messages are not end-to-end encrypted.</strong>
+          They're stored as plain text on <em>your</em> homeserver. Anyone with
+          administrator access to that machine can read them — for most people
+          that's just you, which is rather the point. But it isn't Signal, and
+          E2EE is on the roadmap rather than in the product.
+        </div>
+        <p class="muted">
+          Also missing today: voice and video channels, password reset by email,
+          and mobile apps. This is alpha software written in the open. The
+          <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/ROADMAP.md">roadmap</a>
+          says what's coming and in what order.
+        </p>
       </div>
     </section>
 
@@ -247,7 +182,8 @@
           <span class="chip">Matrix · Conduit</span>
           <span class="chip">IPFS · Kubo</span>
           <span class="chip">Docker Compose</span>
-          <span class="chip">Cloudflare Tunnel</span>
+          <span class="chip">systemd (no-Docker install)</span>
+          <span class="chip">Cloudflare Tunnel (optional)</span>
           <span class="chip">Tauri (desktop, planned)</span>
         </div>
       </div>
@@ -257,11 +193,12 @@
   <footer>
     <div class="wrap foot">
       <span class="logo">SOVRGN<b>net</b></span>
-      <span>MIT © 2026</span>
+      <span>MIT © 2026 · <a href="https://formicaria.us">Formicaria</a></span>
       <div class="links">
+        <a href="/docs/">Docs</a>
         <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
         <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/ROADMAP.md">Roadmap</a>
-        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/DEPLOYMENT.md">Self-host</a>
+        <a href="/legal.html">Legal</a>
       </div>
     </div>
   </footer>
