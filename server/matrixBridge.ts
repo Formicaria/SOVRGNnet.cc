@@ -53,3 +53,66 @@ export async function requireServerMembership(
     });
   }
 }
+
+/** Every room of a server: the space itself plus each channel. */
+export async function serverRoomIds(serverId: number): Promise<string[]> {
+  const server = await db.getServerById(serverId);
+  if (!server) return [];
+  const channels = await db.getChannelsByServer(serverId);
+  return [server.matrixRoomId, ...channels.map(c => c.matrixRoomId)];
+}
+
+/**
+ * Mirror an app role onto Matrix power levels in every room of a server.
+ *
+ * Best-effort on purpose: SOVRGNnet's own permission checks are what actually
+ * gate the API, and a homeserver hiccup shouldn't fail a role change. This
+ * keeps third-party Matrix clients showing the same picture.
+ */
+export async function syncPowerLevels(
+  serverId: number,
+  actingUserId: number,
+  targetUserId: number,
+  level: number
+): Promise<void> {
+  const [creds, targetMatrixId] = await Promise.all([
+    db.getMatrixCredentials(actingUserId),
+    db.getMatrixUserId(targetUserId),
+  ]);
+  if (!creds || !targetMatrixId) return;
+
+  for (const roomId of await serverRoomIds(serverId)) {
+    try {
+      await matrix.setPowerLevel(creds.accessToken, roomId, targetMatrixId, level);
+    } catch {
+      // A room we can't set levels in doesn't invalidate the app-side change.
+    }
+  }
+}
+
+/** Remove or ban a user from every room of a server. Best-effort. */
+export async function removeFromServerRooms(
+  serverId: number,
+  actingUserId: number,
+  targetUserId: number,
+  mode: "kick" | "ban",
+  reason?: string
+): Promise<void> {
+  const [creds, targetMatrixId] = await Promise.all([
+    db.getMatrixCredentials(actingUserId),
+    db.getMatrixUserId(targetUserId),
+  ]);
+  if (!creds || !targetMatrixId) return;
+
+  for (const roomId of await serverRoomIds(serverId)) {
+    try {
+      if (mode === "ban") {
+        await matrix.banUser(creds.accessToken, roomId, targetMatrixId, reason);
+      } else {
+        await matrix.kickUser(creds.accessToken, roomId, targetMatrixId, reason);
+      }
+    } catch {
+      // The app-side membership row is authoritative for our own UI.
+    }
+  }
+}

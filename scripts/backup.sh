@@ -1,120 +1,107 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# Save a complete copy of your SOVRGNnet: accounts, messages, shared files,
+# and the Matrix homeserver's own database. One file you can copy anywhere.
+#
+#   ./sovrgnnet backup          (or: ./scripts/backup.sh)
+#
+# Restore it later with ./scripts/restore.sh
 
-# SOVRGNnet - Backup Script
-# Creates backups of all data for migration or disaster recovery
+set -euo pipefail
 
-set -e
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_DIR"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; DIM='\033[2m'; NC='\033[0m'
 
 BACKUP_DIR="./backups"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_NAME="discord_backup_${TIMESTAMP}"
+BACKUP_NAME="sovrgnnet_backup_${TIMESTAMP}"
+DEST="$BACKUP_DIR/$BACKUP_NAME"
 
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}SOVRGNnet - Backup Script${NC}"
-echo -e "${GREEN}========================================${NC}"
+if docker compose version >/dev/null 2>&1; then
+  DC="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  DC="docker-compose"
+else
+  echo -e "${RED}Docker Compose isn't installed.${NC}" >&2; exit 1
+fi
 
-# Create backup directory
-mkdir -p "$BACKUP_DIR"
+[ -f .env ] || { echo -e "${RED}No .env found — run ./install.sh first.${NC}" >&2; exit 1; }
 
-echo -e "${YELLOW}Starting backup at $(date)${NC}"
-echo -e "${YELLOW}Backup location: $BACKUP_DIR/$BACKUP_NAME${NC}"
+# Volume names are prefixed with the compose project name, which defaults to
+# the directory name. Read it back rather than assuming.
+PROJECT="$($DC config --format json 2>/dev/null | sed -n 's/.*"name":"\([^"]*\)".*/\1/p' | head -1)"
+PROJECT="${PROJECT:-$(basename "$REPO_DIR" | tr '[:upper:]' '[:lower:]')}"
 
-# Create backup subdirectory
-mkdir -p "$BACKUP_DIR/$BACKUP_NAME"
+echo -e "${GREEN}Backing up SOVRGNnet${NC}"
+echo -e "${DIM}This takes a minute. Nothing is interrupted — you can keep chatting.${NC}\n"
 
-# Backup MySQL database
-echo -e "${YELLOW}Backing up MySQL database...${NC}"
-docker-compose exec -T db mysqldump -u root -p"$(grep DB_ROOT_PASSWORD .env | cut -d '=' -f2)" --all-databases > "$BACKUP_DIR/$BACKUP_NAME/database.sql"
-echo -e "${GREEN}✓ Database backed up${NC}"
+mkdir -p "$DEST"
 
-# Backup IPFS data
-echo -e "${YELLOW}Backing up IPFS data...${NC}"
-docker run --rm -v sovrgnnet_ipfs_data:/ipfs_data -v "$(pwd)/$BACKUP_DIR/$BACKUP_NAME":/backup alpine tar czf /backup/ipfs_data.tar.gz -C /ipfs_data .
-echo -e "${GREEN}✓ IPFS data backed up${NC}"
+# --- Postgres: accounts, servers, channels, messages, file metadata --------
+echo -e "${YELLOW}Database...${NC}"
+if ! $DC exec -T db pg_dump -U sovrgn -d sovrgnnet --clean --if-exists > "$DEST/database.sql" 2>/dev/null; then
+  echo -e "${RED}Couldn't reach the database. Is it running? (./sovrgnnet status)${NC}" >&2
+  rm -rf "$DEST"; exit 1
+fi
+echo -e "${GREEN}  ✓ $(wc -l < "$DEST/database.sql") lines${NC}"
 
-# Backup Matrix data
-echo -e "${YELLOW}Backing up Matrix data...${NC}"
-docker run --rm -v sovrgnnet_matrix_data:/matrix_data -v "$(pwd)/$BACKUP_DIR/$BACKUP_NAME":/backup alpine tar czf /backup/matrix_data.tar.gz -C /matrix_data .
-echo -e "${GREEN}✓ Matrix data backed up${NC}"
+# --- Matrix homeserver state (rooms, events, its own accounts) -------------
+echo -e "${YELLOW}Chat history...${NC}"
+docker run --rm \
+  -v "${PROJECT}_matrix_data:/data:ro" \
+  -v "$(pwd)/$DEST:/backup" \
+  alpine tar czf /backup/matrix_data.tar.gz -C /data . 2>/dev/null \
+  || echo -e "${RED}  ! Skipped (volume ${PROJECT}_matrix_data not found)${NC}"
 
-# Backup configuration files
-echo -e "${YELLOW}Backing up configuration files...${NC}"
-cp .env "$BACKUP_DIR/$BACKUP_NAME/.env.backup"
-cp docker-compose.yml "$BACKUP_DIR/$BACKUP_NAME/docker-compose.yml.backup"
-cp Dockerfile "$BACKUP_DIR/$BACKUP_NAME/Dockerfile.backup"
-echo -e "${GREEN}✓ Configuration files backed up${NC}"
+# --- IPFS blocks: the actual bytes of every shared file --------------------
+echo -e "${YELLOW}Shared files...${NC}"
+docker run --rm \
+  -v "${PROJECT}_ipfs_data:/data:ro" \
+  -v "$(pwd)/$DEST:/backup" \
+  alpine tar czf /backup/ipfs_data.tar.gz -C /data . 2>/dev/null \
+  || echo -e "${RED}  ! Skipped (volume ${PROJECT}_ipfs_data not found)${NC}"
 
-# Create backup metadata
-echo -e "${YELLOW}Creating backup metadata...${NC}"
-cat > "$BACKUP_DIR/$BACKUP_NAME/BACKUP_INFO.txt" << EOF
-SOVRGNnet Backup
-========================================
-Backup Date: $(date)
-Backup Name: $BACKUP_NAME
-System: $(uname -a)
-Docker Version: $(docker --version)
-Docker Compose Version: $(docker-compose --version)
+# --- Settings --------------------------------------------------------------
+echo -e "${YELLOW}Settings...${NC}"
+cp .env "$DEST/env.backup"
+chmod 600 "$DEST/env.backup"
 
-Contents:
-- database.sql: MySQL database dump
-- ipfs_data.tar.gz: IPFS node data
-- matrix_data.tar.gz: Matrix homeserver data
-- .env.backup: Environment configuration
-- docker-compose.yml.backup: Docker Compose configuration
-- Dockerfile.backup: Application Dockerfile
+cat > "$DEST/BACKUP_INFO.txt" <<EOF
+SOVRGNnet backup
+================
+Taken:    $(date)
+Project:  $PROJECT
+Host:     $(uname -srm)
 
-Restore Instructions:
-1. Extract this backup archive
-2. Copy files to new system
-3. Run: ./scripts/restore.sh $BACKUP_NAME
-4. Update .env with new configuration if needed
-5. Run: docker-compose up -d
+What's inside
+  database.sql        accounts, servers, channels, messages
+  matrix_data.tar.gz  the Matrix homeserver's own store
+  ipfs_data.tar.gz    the actual bytes of every shared file
+  env.backup          your secrets and settings — treat this as a password
 
-For migration to mini PC:
-1. Transfer this backup to the new system
-2. Install Docker and Docker Compose
-3. Run the restore script
-4. Update DNS/firewall rules
-5. Done!
+To restore onto a fresh machine
+  1. Install Docker
+  2. Clone SOVRGNnet and put this backup in ./backups/
+  3. ./scripts/restore.sh $BACKUP_NAME
+
+Keep this file somewhere other than the machine it came from.
 EOF
 
-# Create compressed archive
-echo -e "${YELLOW}Creating compressed archive...${NC}"
-cd "$BACKUP_DIR"
-tar czf "${BACKUP_NAME}.tar.gz" "$BACKUP_NAME"
-cd - > /dev/null
+# --- One archive -----------------------------------------------------------
+echo -e "${YELLOW}Packing...${NC}"
+tar czf "$BACKUP_DIR/${BACKUP_NAME}.tar.gz" -C "$BACKUP_DIR" "$BACKUP_NAME"
+rm -rf "$DEST"
+chmod 600 "$BACKUP_DIR/${BACKUP_NAME}.tar.gz"
 
-# Calculate backup size
-BACKUP_SIZE=$(du -sh "$BACKUP_DIR/${BACKUP_NAME}.tar.gz" | cut -f1)
+SIZE=$(du -h "$BACKUP_DIR/${BACKUP_NAME}.tar.gz" | cut -f1)
 
-# Display summary
 echo ""
-echo -e "${GREEN}========================================${NC}"
-echo -e "${GREEN}Backup Complete!${NC}"
-echo -e "${GREEN}========================================${NC}"
+echo -e "${GREEN}Done — $SIZE${NC}"
+echo -e "  $(pwd)/$BACKUP_DIR/${BACKUP_NAME}.tar.gz"
 echo ""
-echo -e "${GREEN}Backup Summary:${NC}"
-echo "  - Name: $BACKUP_NAME"
-echo "  - Location: $BACKUP_DIR/$BACKUP_NAME.tar.gz"
-echo "  - Size: $BACKUP_SIZE"
-echo "  - Timestamp: $TIMESTAMP"
+echo -e "${DIM}That file contains your passwords. Copy it somewhere safe and private —${NC}"
+echo -e "${DIM}an external drive or another computer. A backup on the same machine${NC}"
+echo -e "${DIM}doesn't help when that machine is the thing that fails.${NC}"
 echo ""
-echo -e "${YELLOW}Files included:${NC}"
-echo "  ✓ MySQL database dump"
-echo "  ✓ IPFS node data"
-echo "  ✓ Matrix homeserver data"
-echo "  ✓ Configuration files"
-echo "  ✓ Backup metadata"
-echo ""
-echo -e "${YELLOW}Next steps:${NC}"
-echo "1. Transfer backup to safe location: scp -r $BACKUP_DIR/${BACKUP_NAME}.tar.gz user@backup-server:/path/"
-echo "2. For migration: Transfer to new system and run ./scripts/restore.sh"
-echo "3. Keep encrypted backups off-site"
-echo ""
-echo -e "${GREEN}Backup path: $(pwd)/$BACKUP_DIR/${BACKUP_NAME}.tar.gz${NC}"

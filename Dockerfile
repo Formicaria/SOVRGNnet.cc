@@ -36,6 +36,12 @@ RUN npm install -g pnpm && pnpm install --prod --frozen-lockfile
 # Copy built application from builder stage (client is bundled into dist/public)
 COPY --from=builder /app/dist ./dist
 
+# Migration SQL + journal. The app applies these itself on startup using
+# drizzle-orm's runtime migrator, so no one has to run a CLI in the container
+# (drizzle-kit is a dev dependency and isn't installed here).
+COPY --from=builder /app/drizzle/*.sql ./drizzle/
+COPY --from=builder /app/drizzle/meta ./drizzle/meta
+
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 
