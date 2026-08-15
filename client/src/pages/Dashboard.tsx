@@ -15,10 +15,21 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy, Pencil, SmilePlus, X } from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import MemberList from "@/components/MemberList";
+
+/** Reactions people actually reach for, without shipping an emoji picker. */
+const QUICK_REACTIONS = ["👍", "😂", "🔥", "❤️", "👀", "🎉"] as const;
+
+type ReactionMap = Record<string, number[]>;
 
 function initials(name: string): string {
   return name
@@ -44,6 +55,8 @@ type TimelineItem =
       senderName: string | null;
       createdAt: Date;
       content: string;
+      editedAt: Date | null;
+      reactions: ReactionMap;
     }
   | {
       kind: "file";
@@ -129,6 +142,44 @@ export default function Dashboard() {
     },
     onError: e => setError(e.message),
   });
+  const editMessage = trpc.messages.edit.useMutation({
+    onSuccess: async () => {
+      setEditingId(null);
+      setEditDraft("");
+      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+    },
+    onError: e => setError(e.message),
+  });
+  const reactToMessage = trpc.messages.react.useMutation({
+    onSuccess: async () => {
+      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+    },
+    onError: e => setError(e.message),
+  });
+  const setTyping = trpc.channels.setTyping.useMutation();
+  const typingQuery = trpc.channels.whoIsTyping.useQuery(
+    { channelId: selectedChannelId! },
+    { enabled: selectedChannelId != null, refetchInterval: 3000 }
+  );
+  const myRoleQuery = trpc.serverMembers.myRole.useQuery(
+    { serverId: selectedServerId! },
+    { enabled: selectedServerId != null }
+  );
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const typingSentAt = useRef(0);
+
+  // Announce typing at most once every four seconds — the server keeps the
+  // flag alive for six, so this is enough to look continuous without
+  // hammering the API on every keystroke.
+  const announceTyping = () => {
+    if (selectedChannelId == null) return;
+    const now = Date.now();
+    if (now - typingSentAt.current < 4000) return;
+    typingSentAt.current = now;
+    setTyping.mutate({ channelId: selectedChannelId, typing: true });
+  };
   const createInvite = trpc.servers.createInvite.useMutation({
     onSuccess: res => setInviteCode(res.code),
     onError: e => setError(e.message),
@@ -190,6 +241,8 @@ export default function Dashboard() {
         senderName: m.senderName,
         createdAt: new Date(m.createdAt),
         content: m.content,
+        editedAt: m.editedAt ? new Date(m.editedAt) : null,
+        reactions: (m.reactions as ReactionMap | null) ?? {},
       })),
       ...files.map(f => ({
         kind: "file" as const,
@@ -243,8 +296,23 @@ export default function Dashboard() {
   const handleSend = () => {
     const content = messageInput.trim();
     if (!content || selectedChannelId == null || sendMessage.isPending) return;
+    typingSentAt.current = 0;
+    setTyping.mutate({ channelId: selectedChannelId, typing: false });
     sendMessage.mutate({ channelId: selectedChannelId, content });
   };
+
+  const myRole = myRoleQuery.data ?? null;
+  const canModerate = myRole === "owner" || myRole === "admin" || myRole === "moderator";
+  const canManageServer = myRole === "owner" || myRole === "admin";
+  const typingNames = (typingQuery.data ?? []).map(t => t.name);
+  const typingLabel =
+    typingNames.length === 0
+      ? null
+      : typingNames.length === 1
+        ? `${typingNames[0]} is typing…`
+        : typingNames.length === 2
+          ? `${typingNames[0]} and ${typingNames[1]} are typing…`
+          : "Several people are typing…";
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
@@ -379,7 +447,7 @@ export default function Dashboard() {
           <span className="font-semibold truncate flex-1">
             {selectedServer?.name ?? "SOVRGNnet"}
           </span>
-          {selectedServer && selectedServer.ownerId === user.id && (
+          {selectedServer && canManageServer && (
             <Dialog
               open={inviteOpen}
               onOpenChange={open => {
@@ -461,7 +529,7 @@ export default function Dashboard() {
               <span className="truncate">{channel.name}</span>
             </button>
           ))}
-          {selectedServer && selectedServer.ownerId === user.id && (
+          {selectedServer && canManageServer && (
             <Dialog open={channelDialogOpen} onOpenChange={setChannelDialogOpen}>
               <DialogTrigger asChild>
                 <button className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors">
@@ -579,22 +647,142 @@ export default function Dashboard() {
                       minute: "2-digit",
                     })}
                   </span>
-                  {item.kind === "message" &&
-                    (item.senderId === user.id ||
-                      selectedServer?.ownerId === user.id) && (
-                      <button
-                        className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 transition-all"
-                        title="Delete message"
-                        onClick={() => deleteMessage.mutate({ messageId: item.dbId })}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                  {item.kind === "message" && item.editedAt && (
+                    <span className="text-[10px] text-slate-600" title="Edited">
+                      (edited)
+                    </span>
+                  )}
+                  {item.kind === "message" && (
+                    <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="text-slate-600 hover:text-purple-400" title="Add reaction">
+                            <SmilePlus className="w-3.5 h-3.5" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="start"
+                          className="bg-slate-900 border-slate-700 flex gap-1 p-1.5 min-w-0"
+                        >
+                          {QUICK_REACTIONS.map(emoji => (
+                            <button
+                              key={emoji}
+                              className="text-base leading-none px-1.5 py-1 rounded hover:bg-slate-800 transition-colors"
+                              onClick={() =>
+                                reactToMessage.mutate({ messageId: item.dbId, emoji })
+                              }
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      {item.senderId === user.id && (
+                        <button
+                          className="text-slate-600 hover:text-sky-400"
+                          title="Edit message"
+                          onClick={() => {
+                            setEditingId(item.dbId);
+                            setEditDraft(item.content);
+                          }}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      {(item.senderId === user.id || canModerate) && (
+                        <button
+                          className="text-slate-600 hover:text-red-400"
+                          title="Delete message"
+                          onClick={() => deleteMessage.mutate({ messageId: item.dbId })}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {item.kind === "message" ? (
-                  <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
-                    {item.content}
-                  </p>
+                  editingId === item.dbId ? (
+                    <div className="mt-1 flex gap-2">
+                      <Input
+                        autoFocus
+                        value={editDraft}
+                        onChange={e => setEditDraft(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            if (editDraft.trim()) {
+                              editMessage.mutate({
+                                messageId: item.dbId,
+                                content: editDraft.trim(),
+                              });
+                            }
+                          }
+                          if (e.key === "Escape") {
+                            setEditingId(null);
+                            setEditDraft("");
+                          }
+                        }}
+                        className="bg-slate-800 border-slate-700 h-8 text-sm"
+                      />
+                      <Button
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        disabled={!editDraft.trim() || editMessage.isPending}
+                        onClick={() =>
+                          editMessage.mutate({
+                            messageId: item.dbId,
+                            content: editDraft.trim(),
+                          })
+                        }
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => {
+                          setEditingId(null);
+                          setEditDraft("");
+                        }}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
+                        {item.content}
+                      </p>
+                      {Object.keys(item.reactions).length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {Object.entries(item.reactions).map(([emoji, userIds]) => {
+                            const mine = userIds.includes(user.id);
+                            return (
+                              <button
+                                key={emoji}
+                                onClick={() =>
+                                  reactToMessage.mutate({ messageId: item.dbId, emoji })
+                                }
+                                className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs transition-colors ${
+                                  mine
+                                    ? "border-purple-600 bg-purple-950/60 text-purple-200"
+                                    : "border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-600"
+                                }`}
+                                title={mine ? "Click to remove" : "Click to add"}
+                              >
+                                <span className="leading-none">{emoji}</span>
+                                <span className="leading-none">{userIds.length}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )
                 ) : item.mimeType?.startsWith("image/") ? (
                   <a href={`/api/files/${item.ipfsHash}`} target="_blank" rel="noreferrer">
                     <img
@@ -628,6 +816,9 @@ export default function Dashboard() {
 
         {selectedChannel && (
           <div className="p-4 pt-0">
+            <div className="h-5 px-1 text-xs text-slate-500 italic">
+              {typingLabel}
+            </div>
             <div className="flex gap-2 rounded-lg bg-slate-900 border border-slate-800 p-2">
               <input
                 ref={fileInputRef}
@@ -654,7 +845,10 @@ export default function Dashboard() {
               </Button>
               <Input
                 value={messageInput}
-                onChange={e => setMessageInput(e.target.value)}
+                onChange={e => {
+                  setMessageInput(e.target.value);
+                  if (e.target.value) announceTyping();
+                }}
                 onKeyDown={e => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -679,6 +873,14 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+
+      {selectedServerId != null && (
+        <MemberList
+          serverId={selectedServerId}
+          currentUserId={user.id}
+          onError={setError}
+        />
+      )}
     </div>
   );
 }

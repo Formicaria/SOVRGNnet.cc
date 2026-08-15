@@ -704,7 +704,7 @@ export async function toggleMessageReaction(
   if (reactors.size === 0) {
     delete current[emoji];
   } else {
-    current[emoji] = [...reactors];
+    current[emoji] = Array.from(reactors);
   }
 
   await setMessageReactions(messageId, current);

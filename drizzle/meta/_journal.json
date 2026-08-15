@@ -22,6 +22,13 @@
       "when": 1786831210279,
       "tag": "0002_medical_santa_claus",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786834234355,
+      "tag": "0003_pretty_wind_dancer",
+      "breakpoints": true
     }
   ]
 }
