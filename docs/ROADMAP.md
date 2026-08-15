@@ -86,7 +86,11 @@ The connection layer is done and tested (`shared/connections.ts`, 23 tests): add
 
 The Tauri scaffold is in `desktop/`: window, `sovrgn://` deep links including cold-start replay, single-instance focus, and per-server credentials in the OS keychain. It currently loads each server's own web UI in a webview, which means it works against server versions older than itself — a property worth keeping until keys move client-side.
 
-**Remaining:** the client UI itself, sign-in per server, and the rail across hosts.
+The client side landed too: `ConnectionsContext` owns the known-servers list, the rail grows a host strip above the community rail once you know more than one server, and an add-server dialog probes an address *before* saving it — two steps, look then join, so a typo produces "that isn't a SOVRGNnet server" rather than a password prompt on a stranger's website. Encryption status is stated plainly on that screen every time, because someone about to type a password deserves to know which kind of server they're looking at.
+
+**The browser's honest limit:** sessions are httpOnly cookies scoped to one origin, so a web page at one server cannot authenticate against another. On the web this is an address book, not a switchboard — switching hosts navigates there. The desktop client is what turns it into real multiplexing, and the UI says so rather than pretending.
+
+**Remaining:** sign-in per server in the desktop client, and replacing the webview with a native UI.
 
 ## Phase 8 — Client-side Matrix
 

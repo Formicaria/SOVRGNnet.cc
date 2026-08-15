@@ -8,6 +8,7 @@ import { Web3Provider } from "./contexts/Web3Context";
 import { MatrixProvider } from "./contexts/MatrixContext";
 import { IPFSProvider } from "./contexts/IPFSContext";
 import { AuthProvider } from "./contexts/AuthContext";
+import { ConnectionsProvider } from "./contexts/ConnectionsContext";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Invite from "./pages/Invite";
@@ -34,6 +35,9 @@ function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
+        {/* Which servers this client knows about. Outside the per-server
+            providers below, because it outlives any one connection. */}
+        <ConnectionsProvider>
         <WagmiProvider config={config}>
           <RainbowKitProvider>
             <Web3Provider>
@@ -50,6 +54,7 @@ function App() {
             </Web3Provider>
           </RainbowKitProvider>
         </WagmiProvider>
+        </ConnectionsProvider>
       </AuthProvider>
     </ErrorBoundary>
   );
