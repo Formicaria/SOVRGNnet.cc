@@ -1,3 +1,16 @@
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
+  Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+/assets/*
+  Cache-Control: public, max-age=604800
+
+# Matrix federation and client delegation. Third-party Matrix clients and other
+# homeservers read these to find the real homeserver behind sovrgnnet.cc.
 /.well-known/matrix/*
   Content-Type: application/json
   Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=3600

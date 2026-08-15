@@ -62,13 +62,53 @@ Kick and ban mirror onto Matrix room membership, with bans recorded app-side too
 
 **Known limit:** presence and typing live in one process's memory. Correct for a single app container — which is the entire deployment story today — and would want Redis before running several.
 
-## Phase 5.5 — Desktop app (Tauri)
+---
 
-Once messaging works in the browser, wrap it: a Tauri shell targeting sovrgnnet.cc with native notifications, system tray, and auto-update. Thin by design — all product logic stays in the web app.
+# The pivot — August 2026
 
-## Phase 6 — The sovereign extras (post-v1)
+Everything above built a web application you self-host. That was the wrong shape, and [ADR 0001](adr/0001-multi-server-client.md) records the decision to change it.
 
-In deliberate order: end-to-end encryption (Olm/Megolm) once the plaintext path is solid; voice channels via MatrixRTC + LiveKit; optional wallet linking and ENS display names; the soundboard; and only then any token-gated membership reimagining of the old "Nitro" tables — or their removal.
+The intended shape is a **network of independent servers** with a **desktop client that connects to several at once** — your LXC, a friend's box, a community's VPS — where you find a server by its ID but join by invite, conversations are end-to-end encrypted, and the owner configures their server from the client.
+
+The load-bearing consequence: **the current design makes E2EE impossible.** The app server holds every user's Matrix token and proxies every message, so it reads everything in plaintext. Encryption can't be added to that — it's excluded by it. The keys have to move into the client, which is the same change that makes multi-server work. One pivot, not two.
+
+What that costs is written down honestly in the ADR: the central permission check weakens, the homeserver has to become reachable, key management becomes a real user-facing problem, and the web app becomes a permanently less capable fallback.
+
+## Phase 6 — Instance identity ✅ (August 2026)
+
+Done: a server can introduce itself to a client that has never seen it. `GET /api/instance` returns product, API version, a stable instance id, display name, Matrix server name, join policy, and whether encryption is available — public, CORS-open, and carrying nothing about members or messages. The id is derived by hashing the Matrix server name rather than stored, so it survives a database restore and can't be forged without also taking the server name.
+
+Invite links now name the server as well as the code: `https://host/invite/<code>` canonically, `sovrgn://invite/<host>/<code>` for the desktop hand-off. A bare code is now explicitly ambiguous and rejected unless there's a server to resolve it against — which is exactly the bug the old format hid. `GET /api/invite/:code` previews what you're joining before anyone types a password, exposing only the community's public face; missing and revoked codes return identically so codes can't be enumerated.
+
+## Phase 7 — Desktop client shell 🚧
+
+The connection layer is done and tested (`shared/connections.ts`, 23 tests): add a server by address, probe it before showing a login screen, de-duplicate by instance id so the same server at a new address stays one entry, reorder the rail, and refresh — keeping unreachable servers rather than deleting a community because a laptop was shut for the night.
+
+The Tauri scaffold is in `desktop/`: window, `sovrgn://` deep links including cold-start replay, single-instance focus, and per-server credentials in the OS keychain. It currently loads each server's own web UI in a webview, which means it works against server versions older than itself — a property worth keeping until keys move client-side.
+
+**Remaining:** the client UI itself, sign-in per server, and the rail across hosts.
+
+## Phase 8 — Client-side Matrix
+
+The client syncs directly with each homeserver instead of the app proxying. Still plaintext — this step is about moving the transport, not encrypting it, and separating the two keeps each reviewable. Replaces the 3-second polling loop with a real `/sync` stream. Conduit stops being loopback-only and moves behind the tunnel with proper delegation.
+
+## Phase 9 — End-to-end encryption
+
+Olm/Megolm in the client. The part everyone underestimates isn't the encryption, it's the key management: cross-device verification, key backup, and recovery phrases are the difference between encryption and permanent data loss. The web app does not get E2EE and must stop implying it does.
+
+## Phase 10 — Voice
+
+MatrixRTC signalling with a LiveKit SFU. Needs the persistent client from Phase 7 and benefits from the direct sync of Phase 8. A public TURN relay is likely required for people behind hostile NAT — a real, ongoing bandwidth cost to decide on deliberately.
+
+## Phase 11 — Directory and server administration
+
+An opt-in directory at sovrgnnet.cc: servers may register an id and display name to be searchable; joining still needs an invite. It holds server addresses and nothing else — never members, never messages — and an unregistered server stays fully functional, just unsearchable.
+
+Alongside it, server administration from the client: settings, roles, moderation, and join policy, so running a server never requires SSH.
+
+## Later
+
+Optional wallet linking and ENS display names; the soundboard; and a decision on the old "Nitro" tables — reimagined as token-gated membership, or removed. Federation stays possible for operators who want it, but multi-connection comes first: federation makes every server's uptime and moderation policy everyone else's problem, and requires every instance to be publicly reachable, which contradicts running one on a laptop in a closet.
 
 ---
 

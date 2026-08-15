@@ -181,7 +181,10 @@ export default function Dashboard() {
     setTyping.mutate({ channelId: selectedChannelId, typing: true });
   };
   const createInvite = trpc.servers.createInvite.useMutation({
-    onSuccess: res => setInviteCode(res.code),
+    // Prefer the server's own idea of its address — behind a tunnel it knows
+    // better than the browser does — but fall back to the current origin.
+    onSuccess: res =>
+      setInviteLink(res.url ?? `${window.location.origin}/invite/${res.code}`),
     onError: e => setError(e.message),
   });
   const leaveServer = trpc.servers.leave.useMutation({
@@ -193,7 +196,7 @@ export default function Dashboard() {
     onError: e => setError(e.message),
   });
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
 
   const [isUploading, setIsUploading] = useState(false);
@@ -473,19 +476,17 @@ export default function Dashboard() {
                     Anyone with this link can join {selectedServer.name}.
                   </DialogDescription>
                 </DialogHeader>
-                {inviteCode ? (
+                {inviteLink ? (
                   <div className="flex gap-2">
                     <Input
                       readOnly
-                      value={`${window.location.origin}/invite/${inviteCode}`}
+                      value={inviteLink}
                       className="bg-slate-800 border-slate-700 font-mono text-sm"
                     />
                     <Button
                       size="icon"
                       onClick={async () => {
-                        await navigator.clipboard.writeText(
-                          `${window.location.origin}/invite/${inviteCode}`
-                        );
+                        await navigator.clipboard.writeText(inviteLink);
                         setInviteCopied(true);
                       }}
                     >

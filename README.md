@@ -1,3 +1,14 @@
+```
+   ███████╗ ██████╗ ██╗   ██╗██████╗  ██████╗ ███╗   ██╗
+   ██╔════╝██╔═══██╗██║   ██║██╔══██╗██╔════╝ ████╗  ██║
+   ███████╗██║   ██║██║   ██║██████╔╝██║  ███╗██╔██╗ ██║
+   ╚════██║██║   ██║╚██╗ ██╔╝██╔══██╗██║   ██║██║╚██╗██║
+   ███████║╚██████╔╝ ╚████╔╝ ██║  ██║╚██████╔╝██║ ╚████║
+   ╚══════╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+
+   Your own chat network. Your hardware. Your rules.
+```
+
 # SOVRGNnet
 
 **Sovereign communications.** A self-hosted, Discord-style platform built on open protocols — Matrix for messaging, IPFS for file storage, and optional Web3 identity — designed to run on your own hardware under your own domain.

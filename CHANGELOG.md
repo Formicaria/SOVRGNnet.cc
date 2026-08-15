@@ -71,6 +71,19 @@
   authenticated, membership-enforced upload/download routes; images inline
   and file cards in a unified channel timeline; paperclip + drag-and-drop.
 
+### Website
+
+- sovrgnnet.cc grew from one landing page into a real site: a docs section
+  (installing, operating, architecture, security), a legal page covering the
+  MIT licence, a privacy notice, and terms — with the distinction between *the
+  software*, *the website*, and *your instance* made explicit, since the
+  responsibilities differ for each.
+- The landing page now reflects what actually shipped: one-command install, no
+  domain or account required, and a plainly-worded section on what the project
+  is *not* yet — starting with the absence of end-to-end encryption.
+- Shared stylesheet, a 404 page, and security headers with a strict CSP
+  (`default-src 'none'`). The site ships no JavaScript at all.
+
 ### Tests
 
 - 55 passing, up from 23: permission ranking and moderation authority,
