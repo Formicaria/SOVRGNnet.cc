@@ -50,10 +50,20 @@ async function startServer() {
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  let port = preferredPort;
 
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+  if (process.env.NODE_ENV === "production") {
+    // In production the port is part of the deployment contract (Docker port
+    // mapping, nginx upstream) — fail fast instead of silently moving.
+    if (!(await isPortAvailable(preferredPort))) {
+      console.error(`Port ${preferredPort} is not available. Exiting.`);
+      process.exit(1);
+    }
+  } else {
+    port = await findAvailablePort(preferredPort);
+    if (port !== preferredPort) {
+      console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+    }
   }
 
   server.listen(port, () => {

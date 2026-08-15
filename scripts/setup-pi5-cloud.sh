@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Decentralized Discord - Pi 5 + Cloud Storage Setup Script
+# SOVRGNnet - Pi 5 + Cloud Storage Setup Script
 # This script automates the setup for Raspberry Pi 5 with cloud-based storage
 # Supports: PlanetScale (database), NFT.storage (IPFS), Cloudflare (DNS)
 
@@ -33,7 +33,7 @@ print_error() {
 }
 
 # Start
-print_header "Decentralized Discord - Pi 5 + Cloud Setup"
+print_header "SOVRGNnet - Pi 5 + Cloud Setup"
 
 # Check if running on ARM64
 if [[ $(uname -m) != "aarch64" ]]; then
@@ -101,7 +101,6 @@ if [ ! -f ".env" ]; then
     echo ""
     echo "  3. JWT_SECRET - Generate with: openssl rand -base64 32"
     echo ""
-    echo "  4. Other values - Manus OAuth, Web3, etc."
     echo ""
     read -p "Press Enter after editing .env file with nano..."
     nano .env
@@ -129,8 +128,8 @@ if [ ! -f "./scripts/init-db.sql" ]; then
     cat > ./scripts/init-db.sql << 'EOF'
 -- Initial database setup for cloud-based deployment
 -- Note: Using PlanetScale, so this is minimal
-CREATE DATABASE IF NOT EXISTS decentralized_discord;
-USE decentralized_discord;
+CREATE DATABASE IF NOT EXISTS sovrgnnet;
+USE sovrgnnet;
 EOF
     print_success "Database init script created"
 fi
@@ -148,10 +147,10 @@ docker-compose -f docker-compose-cloud.yml build app
 
 # Create volumes
 print_header "Step 11: Creating Docker Volumes"
-docker volume create decentralized-discord_matrix_data || true
-docker volume create decentralized-discord_ipfs_data || true
-docker volume create decentralized-discord_ipfs_export || true
-docker volume create decentralized-discord_nginx_cache || true
+docker volume create sovrgnnet_matrix_data || true
+docker volume create sovrgnnet_ipfs_data || true
+docker volume create sovrgnnet_ipfs_export || true
+docker volume create sovrgnnet_nginx_cache || true
 print_success "Volumes created"
 
 # Start services
@@ -172,7 +171,7 @@ docker-compose -f docker-compose-cloud.yml ps
 echo ""
 print_header "Setup Complete!"
 echo ""
-echo -e "${GREEN}Your Decentralized Discord is running!${NC}"
+echo -e "${GREEN}Your SOVRGNnet is running!${NC}"
 echo ""
 echo -e "${BLUE}Access Information:${NC}"
 echo "  Application: http://$(hostname -I | awk '{print $1}'):3000"
