@@ -12,7 +12,7 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: production
-      DATABASE_URL: mysql://discord_user:${DB_PASSWORD}@db:3306/decentralized_discord
+      DATABASE_URL: postgresql://sovrgn:${DB_PASSWORD}@db:5432/sovrgnnet
       JWT_SECRET: ${JWT_SECRET}
       VITE_APP_ID: ${VITE_APP_ID}
       OAUTH_SERVER_URL: ${OAUTH_SERVER_URL}
@@ -23,7 +23,7 @@ services:
       BUILT_IN_FORGE_API_KEY: ${BUILT_IN_FORGE_API_KEY}
       VITE_FRONTEND_FORGE_API_KEY: ${VITE_FRONTEND_FORGE_API_KEY}
       VITE_FRONTEND_FORGE_API_URL: ${VITE_FRONTEND_FORGE_API_URL}
-      VITE_APP_TITLE: ${VITE_APP_TITLE:-Decentralized Discord}
+      VITE_APP_TITLE: ${VITE_APP_TITLE:-SOVRGNnet}
       VITE_APP_LOGO: ${VITE_APP_LOGO}
       VITE_ANALYTICS_ENDPOINT: ${VITE_ANALYTICS_ENDPOINT}
       VITE_ANALYTICS_WEBSITE_ID: ${VITE_ANALYTICS_WEBSITE_ID}
@@ -48,30 +48,24 @@ services:
       retries: 3
       start_period: 40s
 
-  # MySQL Database
+  # PostgreSQL Database (matches the Drizzle/postgres-js code path)
   db:
-    image: mysql:8.0-arm64v8
-    container_name: decentralized-discord-db
+    image: postgres:16-alpine
+    container_name: sovrgnnet-db
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-      MYSQL_DATABASE: decentralized_discord
-      MYSQL_USER: discord_user
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      MYSQL_INITDB_SKIP_TZINFO: "yes"
+      POSTGRES_DB: sovrgnnet
+      POSTGRES_USER: sovrgn
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - db_data:/var/lib/mysql
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    ports:
-      - "3306:3306"
+      - db_data:/var/lib/postgresql/data
     networks:
       - decentralized-discord
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD}"]
+      test: ["CMD-SHELL", "pg_isready -U sovrgn -d sovrgnnet"]
       interval: 10s
       timeout: 5s
       retries: 5
-    command: --default-authentication-plugin=mysql_native_password --max_connections=1000
 
   # Matrix Homeserver (Conduit - lightweight)
   matrix:
