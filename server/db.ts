@@ -313,6 +313,52 @@ export async function saveMatrixCredentials(
   }
 }
 
+export async function getServerByInviteCode(code: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .select()
+    .from(servers)
+    .where(eq(servers.inviteCode, code))
+    .limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function setServerInviteCode(serverId: number, code: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(servers)
+    .set({ inviteCode: code, updatedAt: new Date() })
+    .where(eq(servers.id, serverId));
+}
+
+export async function getMessageById(messageId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.select().from(messages).where(eq(messages.id, messageId)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function deleteMessage(messageId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.delete(messages).where(eq(messages.id, messageId));
+}
+
+export async function removeServerMember(serverId: number, userId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .delete(serverMembers)
+    .where(and(eq(serverMembers.serverId, serverId), eq(serverMembers.userId, userId)));
+}
+
 export async function isServerMember(serverId: number, userId: number): Promise<boolean> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
