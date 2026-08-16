@@ -305,6 +305,39 @@ the tooling — an explicit gap, and a good candidate for the next pass.
 
 ---
 
+### T18 — Community rooms open at the Matrix layer
+
+**Capabilities:** Join any community without an invite, enumerate every
+community on the instance, and — once clients sync directly — invite arbitrary
+Matrix users into a community, including someone the instance has banned.
+
+**Affected:** Any instance whose homeserver is reachable.
+
+**Why it existed:** Rooms were created with `preset: "public_chat"` and
+`visibility: "public"`. That means `join_rule: public`, listing in the
+homeserver's public room directory, and an invite power level of 0. SOVRGN's
+own join policy defaults to invite-only, so the application was enforcing a
+rule the layer beneath it contradicted.
+
+It was unreachable in practice only because the homeserver was loopback-only.
+ADR 0008 stage 2 makes exposing the homeserver a supported configuration, which
+turned a latent contradiction into a live one.
+
+**Mitigations:** Spaces are now `private_chat` and unlisted; channel rooms use
+a restricted join rule keyed on Space membership, so joining a community still
+gets you its channels without the rooms being open. Inviting requires the
+moderator power level. The room version is pinned, because an older default
+would silently produce a public room again.
+
+**Residual risk: moderate, for existing instances.** These are creation-time
+settings. Communities created before this change keep their old join rules, and
+repairing them means rewriting room state on a live homeserver — see
+docs/UPGRADING.md.
+
+---
+
+---
+
 ## What an attacker cannot do
 
 - Read messages on an instance they have no access to
@@ -318,13 +351,15 @@ the tooling — an explicit gap, and a good candidate for the next pass.
 
 1. **No end-to-end encryption.** The largest by a distance.
 2. **The instance can log in as any user** (T17). Decisive once E2EE ships.
-3. **No session revocation.** Stateless one-year JWTs; logout doesn't invalidate.
-4. **No 2FA for local accounts.**
-5. **Backups are unencrypted at rest.**
-6. **No `jti` replay tracking** within a token's lifetime.
-7. **No rate limiting on most API surface** beyond login.
-8. **No audit log** of administrative actions.
-9. **No independent security audit.** Careful review is not an audit.
+3. **Communities created before v0.4.2 have public Matrix join rules** (T18).
+   Creation-time settings; repairing them means rewriting live room state.
+4. **No session revocation.** Stateless one-year JWTs; logout doesn't invalidate.
+5. **No 2FA for local accounts.**
+6. **Backups are unencrypted at rest.**
+7. **No `jti` replay tracking** within a token's lifetime.
+8. **No rate limiting on most API surface** beyond login.
+9. **No audit log** of administrative actions.
+10. **No independent security audit.** Careful review is not an audit.
 
 ## Related
 
