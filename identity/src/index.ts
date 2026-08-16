@@ -2,7 +2,7 @@ import "dotenv/config";
 import cookieParser from "cookie-parser";
 import express from "express";
 import { loadKeys } from "./keys";
-import { mailTransportFromEnv } from "./mail";
+import { emailEnabled, mailTransportFromEnv } from "./mail";
 import { registerRoutes } from "./routes";
 
 /**
@@ -22,6 +22,18 @@ async function start() {
     `[identity] signing with ${active.kid}` +
       (all.length > 1 ? `, also publishing ${all.length - 1} retired key(s)` : "")
   );
+
+  if (!emailEnabled()) {
+    console.warn(
+      [
+        "[identity] Email is disabled (MAIL_TRANSPORT=none). This is a supported",
+        "[identity] mode, and it means two things are permanently true here:",
+        "[identity]   · no address is verified, so servers will never auto-link an",
+        "[identity]     SSO identity to an existing local account",
+        "[identity]   · recovery codes are the ONLY way back into an account",
+      ].join("\n")
+    );
+  }
 
   const app = express();
   app.set("trust proxy", 1); // behind a reverse proxy or tunnel

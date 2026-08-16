@@ -118,7 +118,11 @@ Also done: the server side. `JwksCache` fetches signing keys and — the propert
 
 `auth.ssoLogin` verifies, then links. The linking rule is the subtle part and has its own tested function: matching an SSO identity to an existing local account **by email is an account takeover** unless the provider verified the address — otherwise anyone could register at sovrgnnet.cc with your email and inherit your account on every server you belong to. An unverified email refuses and asks the person to sign in locally first. The join policy applies to SSO exactly as to local sign-up, so a closed server stays closed regardless of where an identity came from.
 
-**Remaining:** the HTTP service itself — registration, sign-in, token endpoint, JWKS route, email delivery. Until it exists, `INSTANCE_ALLOW_SSO` has nothing to point at and every account is local.
+The service is built: accounts, sessions, the token endpoint, JWKS, grants a person can see and revoke, and recovery. It runs on its own machine — deliberately not co-located with a server, since identity going down with somebody's instance would be the worst of both arrangements — and is documented in [identity/DEPLOY.md](../identity/DEPLOY.md).
+
+**It runs without email**, which is a chosen configuration rather than a missing feature, and makes two things permanently true: no address is verified, so servers never auto-link an identity to an existing local account; and recovery codes are the only way back. Both are stated at startup, at signup, and in the reset endpoint, which returns "this service doesn't send email" rather than the much crueller "check your inbox." Codes can be regenerated with the current password, and their count is queryable so a client can nag before it matters.
+
+**Remaining:** the sign-in UI on sovrgnnet.cc, and the client-side flow that asks for a token and hands it to a server.
 
 ## Phase 8 — Client-side Matrix
 
