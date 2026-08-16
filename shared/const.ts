@@ -2,7 +2,7 @@
  * Advertised by GET /api/instance so clients can reason about compatibility.
  * Keep in step with package.json — `pnpm test` fails if these drift.
  */
-export const APP_VERSION = "0.1.0";
+export const APP_VERSION = "0.2.0";
 
 /**
  * Custom scheme the desktop client registers, so an invite link can hand off

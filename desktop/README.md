@@ -5,6 +5,21 @@ Matrix keys, and eventually does voice. See
 [ADR 0001](../docs/adr/0001-multi-server-client.md) for why it exists and what
 it changes.
 
+## A note on Tauri's `unstable` feature
+
+`src-tauri/Cargo.toml` enables it, and that is not incidental. It's what
+exposes multiple webviews inside one window, which is the mechanism behind
+holding several signed-in servers at once — each origin keeping its own
+cookies, storage, and scroll position. A browser tab can't do that, and it's
+the main thing the desktop client offers over the web app.
+
+Tauri may change that API between minor versions, so the dependency is pinned
+to `2.11` rather than floating. Updating it is a deliberate act followed by
+running the app, not something to accept from a dependency bot.
+
+If it ever breaks badly, the fallback is one OS window per server: stable API,
+worse experience.
+
 ## Status
 
 **Written, not yet run.** Every file here is complete and coherent, but the
