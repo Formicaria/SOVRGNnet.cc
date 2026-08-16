@@ -62,6 +62,28 @@ function toPublicUser(user: User) {
   return publicUser;
 }
 
+/**
+ * Credentials for inviting someone into a community's Space.
+ *
+ * Community Spaces are invite-only, so joining takes an invite from somebody
+ * holding the invite power level — which the person joining does not have, on
+ * purpose. SOVRGN decides who may join, using its own join policy, invite
+ * codes and bans; this carries that decision into Matrix rather than leaving
+ * the Space open to anyone who can reach the homeserver.
+ *
+ * Null when the owner has no Matrix session yet. joinServerRooms then falls
+ * back to a plain join, which still works for communities created before the
+ * rooms became invite-only.
+ */
+async function inviterFor(
+  ownerId: number,
+  joiningMatrixUserId: string
+): Promise<{ ownerAccessToken: string; joiningMatrixUserId: string } | null> {
+  const owner = await db.getMatrixCredentials(ownerId).catch(() => null);
+  if (!owner) return null;
+  return { ownerAccessToken: owner.accessToken, joiningMatrixUserId };
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -307,7 +329,8 @@ export const appRouter = router({
         await joinServerRooms(
           creds.accessToken,
           server.matrixRoomId,
-          channels.map(c => c.matrixRoomId)
+          channels.map(c => c.matrixRoomId),
+          await inviterFor(server.ownerId, creds.userId)
         );
         await db.addServerMember(server.id, ctx.user.id, "member");
         return { joined: true } as const;
@@ -368,7 +391,8 @@ export const appRouter = router({
           await joinServerRooms(
             creds.accessToken,
             server.matrixRoomId,
-            channels.map(c => c.matrixRoomId)
+            channels.map(c => c.matrixRoomId),
+            await inviterFor(server.ownerId, creds.userId)
           );
           await db.addServerMember(server.id, ctx.user.id, "member");
         }

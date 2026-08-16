@@ -346,6 +346,38 @@ export async function whoami(
 }
 
 /** Create a Space (SOVRGNnet "server"). Returns the space room id. */
+/**
+ * Room version. Restricted join rules (MSC3083) need 8 or later; 10 is what
+ * Dendrite v0.15 defaults to and what the child rooms below rely on.
+ */
+const ROOM_VERSION = "10";
+
+/**
+ * Only moderators and above may invite Matrix users directly.
+ *
+ * The default is 0 — any member. That was invisible while the app was the only
+ * thing talking to Matrix, and becomes a hole the moment a client syncs
+ * directly: a member could invite arbitrary Matrix accounts into a community,
+ * including someone SOVRGN had banned, and the app's own membership tables
+ * would know nothing about it.
+ */
+// 50 is POWER_LEVELS.moderator, which is declared further down this file.
+const POWER_LEVEL_OVERRIDES = { invite: 50 };
+
+/**
+ * Create a Space — a SOVRGNnet community.
+ *
+ * **Invite-only and unlisted.** It was `preset: "public_chat"` with
+ * `visibility: "public"`, which meant every community was joinable by anyone
+ * who could reach the homeserver, *and* published in its public room
+ * directory. SOVRGN's own join policy defaults to invite-only, so the app was
+ * enforcing a rule the Matrix layer underneath it contradicted.
+ *
+ * That was masked while the homeserver was loopback-only. ADR 0008 stage 2
+ * makes exposing it a supported configuration, which turns a latent
+ * contradiction into a live one: a private community would have been listed
+ * publicly and joinable without an invite.
+ */
 export async function createSpace(
   accessToken: string,
   name: string,
@@ -357,8 +389,12 @@ export async function createSpace(
     {
       name,
       topic,
-      preset: "public_chat",
-      visibility: "public",
+      preset: "private_chat",
+      // Not in the homeserver's public room directory. Discovery is SOVRGN's
+      // job, gated on its own join policy.
+      visibility: "private",
+      room_version: ROOM_VERSION,
+      power_level_content_override: POWER_LEVEL_OVERRIDES,
       creation_content: { type: "m.space" },
     },
     accessToken
@@ -367,6 +403,18 @@ export async function createSpace(
 }
 
 /** Create a room (channel) and link it as a child of the space. */
+/**
+ * Create a channel room inside a Space.
+ *
+ * Joinable by anyone already in the Space, and nobody else — a *restricted*
+ * join rule, which is the thing Spaces were designed for. That keeps the
+ * familiar behaviour (join a community, get its channels) without the room
+ * being open to the world, and without needing an invite per channel.
+ *
+ * Restricted rules need room version 8+, hence the explicit version: relying
+ * on the homeserver's default would silently produce a public room on an older
+ * one, which is the failure this is fixing.
+ */
 export async function createChannelRoom(
   accessToken: string,
   spaceId: string,
@@ -376,7 +424,24 @@ export async function createChannelRoom(
   const res = await matrixRequest<{ room_id: string }>(
     "POST",
     "/_matrix/client/v3/createRoom",
-    { name, topic, preset: "public_chat", visibility: "public" },
+    {
+      name,
+      topic,
+      preset: "private_chat",
+      visibility: "private",
+      room_version: ROOM_VERSION,
+      power_level_content_override: POWER_LEVEL_OVERRIDES,
+      initial_state: [
+        {
+          type: "m.room.join_rules",
+          state_key: "",
+          content: {
+            join_rule: "restricted",
+            allow: [{ type: "m.room_membership", room_id: spaceId }],
+          },
+        },
+      ],
+    },
     accessToken
   );
 
@@ -388,6 +453,31 @@ export async function createChannelRoom(
   );
 
   return res.room_id;
+}
+
+/**
+ * Invite a Matrix user to a room.
+ *
+ * Needed because the Space is invite-only now. SOVRGN decides who may join —
+ * through its own join policy, invite codes, and bans — and this is how that
+ * decision is carried into Matrix. The alternative was leaving the Space open
+ * to anyone who could reach the homeserver, which made the app's rules
+ * decorative.
+ *
+ * Requires a token with the invite power level, so it runs as the community
+ * owner rather than as the person joining.
+ */
+export async function inviteToRoom(
+  accessToken: string,
+  roomId: string,
+  matrixUserId: string
+): Promise<void> {
+  await matrixRequest(
+    "POST",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`,
+    { user_id: matrixUserId },
+    accessToken
+  );
 }
 
 export async function joinRoom(accessToken: string, roomId: string): Promise<void> {
