@@ -3,281 +3,665 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SOVRGNnet — Independent communications infrastructure</title>
-  <meta name="description" content="Communications infrastructure you operate yourself. Messaging on Matrix, files on IPFS, on hardware you control. One command to install. No domain, no accounts, no landlord." />
-  <meta property="og:title" content="SOVRGNnet — Independent communications infrastructure" />
-  <meta property="og:description" content="Communications infrastructure you operate yourself. Messaging on Matrix, files on IPFS, on hardware you control. One command to install. No domain, no accounts, no landlord." />
+  <title>SOVRGNnet — a Discord-style platform you actually own</title>
+  <meta name="description" content="A Discord-style platform you actually own — messaging on Matrix, files on IPFS, running on a computer you control. One command to install. No domain required, no account with anybody, no landlord." />
+  <meta property="og:title" content="SOVRGNnet — a Discord-style platform you actually own" />
+  <meta property="og:description" content="Messaging on Matrix, files on IPFS, running on a computer you control. One command to install. No domain required, no account with anybody, no landlord." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://sovrgnnet.cc" />
-  <meta name="theme-color" content="#0a0614" />
+  <meta name="theme-color" content="#07050d" />
   <link rel="stylesheet" href="/assets/style.css" />
 </head>
-<body>
-  <header>
-    <div class="wrap">
-      <nav>
-        <a class="logo" href="/">SOVRGN<b>net</b></a>
-        <div class="links">
-          <a href="#why">Why</a>
-          <a href="#how">How it works</a>
-          <a href="/docs/">Docs</a>
-          <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
-        </div>
-      </nav>
-    </div>
-  </header>
+<body class="lp">
 
-  <main>
-    <div class="hero">
-      <div class="wrap">
-        <span class="tag">SELF-HOSTED · OPEN PROTOCOLS · MIT</span>
-        <h1>Independent communications<br /><span class="grad">infrastructure you operate.</span></h1>
-        <p class="sub">
-          A network of independent instances. Each one is a complete
-          communications server — messaging, files, membership, moderation —
-          run by whoever owns the machine it's on. One command to install. No
-          domain required, no account with anybody, no landlord.
+<!-- ============================================================ svg symbols
+     Defined once, referenced with <use>. Inline SVG needs no CSP allowance;
+     every colour comes from assets/style.css, never a style attribute. -->
+<svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g-sigil" x1="60" y1="40" x2="170" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c084fc" />
+      <stop offset="0.5" stop-color="#a855f7" />
+      <stop offset="1" stop-color="#6d28d9" />
+    </linearGradient>
+
+    <linearGradient id="g-stone" x1="0" y1="0" x2="0" y2="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f6f6f8" />
+      <stop offset="0.55" stop-color="#d9d9e0" />
+      <stop offset="1" stop-color="#a9a9b6" />
+    </linearGradient>
+
+    <!-- cast-concrete grain, clipped to the letterforms -->
+    <filter id="f-stone" x="-2%" y="-4%" width="104%" height="108%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.62" numOctaves="4" seed="11" result="n" />
+      <feColorMatrix in="n" type="matrix"
+        values="0 0 0 0 0.38  0 0 0 0 0.37  0 0 0 0 0.43  0 0 0 0.9 -0.22" result="grain" />
+      <feComposite in="grain" in2="SourceGraphic" operator="in" result="clipped" />
+      <feBlend in="clipped" in2="SourceGraphic" mode="multiply" />
+    </filter>
+
+    <!-- horizontal scan breaks punched out of the wordmark -->
+    <mask id="m-scan" maskUnits="userSpaceOnUse" x="0" y="0" width="690" height="140">
+      <rect x="0" y="0" width="690" height="140" fill="#fff" />
+      <rect x="0" y="31" width="690" height="1" fill="#000" opacity="0.45" />
+      <rect x="0" y="63" width="690" height="0.8" fill="#000" opacity="0.32" />
+      <rect x="0" y="97" width="690" height="1.2" fill="#000" opacity="0.42" />
+      <rect x="0" y="121" width="690" height="0.8" fill="#000" opacity="0.3" />
+    </mask>
+
+    <filter id="f-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5" result="b" />
+      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+  </defs>
+
+  <!-- the sigil: three stacked chevrons in a diamond envelope -->
+  <symbol id="sigil" viewBox="0 0 220 220">
+    <polygon class="chev" points="58,122 110,174 162,122 162,144 110,196 58,144" />
+    <polygon class="chev" points="86,108 110,84 134,108 134,130 110,106 86,130" />
+    <polygon class="chev" points="58,78 110,26 162,78 162,100 110,48 58,100" />
+  </symbol>
+
+  <!-- line icons -->
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7"/><rect x="3" y="13" width="18" height="7"/><path d="M6.5 7.5h1M6.5 16.5h1M17 7.5h1.5M17 16.5h1.5"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><path d="M4 6.5c0-1.4 3.6-2.5 8-2.5s8 1.1 8 2.5-3.6 2.5-8 2.5-8-1.1-8-2.5Z"/><path d="M4 6.5v11c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5v-11"/><path d="M4 12c0 1.4 3.6 2.5 8 2.5s8-1.1 8-2.5"/></symbol>
+  <symbol id="i-network" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="5"/><rect x="2.5" y="16.5" width="6" height="5"/><rect x="15.5" y="16.5" width="6" height="5"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 2.6 20 6v6c0 4.6-3.3 7.7-8 9.4-4.7-1.7-8-4.8-8-9.4V6l8-3.4Z"/><path d="m8.6 11.8 2.4 2.4 4.4-4.6"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.6 4.2l-3.2 15.6"/></symbol>
+  <symbol id="i-message" viewBox="0 0 24 24"><path d="M3 4.5h18v12H8l-5 4v-16Z"/><path d="M7 9h10M7 12.5h6"/></symbol>
+  <symbol id="i-files" viewBox="0 0 24 24"><path d="M7 2.5h7l4.5 4.5v10.5H7Z"/><path d="M14 2.5V7h4.5"/><path d="M4.5 6v15.5H16"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="16"/><path d="m6.5 9 3 3-3 3M12.5 15.5h5"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M2.8 20.5c0-3.4 2.8-5.6 6.2-5.6s6.2 2.2 6.2 5.6"/><path d="M16.2 5.2a3.2 3.2 0 0 1 0 6M17.6 15.4c2.2.6 3.6 2.5 3.6 5.1"/></symbol>
+  <symbol id="i-devices" viewBox="0 0 24 24"><rect x="2.5" y="4.5" width="12" height="9"/><path d="M5.5 17.5h6"/><rect x="16.5" y="9.5" width="5" height="11"/></symbol>
+  <symbol id="i-federation" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="3.6" r="1.8"/><circle cx="4.6" cy="17" r="1.8"/><circle cx="19.4" cy="17" r="1.8"/><path d="M12 5.4V9M9.5 13.7 6.2 15.9M14.5 13.7l3.3 2.2"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M9 3.5 7.5 20.5M16.5 3.5 15 20.5M3.5 8.5h17M3 15.5h17"/></symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M4 9h3.5L12 5v14l-4.5-4H4Z"/><path d="M15.5 9.5a3.5 3.5 0 0 1 0 5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-cog" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3.5"/></symbol>
+  <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="2.5" y="13.5" width="4" height="7"/><rect x="17.5" y="13.5" width="4" height="7"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m5 5 14 14M19 5 5 19"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3.5 6.5h17M3.5 12h17M3.5 17.5h17"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M3.5 4.5h6a3 3 0 0 1 3 3v13a2.6 2.6 0 0 0-2.4-2H3.5Z"/><path d="M20.5 4.5h-6a3 3 0 0 0-3 3v13a2.6 2.6 0 0 1 2.4-2h6.6Z"/></symbol>
+  <symbol id="i-scale" viewBox="0 0 24 24"><path d="M12 4v16M6 20h12M4 8h16M4 8l-2.5 6h5L4 8ZM20 8l-2.5 6h5L20 8Z"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24" class="solid"><path d="M12 .5C5.7.5.6 5.6.6 11.9c0 5 3.3 9.3 7.8 10.8.6.1.8-.2.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.1.1 1.7 1.2 1.7 1.2 1 1.8 2.7 1.3 3.4 1 .1-.7.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.2-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.9 1.2 1.9 1.2 3.2 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .4.2.7.8.6a11.4 11.4 0 0 0 7.8-10.8C23.4 5.6 18.3.5 12 .5Z"/></symbol>
+
+  <!-- Formicaria: an ant reduced to three diamonds and hard-angled limbs -->
+  <symbol id="i-ant" viewBox="0 0 48 48">
+    <path d="M21 7.5 16.5 3M27 7.5 31.5 3"/>
+    <path d="M24 6.2 28.4 11 24 15.8 19.6 11Z"/>
+    <path d="M24 16.6 30 22.6 24 28.6 18 22.6Z"/>
+    <path d="M24 29.4 31.4 37 24 44.6 16.6 37Z"/>
+    <path d="M19.4 20.4 10 15.6M18.6 24 9 24.6M19.8 27.2 11.4 32.4"/>
+    <path d="M28.6 20.4 38 15.6M29.4 24 39 24.6M28.2 27.2 36.6 32.4"/>
+  </symbol>
+</svg>
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<!-- ================================================================ header -->
+<header class="site-header">
+  <input class="navtoggle" type="checkbox" id="navtoggle" aria-label="Open navigation menu" />
+
+  <div class="wrap lp-nav">
+    <a class="lp-brand" href="/">
+      <svg class="sigil sigil-sm" viewBox="0 0 220 220" aria-hidden="true" focusable="false"><use href="#sigil" /></svg>
+      <span class="logo">SOVRGN<b>net</b></span>
+      <span class="lp-brandby">by Formicaria</span>
+    </a>
+
+    <nav class="lp-navlinks" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="#install">Install</a>
+      <a href="/docs/">Documentation</a>
+      <a href="#manifesto">Manifesto</a>
+      <a href="#about">About</a>
+    </nav>
+
+    <div class="lp-navactions">
+      <a class="btn btn-outline lp-navcta" href="#install"><span class="prompt" aria-hidden="true">&gt;_</span> Install SOVRGNnet</a>
+      <label class="burger" for="navtoggle">
+        <svg class="ico burger-open" aria-hidden="true" focusable="false"><use href="#i-menu" /></svg>
+        <svg class="ico burger-close" aria-hidden="true" focusable="false"><use href="#i-close" /></svg>
+      </label>
+    </div>
+  </div>
+
+  <label class="drawer-scrim" for="navtoggle" aria-hidden="true"></label>
+  <div class="drawer">
+    <nav class="drawer-links" aria-label="Mobile">
+      <a href="#features"><span class="n">01</span>Features</a>
+      <a href="#how-it-works"><span class="n">02</span>How it works</a>
+      <a href="#install"><span class="n">03</span>Install</a>
+      <a href="/docs/"><span class="n">04</span>Documentation</a>
+      <a href="#manifesto"><span class="n">05</span>Manifesto</a>
+      <a href="#about"><span class="n">06</span>About</a>
+    </nav>
+    <a class="btn btn-primary btn-block" href="#install"><span class="prompt" aria-hidden="true">&gt;_</span> Install SOVRGNnet</a>
+    <p class="drawer-foot">Matrix + IPFS + Freedom</p>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============================================================== hero -->
+  <section class="lp-hero" id="top">
+    <div class="wrap lp-hero-inner">
+
+      <div class="lp-hero-lead">
+        <svg class="sigil sigil-hero" viewBox="0 0 220 220" aria-hidden="true" focusable="false">
+          <g class="lattice">
+            <polygon class="lattice-ring" points="110,10 196.6,60 196.6,160 110,210 23.4,160 23.4,60" />
+            <path class="lattice-ring faint" d="M23.4 60V160M196.6 60V160M110 10V210M23.4 60l173.2 100M196.6 60L23.4 160" />
+            <circle class="speck" cx="70" cy="34" r="1.6" /><circle class="speck" cx="156" cy="28" r="1.6" />
+            <circle class="speck" cx="186" cy="104" r="1.6" /><circle class="speck" cx="36" cy="120" r="1.6" />
+            <circle class="speck" cx="96" cy="196" r="1.6" /><circle class="speck" cx="150" cy="186" r="1.6" />
+            <polygon class="node-ring" points="110,1 117.8,5.5 117.8,14.5 110,19 102.2,14.5 102.2,5.5" />
+            <polygon class="node-ring" points="196.6,51 204.4,55.5 204.4,64.5 196.6,69 188.8,64.5 188.8,55.5" />
+            <polygon class="node-ring" points="196.6,151 204.4,155.5 204.4,164.5 196.6,169 188.8,164.5 188.8,155.5" />
+            <polygon class="node-ring" points="110,201 117.8,205.5 117.8,214.5 110,219 102.2,214.5 102.2,205.5" />
+            <polygon class="node-ring" points="23.4,151 31.2,155.5 31.2,164.5 23.4,169 15.6,164.5 15.6,155.5" />
+            <polygon class="node-ring" points="23.4,51 31.2,55.5 31.2,64.5 23.4,69 15.6,64.5 15.6,55.5" />
+          </g>
+          <use href="#sigil" class="sigil-glow" />
+        </svg>
+
+        <h1 class="lp-title">
+          <span class="sr-only">SOVRGNnet</span>
+          <span class="lp-wordmark-row" aria-hidden="true">
+            <svg class="wordmark" viewBox="0 0 690 140" preserveAspectRatio="xMidYMid meet" focusable="false">
+              <g fill="url(#g-stone)" mask="url(#m-scan)" filter="url(#f-stone)">
+                <g><!-- S -->
+                  <rect x="0" y="0" width="100" height="30" /><rect x="0" y="0" width="30" height="72" />
+                  <rect x="0" y="55" width="100" height="30" /><rect x="70" y="55" width="30" height="85" />
+                  <rect x="0" y="110" width="100" height="30" />
+                </g>
+                <g transform="translate(118,0)"><!-- O -->
+                  <rect x="0" y="0" width="100" height="30" /><rect x="0" y="110" width="100" height="30" />
+                  <rect x="0" y="0" width="30" height="140" /><rect x="70" y="0" width="30" height="140" />
+                </g>
+                <g transform="translate(236,0)"><!-- V -->
+                  <polygon points="0,0 32,0 64,140 36,140" /><polygon points="68,0 100,0 64,140 36,140" />
+                </g>
+                <g transform="translate(354,0)"><!-- R -->
+                  <rect x="0" y="0" width="30" height="140" /><rect x="0" y="0" width="100" height="30" />
+                  <rect x="70" y="0" width="30" height="64" /><rect x="0" y="52" width="100" height="30" />
+                  <polygon points="58,82 88,82 100,140 72,140" />
+                </g>
+                <g transform="translate(472,0)"><!-- G -->
+                  <rect x="0" y="0" width="100" height="30" /><rect x="0" y="0" width="30" height="140" />
+                  <rect x="0" y="110" width="100" height="30" /><rect x="70" y="66" width="30" height="74" />
+                  <rect x="46" y="66" width="54" height="30" />
+                </g>
+                <g transform="translate(590,0)"><!-- N -->
+                  <rect x="0" y="0" width="30" height="140" /><rect x="70" y="0" width="30" height="140" />
+                  <polygon points="30,0 60,0 70,140 40,140" />
+                </g>
+              </g>
+            </svg>
+            <span class="wordmark-net">net</span>
+          </span>
+        </h1>
+
+        <p class="lp-mission">
+          A Discord-style platform you actually own —<br />
+          messaging on <span class="a">Matrix</span>, files on <span class="a">IPFS</span>,<br />
+          running on a computer you control.
         </p>
+
+        <p class="lp-emph">One command to install.</p>
+        <p class="lp-subtle">No domain required, no account with anybody, no landlord.</p>
+
         <div class="cta">
-          <a class="btn btn-primary" href="/docs/install.html">Install it</a>
-          <a class="btn btn-ghost" href="https://github.com/Formicaria/SOVRGNnet.cc">View source</a>
+          <a class="btn btn-primary btn-lg" href="#install"><span class="prompt" aria-hidden="true">&gt;_</span> Install SOVRGNnet</a>
+          <a class="btn btn-ghost btn-lg" href="https://github.com/Formicaria/SOVRGNnet.cc">
+            <svg class="ico solid" aria-hidden="true" focusable="false"><use href="#i-github" /></svg> View on GitHub
+          </a>
         </div>
-        <p class="status-note">v0.4.0 alpha — messaging, files, invites, roles &amp; moderation work; end-to-end encryption is next</p>
+
+        <p class="lp-note">SOVRGNnet is open source software by Formicaria.</p>
+        <p class="lp-tagline">Matrix + IPFS + Freedom</p>
       </div>
+
+      <!-- ------------------------------------------------ client preview -->
+      <figure class="lp-stage">
+        <div class="app" role="img" aria-label="Preview of the SOVRGNnet client: the SOVRGN Hub community showing the general channel, a node status message from the SOVRGN bot, and the member list.">
+          <div class="app-bar" aria-hidden="true">
+            <span class="dots"><i></i><i></i><i></i></span>
+            <span class="app-title">SOVRGNnet &nbsp;/&nbsp; SOVRGN Hub</span>
+            <span class="app-node"><span class="dot-live"></span> node: local</span>
+          </div>
+
+          <div class="app-body" aria-hidden="true">
+            <nav class="rail">
+              <span class="rail-home"><svg class="sigil" viewBox="0 0 220 220"><use href="#sigil" /></svg></span>
+              <span class="rail-sep"></span>
+              <span class="rail-srv is-active">SV</span>
+              <span class="rail-srv">HL</span>
+              <span class="rail-srv">NX</span>
+              <span class="rail-srv">RP</span>
+              <span class="rail-srv">ZR</span>
+              <span class="rail-add"><svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg></span>
+              <span class="rail-spacer"></span>
+              <span class="rail-set"><svg class="ico" aria-hidden="true"><use href="#i-cog" /></svg></span>
+            </nav>
+
+            <div class="chan">
+              <div class="chan-head">
+                <span class="chan-title">SOVRGN Hub</span>
+                <svg class="ico" aria-hidden="true"><use href="#i-close" /></svg>
+              </div>
+              <div class="chan-scroll">
+                <h4 class="chan-group">Info</h4>
+                <span class="chan-item"><svg class="ico" aria-hidden="true"><use href="#i-hash" /></svg>welcome</span>
+                <span class="chan-item"><svg class="ico" aria-hidden="true"><use href="#i-hash" /></svg>rules</span>
+                <span class="chan-item"><svg class="ico" aria-hidden="true"><use href="#i-hash" /></svg>announcements</span>
+
+                <h4 class="chan-group">Community</h4>
+                <span class="chan-item is-active"><svg class="ico" aria-hidden="true"><use href="#i-hash" /></svg>general</span>
+                <span class="chan-item"><svg class="ico" aria-hidden="true"><use href="#i-hash" /></svg>tech-talk</span>
+                <span class="chan-item"><svg class="ico" aria-hidden="true"><use href="#i-hash" /></svg>projects</span>
+                <span class="chan-item"><svg class="ico" aria-hidden="true"><use href="#i-hash" /></svg>share-your-work</span>
+                <span class="chan-item"><svg class="ico" aria-hidden="true"><use href="#i-hash" /></svg>off-topic</span>
+
+                <h4 class="chan-group">Voice</h4>
+                <span class="chan-item"><svg class="ico" aria-hidden="true"><use href="#i-speaker" /></svg>General</span>
+                <span class="chan-item"><svg class="ico" aria-hidden="true"><use href="#i-speaker" /></svg>Dev Lounge</span>
+                <span class="chan-item"><svg class="ico" aria-hidden="true"><use href="#i-speaker" /></svg>AFK</span>
+              </div>
+              <div class="chan-me">
+                <span class="av av-operator">OP<i class="st on"></i></span>
+                <span class="chan-me-text"><span class="n">operator</span><span class="t">self-hosted</span></span>
+                <svg class="ico" aria-hidden="true"><use href="#i-mic" /></svg>
+                <svg class="ico" aria-hidden="true"><use href="#i-headphones" /></svg>
+              </div>
+            </div>
+
+            <div class="chat">
+              <div class="chat-head">
+                <svg class="ico" aria-hidden="true"><use href="#i-hash" /></svg>
+                <span class="chat-name">general</span>
+                <span class="chat-rule"></span>
+                <span class="chat-icons">
+                  <svg class="ico" aria-hidden="true"><use href="#i-people" /></svg>
+                  <svg class="ico" aria-hidden="true"><use href="#i-cog" /></svg>
+                </span>
+              </div>
+
+              <div class="chat-log">
+                <article class="msg">
+                  <span class="av av-parallax">PA</span>
+                  <div class="msg-body">
+                    <h5 class="msg-head"><span class="au">parallax</span><span class="tm">Today at 10:42 AM</span></h5>
+                    <p>Running SOVRGNnet on a Raspberry Pi in my homelab. So good not depending on anyone.</p>
+                    <div class="reacts"><span class="react"><b>▲</b>7</span><span class="react"><b>◆</b>3</span></div>
+                  </div>
+                </article>
+
+                <article class="msg">
+                  <span class="av av-byteframe">BY</span>
+                  <div class="msg-body">
+                    <h5 class="msg-head"><span class="au">byteframe</span><span class="tm">Today at 10:43 AM</span></h5>
+                    <p>Matrix for messaging.</p>
+                    <p>IPFS for files.</p>
+                    <p>Freedom for all.</p>
+                    <div class="reacts"><span class="react"><b>●</b>12</span></div>
+                  </div>
+                </article>
+
+                <article class="msg">
+                  <span class="av av-nullroot">NU</span>
+                  <div class="msg-body">
+                    <h5 class="msg-head"><span class="au">nullroot</span><span class="tm">Today at 10:45 AM</span></h5>
+                    <p>No cloud. No gates. Just us.</p>
+                  </div>
+                </article>
+
+                <article class="msg msg-bot">
+                  <span class="bot-av"><svg class="sigil" viewBox="0 0 220 220"><use href="#sigil" /></svg></span>
+                  <div class="msg-body">
+                    <h5 class="msg-head"><span class="au">@sovrgn-bot</span><span class="badge">bot</span><span class="tm">Today at 10:46 AM</span></h5>
+                    <div class="status">
+                      <span class="status-title">SOVRGN Node Status</span>
+                      <dl class="status-grid">
+                        <div><dt>Matrix:</dt><dd class="ok">Online</dd></div>
+                        <div><dt>IPFS:</dt><dd class="ok">Online</dd></div>
+                        <div><dt>Relay:</dt><dd class="ok">Connected</dd></div>
+                        <div><dt>Uptime:</dt><dd>2d 14h 32m</dd></div>
+                      </dl>
+                    </div>
+                    <div class="reacts"><span class="react"><b class="ok">✓</b>4</span></div>
+                  </div>
+                </article>
+              </div>
+
+              <div class="composer">
+                <svg class="ico" aria-hidden="true"><use href="#i-plus" /></svg>
+                <span class="ph">Message #general<span class="caret"></span></span>
+              </div>
+            </div>
+
+            <aside class="members">
+              <h4 class="mem-head">Online — <span class="a">6</span></h4>
+              <span class="mem"><span class="av av-parallax">PA<i class="st on"></i></span>parallax</span>
+              <span class="mem"><span class="av av-byteframe">BY<i class="st on"></i></span>byteframe</span>
+              <span class="mem"><span class="av av-nullroot">NU<i class="st on"></i></span>nullroot</span>
+              <span class="mem"><span class="av av-cipher">CI<i class="st on"></i></span>cipher</span>
+              <span class="mem"><span class="av av-ghost">GH<i class="st on"></i></span>ghost</span>
+              <span class="mem"><span class="av av-v0id">V0<i class="st on"></i></span>v0id</span>
+
+              <h4 class="mem-head mem-head-off">Offline — 12</h4>
+              <span class="mem is-off"><span class="av av-abstract">AB<i class="st"></i></span>abstract</span>
+              <span class="mem is-off"><span class="av av-daemon">DA<i class="st"></i></span>daemon</span>
+              <span class="mem is-off"><span class="av av-flux">FL<i class="st"></i></span>flux</span>
+              <span class="mem is-off"><span class="av av-nod3">NO<i class="st"></i></span>nod3</span>
+              <span class="mem is-off"><span class="av av-shadow">SH<i class="st"></i></span>shadow</span>
+              <p class="mem-more">and 7 more</p>
+            </aside>
+          </div>
+        </div>
+        <figcaption class="stage-cap">SOVRGNnet client — running on your own node</figcaption>
+      </figure>
+
     </div>
+  </section>
 
-    <section id="test" class="stack">
-      <div class="wrap narrow">
-        <h2>What "sovereign" means here</h2>
-        <p class="lead lead-wide">
-          Not a slogan. A property you can test:
-        </p>
-        <div class="note">
-          <strong>If sovrgnnet.cc disappeared tomorrow, a correctly configured
-          instance keeps running.</strong>
-          Its members keep talking, its backups keep restoring, its operator
-          keeps control of the data.
-        </div>
-        <p class="muted">
-          Everything centralised is therefore optional and off by default. The
-          identity service, the instance directory, Cloudflare — none of them
-          are required, and an instance that uses none of them is a complete
-          instance. That constraint shapes the whole architecture rather than
-          sitting in the marketing.
-        </p>
-      </div>
-    </section>
+  <!-- ==================================================== ownership bar -->
+  <section class="ownership" aria-label="What you own with SOVRGNnet">
+    <div class="wrap">
+      <ul class="own-bar">
+        <li class="own-cell">
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-server" /></svg>
+          <h3>Own the machine.</h3>
+          <p>You decide where<br />SOVRGNnet runs.</p>
+        </li>
+        <li class="own-cell">
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-database" /></svg>
+          <h3>Own the data.</h3>
+          <p>Your data lives<br />where you store it.</p>
+        </li>
+        <li class="own-cell">
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-network" /></svg>
+          <h3>Own the community.</h3>
+          <p>You set the rules<br />and permissions.</p>
+        </li>
+        <li class="own-cell">
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-shield" /></svg>
+          <h3>Own the freedom.</h3>
+          <p>No landlord. No gatekeeper.<br />No compromise.</p>
+        </li>
+        <li class="own-cell">
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-code" /></svg>
+          <h3>Open by design.</h3>
+          <p>Open source software<br />by Formicaria.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
 
-    <section id="start">
-      <div class="wrap">
-        <h2>Three lines and about ten minutes</h2>
+  <!-- ========================================================= features -->
+  <section class="lp-section" id="features">
+    <div class="wrap">
+      <p class="eyebrow">Features</p>
+      <h2 class="lp-h2">What SOVRGNnet is made of</h2>
+      <p class="lead">
+        Open protocols doing the work, on hardware you already have. Nothing here
+        depends on a company staying in business.
+      </p>
+
+      <ul class="feat-grid">
+        <li class="feat">
+          <span class="feat-n">01</span>
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-message" /></svg>
+          <h3>Matrix messaging</h3>
+          <p>Federated real-time communication.</p>
+        </li>
+        <li class="feat">
+          <span class="feat-n">02</span>
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-files" /></svg>
+          <h3>IPFS files</h3>
+          <p>Content-addressed distributed file storage.</p>
+        </li>
+        <li class="feat">
+          <span class="feat-n">03</span>
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-server" /></svg>
+          <h3>Self hosted</h3>
+          <p>SOVRGNnet runs on hardware the user controls.</p>
+        </li>
+        <li class="feat">
+          <span class="feat-n">04</span>
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-terminal" /></svg>
+          <h3>One command setup</h3>
+          <p>Designed for fast deployment with minimal configuration.</p>
+        </li>
+        <li class="feat">
+          <span class="feat-n">05</span>
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-code" /></svg>
+          <h3>Open source</h3>
+          <p>Source available for inspection, modification, and contribution.</p>
+        </li>
+        <li class="feat">
+          <span class="feat-n">06</span>
+          <svg class="ico ico-lg" aria-hidden="true"><use href="#i-network" /></svg>
+          <h3>Community ownership</h3>
+          <p>Infrastructure belongs to the operator, not a third-party service provider.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================================================== how it works -->
+  <section class="lp-section band" id="how-it-works">
+    <div class="wrap">
+      <p class="eyebrow">How it works</p>
+      <h2 class="lp-h2">Your node is the centre</h2>
+      <p class="lead">
+        SOVRGNnet installs onto one machine you control. That node speaks Matrix for
+        messaging and IPFS for files, serves the interface to your users and their
+        devices, and federates outward on your terms.
+      </p>
+
+      <!-- Wide layout: node centred, five satellites. -->
+      <svg class="arch arch-wide" viewBox="0 0 900 560" preserveAspectRatio="xMidYMid meet"
+           role="img" aria-labelledby="arch-t arch-d">
+        <title id="arch-t">SOVRGNnet node architecture</title>
+        <desc id="arch-d">A SOVRGNnet node at the centre, connected outward to Matrix for messaging,
+          IPFS for files, the users in your community, the devices they connect from, and
+          federation with other nodes.</desc>
+        <g class="trace">
+          <path d="M345 235 L300 190 L300 110 L270 110" /><path d="M555 235 L600 190 L600 110 L630 110" />
+          <path d="M345 325 L300 370 L300 400 L210 400" /><path d="M555 325 L600 370 L600 400 L690 400" />
+          <path d="M450 370 L450 461" />
+        </g>
+        <g class="flow">
+          <path class="f1" d="M345 235 L300 190 L300 110 L270 110" /><path class="f2" d="M555 235 L600 190 L600 110 L630 110" />
+          <path class="f3" d="M345 325 L300 370 L300 400 L210 400" /><path class="f4" d="M555 325 L600 370 L600 400 L690 400" />
+          <path class="f5" d="M450 370 L450 461" />
+        </g>
+        <polygon class="core" points="450,190 555,235 555,325 450,370 345,325 345,235" />
+        <text class="core-l" x="450" y="274" text-anchor="middle">SOVRGNnet</text>
+        <text class="core-s" x="450" y="300" text-anchor="middle">NODE</text>
+        <text class="core-n" x="450" y="324" text-anchor="middle">your hardware</text>
+
+        <g class="anode">
+          <rect class="abox" x="70" y="71" width="200" height="78" rx="3" /><rect class="abar" x="70" y="71" width="3" height="78" />
+          <svg class="aico" x="90" y="99" width="22" height="22" viewBox="0 0 24 24"><use href="#i-message" /></svg>
+          <text class="al" x="126" y="108">Matrix</text><text class="an" x="126" y="129">Messaging</text>
+        </g>
+        <g class="anode">
+          <rect class="abox" x="630" y="71" width="200" height="78" rx="3" /><rect class="abar" x="630" y="71" width="3" height="78" />
+          <svg class="aico" x="650" y="99" width="22" height="22" viewBox="0 0 24 24"><use href="#i-files" /></svg>
+          <text class="al" x="686" y="108">IPFS</text><text class="an" x="686" y="129">Files</text>
+        </g>
+        <g class="anode">
+          <rect class="abox" x="10" y="361" width="200" height="78" rx="3" /><rect class="abar" x="10" y="361" width="3" height="78" />
+          <svg class="aico" x="30" y="389" width="22" height="22" viewBox="0 0 24 24"><use href="#i-people" /></svg>
+          <text class="al" x="66" y="398">Users</text><text class="an" x="66" y="419">Your community</text>
+        </g>
+        <g class="anode">
+          <rect class="abox" x="690" y="361" width="200" height="78" rx="3" /><rect class="abar" x="690" y="361" width="3" height="78" />
+          <svg class="aico" x="710" y="389" width="22" height="22" viewBox="0 0 24 24"><use href="#i-devices" /></svg>
+          <text class="al" x="746" y="398">Devices</text><text class="an" x="746" y="419">Clients you own</text>
+        </g>
+        <g class="anode">
+          <rect class="abox" x="350" y="461" width="200" height="78" rx="3" /><rect class="abar" x="350" y="461" width="3" height="78" />
+          <svg class="aico" x="370" y="489" width="22" height="22" viewBox="0 0 24 24"><use href="#i-federation" /></svg>
+          <text class="al" x="406" y="498">Federation</text><text class="an" x="406" y="519">Other nodes</text>
+        </g>
+      </svg>
+
+      <!-- Narrow layout: a vertical spine. Same content, different geometry. -->
+      <svg class="arch arch-tall" viewBox="0 0 420 800" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">
+        <g class="trace">
+          <path d="M210 180 L210 210" /><path d="M210 290 L210 332" /><path d="M210 412 L210 454" />
+          <path d="M210 534 L210 576" /><path d="M210 656 L210 698" />
+        </g>
+        <g class="flow">
+          <path class="f1" d="M210 180 L210 210" /><path class="f2" d="M210 290 L210 332" /><path class="f3" d="M210 412 L210 454" />
+          <path class="f4" d="M210 534 L210 576" /><path class="f5" d="M210 656 L210 698" />
+        </g>
+        <polygon class="core" points="210,30 300,67 300,143 210,180 120,143 120,67" />
+        <text class="core-l" x="210" y="99" text-anchor="middle">SOVRGNnet</text>
+        <text class="core-s" x="210" y="125" text-anchor="middle">NODE</text>
+
+        <g class="anode">
+          <rect class="abox" x="80" y="210" width="260" height="80" rx="3" /><rect class="abar" x="80" y="210" width="3" height="80" />
+          <svg class="aico" x="100" y="239" width="22" height="22" viewBox="0 0 24 24"><use href="#i-message" /></svg>
+          <text class="al" x="136" y="248">Matrix</text><text class="an" x="136" y="269">Messaging</text>
+        </g>
+        <g class="anode">
+          <rect class="abox" x="80" y="332" width="260" height="80" rx="3" /><rect class="abar" x="80" y="332" width="3" height="80" />
+          <svg class="aico" x="100" y="361" width="22" height="22" viewBox="0 0 24 24"><use href="#i-files" /></svg>
+          <text class="al" x="136" y="370">IPFS</text><text class="an" x="136" y="391">Files</text>
+        </g>
+        <g class="anode">
+          <rect class="abox" x="80" y="454" width="260" height="80" rx="3" /><rect class="abar" x="80" y="454" width="3" height="80" />
+          <svg class="aico" x="100" y="483" width="22" height="22" viewBox="0 0 24 24"><use href="#i-people" /></svg>
+          <text class="al" x="136" y="492">Users</text><text class="an" x="136" y="513">Your community</text>
+        </g>
+        <g class="anode">
+          <rect class="abox" x="80" y="576" width="260" height="80" rx="3" /><rect class="abar" x="80" y="576" width="3" height="80" />
+          <svg class="aico" x="100" y="605" width="22" height="22" viewBox="0 0 24 24"><use href="#i-devices" /></svg>
+          <text class="al" x="136" y="614">Devices</text><text class="an" x="136" y="635">Clients you own</text>
+        </g>
+        <g class="anode">
+          <rect class="abox" x="80" y="698" width="260" height="80" rx="3" /><rect class="abar" x="80" y="698" width="3" height="80" />
+          <svg class="aico" x="100" y="727" width="22" height="22" viewBox="0 0 24 24"><use href="#i-federation" /></svg>
+          <text class="al" x="136" y="736">Federation</text><text class="an" x="136" y="757">Other nodes</text>
+        </g>
+      </svg>
+
+      <p class="arch-legend">Traffic terminates on your node. Nothing routes through Formicaria.</p>
+    </div>
+  </section>
+
+  <!-- ========================================================== install -->
+  <section class="lp-section" id="install">
+    <div class="wrap install-grid">
+      <div>
+        <p class="eyebrow">Install</p>
+        <h2 class="lp-h2">One command. Your infrastructure.</h2>
         <p class="lead">
-          On any spare computer — an old laptop, a Raspberry Pi, a mini PC in a
-          closet. The installer generates every password, sets up the database,
-          and tells you where to point your browser.
+          Point it at a machine you control — a spare laptop, a home server, a
+          Raspberry Pi — and <code>./install.sh</code> brings up Matrix, IPFS, the
+          database and the web interface together. It generates every password and
+          asks one real question: house-only, or reachable by friends.
         </p>
-<pre><code>git clone https://github.com/Formicaria/SOVRGNnet.cc.git sovrgnnet
+
+<pre class="cmd"><code>git clone https://github.com/Formicaria/SOVRGNnet.cc.git sovrgnnet
 cd sovrgnnet
 ./install.sh</code></pre>
-        <p class="small-muted">
-          It asks one real question: whether this is just for your house, or
-          whether friends should reach it over the internet. Pick the second and
-          you get a public <code>https://</code> link in about a minute —
-          <strong>with no account anywhere and no domain of your own</strong>.
-          <a href="/docs/install.html">Full walkthrough →</a>
-        </p>
-      </div>
-    </section>
 
-    <section id="why" class="stack">
-      <div class="wrap">
-        <h2>Why run your own?</h2>
-        <p class="lead">
-          Every major chat platform rents your community back to you. SOVRGNnet
-          takes the parts worth keeping — communities, channels, the flow of a
-          good conversation — and puts them on foundations nobody can take away.
-        </p>
-        <div class="grid">
-          <div class="card">
-            <div class="icon">⌂</div>
-            <h3>Runs on your metal</h3>
-            <p>Docker Compose or plain systemd services — your choice. A homelab
-               node, a Proxmox container, or a small VPS is all it takes.
-               Every infrastructure image is pinned, so two installs a month
-               apart are the same software.</p>
-          </div>
-          <div class="card">
-            <div class="icon">⇄</div>
-            <h3>Open protocols underneath</h3>
-            <p>Every message is a Matrix event on your own homeserver. Files are
-               content-addressed on your own IPFS node. Neither is a format we
-               invented, and neither locks you in.</p>
-          </div>
-          <div class="card">
-            <div class="icon">⚿</div>
-            <h3>Identity you control</h3>
-            <p>Accounts live in your database, not a third-party auth cloud.
-               Single sign-on exists and is <em>off by default</em>; an instance
-               that never enables it never contacts us at all.</p>
-          </div>
-          <div class="card">
-            <div class="icon">◈</div>
-            <h3>Files without a middleman</h3>
-            <p>Attachments pin to your own IPFS node and stream back through the
-               app with membership checks. No upload service, no dead links, no
-               CIDs leaking outside a channel.</p>
-          </div>
-          <div class="card">
-            <div class="icon">▣</div>
-            <h3>Familiar where it counts</h3>
-            <p>Community rail, channel list, message pane, member list. Invites,
-               roles, reactions, editing. You already know how to use it.</p>
-          </div>
-          <div class="card">
-            <div class="icon">◱</div>
-            <h3>One app, every instance</h3>
-            <p>A native desktop client for Linux, macOS, and Windows. One window
-               holds every instance you're in — your own and your friends' —
-               each signed in separately, credentials in the OS keychain.
-               Everything also works in a browser.</p>
-          </div>
-          <div class="card">
-            <div class="icon">⇱</div>
-            <h3>Leaving is a decision, not a loss</h3>
-            <p>Backups carry a manifest and a checksum per component, verified
-               before a restore touches anything. Move an instance to another
-               machine and its identity, rooms, and history come with it.</p>
-          </div>
-          <div class="card">
-            <div class="icon">§</div>
-            <h3>MIT, end to end</h3>
-            <p>The whole platform is open source. Read it, fork it, run your
-               own instance for your own people.</p>
-          </div>
+        <div class="cta cta-start">
+          <a class="btn btn-primary" href="/docs/install.html">
+            <svg class="ico" aria-hidden="true"><use href="#i-book" /></svg> Installation docs
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/Formicaria/SOVRGNnet.cc">
+            <svg class="ico solid" aria-hidden="true"><use href="#i-github" /></svg> GitHub
+          </a>
         </div>
-      </div>
-    </section>
 
-    <section id="how">
-      <div class="wrap">
-        <h2>How it works</h2>
-        <p class="lead">
-          A thin, opinionated layer over boring, proven pieces. SOVRGN owns
-          instance identity, membership, roles, and moderation; Matrix owns
-          message transport; IPFS owns file content. Postgres indexes it all.
+        <p class="small-muted mt-lg">
+          No domain, no Cloudflare account, no prior Docker knowledge. Re-running it
+          later keeps your existing settings.
         </p>
-        <div class="grid">
-          <div class="card">
-            <h3>1 · A community is a Space</h3>
-            <p>Creating a community creates a Matrix Space on your homeserver;
-               every channel is a room inside it, starting with
-               <code>#general</code>.</p>
-          </div>
-          <div class="card">
-            <h3>2 · The instance proxies Matrix</h3>
-            <p>The browser never touches Matrix directly. The app provisions a
-               Matrix account per user and acts on their behalf — one identity,
-               permissions enforced server-side on every read and write. This
-               inverts when end-to-end encryption lands.</p>
-          </div>
-          <div class="card">
-            <h3>3 · Nothing listens on your router</h3>
-            <p>Public access, when you want it, runs over an outbound-only
-               tunnel. No forwarded ports, no exposed home IP.</p>
-          </div>
-          <div class="card">
-            <h3>4 · Instances negotiate</h3>
-            <p>A client asks any instance what it can do before offering a
-               feature, so an older instance degrades by explaining rather than
-               by breaking. The protocol is versioned separately from the
-               application, so instances upgrade on their own schedule.</p>
-          </div>
+      </div>
+
+      <div class="term">
+        <div class="term-bar">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <span class="term-title">operator@node — sovrgnnet</span>
         </div>
-        <p class="mt-lg">
-          <a href="/docs/architecture.html">The longer version, including what's deliberately not there →</a>
-        </p>
-      </div>
-    </section>
-
-    <section id="protocol" class="stack">
-      <div class="wrap narrow">
-        <h2>Anyone can write another implementation</h2>
-        <p class="lead lead-wide">
-          Nothing about this codebase's language, framework, or database is
-          normative. What matters is the protocol — and there's a suite that
-          checks whether something speaks it.
-        </p>
-<pre><code>pnpm conformance https://any-instance.example</code></pre>
-        <p class="muted">
-          It verifies the descriptor, version compatibility, capability
-          negotiation, health endpoints, and self-consistency — including
-          whether an instance is claiming a security property its architecture
-          can't actually provide. No credentials needed, so it's safe to point
-          at an instance you don't operate.
-          <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/PROTOCOL.md">The protocol specification →</a>
-        </p>
-      </div>
-    </section>
-
-    <section id="honest">
-      <div class="wrap narrow">
-        <h2>What it isn't, yet</h2>
-        <p class="lead lead-wide">
-          Worth knowing before you trust it with anything that matters.
-        </p>
-        <div class="warning">
-          <strong>Messages are not end-to-end encrypted.</strong>
-          They're stored as plain text on <em>your</em> homeserver. Anyone with
-          administrator access to that machine can read them — for most people
-          that's just you, which is rather the point. But it isn't Signal, and
-          E2EE is the next architectural milestone rather than a shipped
-          feature. If you run an instance for other people, tell them.
-        </div>
-        <p class="muted">
-          Also missing today: voice and video, mobile apps, federation between
-          instances (possible, off by default, untested), an instance directory,
-          and session revocation — sessions are stateless and last a year. There
-          has been no independent security audit. This is alpha software written
-          in the open; the
-          <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/THREAT_MODEL.md">threat model</a>
-          and
-          <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/ROADMAP.md">roadmap</a>
-          state the gaps plainly rather than leaving them to be discovered.
-        </p>
-      </div>
-    </section>
-
-    <section id="stack" class="stack">
-      <div class="wrap">
-        <h2>The stack</h2>
-        <p class="lead">Chosen for longevity and self-hostability, not fashion.</p>
-        <div class="stack-row">
-          <span class="chip">React 19</span>
-          <span class="chip">tRPC 11</span>
-          <span class="chip">PostgreSQL</span>
-          <span class="chip">Drizzle ORM</span>
-          <span class="chip">Matrix · Dendrite</span>
-          <span class="chip">IPFS · Kubo</span>
-          <span class="chip">Tauri 2 (desktop)</span>
-          <span class="chip">Docker Compose</span>
-          <span class="chip">systemd (no-Docker install)</span>
-          <span class="chip">Cloudflare Tunnel (optional)</span>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <footer>
-    <div class="wrap foot">
-      <span class="logo">SOVRGN<b>net</b></span>
-      <span>MIT © 2026 · <a href="https://formicaria.us">Formicaria</a></span>
-      <div class="links">
-        <a href="/docs/">Docs</a>
-        <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
-        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/ROADMAP.md">Roadmap</a>
-        <a href="/legal.html">Legal</a>
+        <pre class="term-body"><code><span class="tl"><span class="pr">$</span> ./install.sh</span><span class="tl t1"><span class="ok">✓</span> Docker is ready</span><span class="tl t2"><span class="ok">✓</span> Settings saved to .env (passwords generated for you)</span><span class="tl t3"><span class="ok">✓</span> Homeserver configured</span><span class="tl t4"><span class="ok">✓</span> Building and starting</span><span class="tl t5"><span class="ok">✓</span> The app is running</span><span class="tl t6 done">SOVRGNnet is live.<span class="caret"></span></span></code></pre>
       </div>
     </div>
-  </footer>
+  </section>
+
+  <!-- ======================================================== manifesto -->
+  <section class="lp-section band manifesto" id="manifesto">
+    <div class="wrap">
+      <p class="eyebrow">Manifesto</p>
+      <ul class="mani-list">
+        <li>You own the machine.</li>
+        <li>You own the data.</li>
+        <li>You own the community.</li>
+        <li>You own the freedom.</li>
+      </ul>
+      <hr class="hairline" />
+      <p class="mani-close">No landlord.</p>
+    </div>
+  </section>
+
+  <!-- ======================================================= formicaria -->
+  <section class="lp-section" id="about">
+    <div class="wrap formic">
+      <span class="formic-mark">
+        <svg class="ico ico-xl" aria-hidden="true"><use href="#i-ant" /></svg>
+      </span>
+      <div>
+        <p class="eyebrow">About</p>
+        <h2 class="lp-h2">Built by Formicaria</h2>
+        <p class="lead">
+          Formicaria is a software development startup building tools and
+          infrastructure designed around autonomy, distributed systems, local
+          ownership, and user control.
+        </p>
+        <p class="small-muted"><a href="https://formicaria.us">formicaria.us →</a></p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ================================================================ footer -->
+<footer>
+  <div class="wrap foot-top">
+    <a class="foot-brand" href="#top">
+      <svg class="sigil sigil-sm" viewBox="0 0 220 220" aria-hidden="true" focusable="false"><use href="#sigil" /></svg>
+      <span class="logo">SOVRGN<b>net</b></span>
+    </a>
+
+    <div class="foot-centre">
+      <svg class="ico ico-lg foot-ant" aria-hidden="true" focusable="false"><use href="#i-ant" /></svg>
+      <p class="foot-company">Formicaria</p>
+      <p class="foot-strap">Software Development Startup</p>
+    </div>
+
+    <nav class="links foot-links" aria-label="Footer">
+      <a href="https://github.com/Formicaria/SOVRGNnet.cc"><svg class="ico solid" aria-hidden="true"><use href="#i-github" /></svg> GitHub</a>
+      <a href="/docs/"><svg class="ico" aria-hidden="true"><use href="#i-book" /></svg> Documentation</a>
+      <a href="/.well-known/matrix/client"><svg class="ico" aria-hidden="true"><use href="#i-message" /></svg> Matrix</a>
+      <a href="/legal.html"><svg class="ico" aria-hidden="true"><use href="#i-scale" /></svg> License</a>
+    </nav>
+  </div>
+
+  <div class="wrap foot-base">
+    <p>SOVRGNnet is open source software by Formicaria. MIT © 2026 · <a href="https://formicaria.us">Formicaria</a></p>
+    <p class="foot-tagline">Matrix + IPFS + Freedom</p>
+  </div>
+</footer>
+
 </body>
 </html>
