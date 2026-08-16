@@ -1,0 +1,58 @@
+# What must not enter the Docker build context.
+#
+# There was no .dockerignore, so `COPY . .` sent everything: 388 MB of
+# node_modules, the host's dist/, backups, and any .env sitting in the
+# repository. Three separate problems:
+#
+#   1. The builder runs `pnpm install --frozen-lockfile` and then `COPY . .`
+#      overwrites that node_modules with the host's. The container ends up
+#      building against whatever the host happened to have — a different
+#      platform, possibly a different resolution — rather than the lockfile it
+#      just installed from.
+#
+#   2. Secrets. `.env` holds the database password, JWT secret, and Matrix
+#      shared secret. Copied into a build layer it stays in the image history
+#      even if a later stage doesn't reference it.
+#
+#   3. Speed. Sending 388 MB per build, on every build.
+
+# Dependencies — the image installs its own from the lockfile.
+node_modules
+**/node_modules
+.pnpm-store
+
+# Build output — the builder produces this itself. Copying the host's in
+# risks shipping a stale bundle if anything downstream skips the rebuild.
+dist
+build
+desktop/dist
+desktop/src-tauri/target
+
+# Secrets and generated configuration.
+.env
+.env.*
+!.env.example
+dendrite/dendrite.yaml
+dendrite/matrix_key.pem
+ssl
+
+# Backups contain every message and every secret.
+backups
+
+# Not needed to build or run the server.
+.git
+.github
+site
+docs
+desktop
+identity
+*.md
+!README.md
+
+# Local noise.
+.vscode
+.idea
+logs
+*.log
+coverage
+.DS_Store
