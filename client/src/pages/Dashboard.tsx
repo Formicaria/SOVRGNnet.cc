@@ -59,6 +59,8 @@ type TimelineItem =
       senderName: string | null;
       createdAt: Date;
       content: string;
+      /** True for events this client cannot read — rendered as such. */
+      encrypted: boolean;
       editedAt: Date | null;
       reactions: ReactionMap;
     }
@@ -281,6 +283,7 @@ export default function Dashboard() {
         senderName: m.senderName,
         createdAt: new Date(m.createdAt),
         content: m.content,
+        encrypted: m.encrypted,
         editedAt: m.editedAt ? new Date(m.editedAt) : null,
         reactions: (m.reactions as ReactionMap | null) ?? {},
       })),
@@ -336,6 +339,18 @@ export default function Dashboard() {
   const handleSend = () => {
     const content = messageInput.trim();
     if (!content || selectedChannelId == null || sendMessage.isPending) return;
+
+    // Refused honestly rather than sent quietly: plaintext into an encrypted
+    // room undermines the encryption for everyone in it. Lifted when this
+    // app can compose Megolm (ADR 0008 stage 4).
+    const selected = channels.find(c => c.id === selectedChannelId);
+    if (selected?.encrypted) {
+      setError(
+        "This channel is end-to-end encrypted. This app can't compose encrypted messages yet."
+      );
+      return;
+    }
+
     typingSentAt.current = 0;
     setTyping.mutate({ channelId: selectedChannelId, typing: false });
 
@@ -647,6 +662,14 @@ export default function Dashboard() {
             >
               <Hash className="w-4 h-4 shrink-0" />
               <span className="truncate">{channel.name}</span>
+              {channel.encrypted && (
+                <span
+                  className="ml-auto text-[10px] text-slate-500"
+                  title="End-to-end encrypted room"
+                >
+                  🔒
+                </span>
+              )}
             </button>
           ))}
           {selectedServer && canManageServer && (
@@ -872,6 +895,10 @@ export default function Dashboard() {
                         <X className="w-3.5 h-3.5" />
                       </Button>
                     </div>
+                  ) : item.kind === "message" && item.encrypted ? (
+                    <p className="text-sm italic text-slate-500">
+                      🔒 Encrypted message — this app can't decrypt yet
+                    </p>
                   ) : (
                     <>
                       <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">

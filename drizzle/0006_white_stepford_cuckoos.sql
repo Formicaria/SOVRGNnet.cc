@@ -1,0 +1,1 @@
+ALTER TABLE "channels" ADD COLUMN "encrypted" boolean DEFAULT false NOT NULL;

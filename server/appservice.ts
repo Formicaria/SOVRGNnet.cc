@@ -64,6 +64,7 @@ export interface IngestOutcome {
   edited: number;
   redacted: number;
   encrypted: number;
+  stateChanged: number;
   skipped: number;
 }
 
@@ -77,6 +78,13 @@ export async function ingestEvent(event: AppserviceEvent): Promise<keyof IngestO
   const eventId = event.event_id;
   const sender = event.sender;
   if (!roomId || !eventId || !sender) return "skipped";
+
+  if (event.type === "m.room.encryption") {
+    // A client switched the room to encrypted. The index records it so the
+    // API stops accepting plaintext into it — Matrix never downgrades this
+    // state, and neither do we.
+    return (await db.markChannelEncrypted(roomId)) ? "stateChanged" : "skipped";
+  }
 
   if (event.type === "m.room.redaction") {
     const target = event.redacts ?? (event.content as { redacts?: string })?.redacts;
@@ -143,6 +151,7 @@ export async function ingestTransaction(
     edited: 0,
     redacted: 0,
     encrypted: 0,
+    stateChanged: 0,
     skipped: 0,
   };
   for (const event of events) {
@@ -175,13 +184,14 @@ export function registerAppserviceRoutes(app: Express): void {
     const events = Array.isArray(req.body?.events) ? req.body.events : [];
     const outcome = await ingestTransaction(events as AppserviceEvent[]);
     if (
-      outcome.inserted || outcome.edited || outcome.redacted || outcome.encrypted
+      outcome.inserted || outcome.edited || outcome.redacted ||
+      outcome.encrypted || outcome.stateChanged
     ) {
       console.log(
         `[appservice] txn ${req.params.txnId}: ` +
           `+${outcome.inserted} msg, ${outcome.edited} edit, ` +
           `${outcome.redacted} redact, ${outcome.encrypted} encrypted, ` +
-          `${outcome.skipped} skipped`
+          `${outcome.stateChanged} state, ${outcome.skipped} skipped`
       );
     }
     // Wholesale acknowledgement — see ADR 0009.

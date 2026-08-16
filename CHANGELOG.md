@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+**E2EE groundwork (ADR 0008 stage 4, first slice).** The sync engine now
+delivers the crypto signal set — to-device messages (from the initial batch
+too, where queued room keys live; dropping them would make messages
+permanently undecryptable), device-list changes, and one-time-key counts. The
+appservice records `m.room.encryption` state, so a room any client encrypts
+is known to the index; channels carry an `encrypted` flag (migration 0006);
+encrypted events render as explicitly unreadable rather than as blank rows;
+and both send paths — API and client-authored — refuse to send plaintext into
+an encrypted room instead of quietly undermining it. The `e2ee` capability
+remains false: this is the transport and index shape encryption requires, not
+encryption.
+
 **Matrix becomes the source of record (ADR 0009).** The instance registers as
 an application service with its homeserver and ingests pushed events into the
 database — which turns the database from a ledger written beside Matrix into

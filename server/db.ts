@@ -364,6 +364,7 @@ export async function getMessagesByChannel(
       userId: messages.userId,
       content: messages.content,
       matrixEventId: messages.matrixEventId,
+      encrypted: messages.encrypted,
       createdAt: messages.createdAt,
       editedAt: messages.editedAt,
       reactions: messages.reactions,
@@ -515,6 +516,22 @@ export async function ingestMessage(
     })
     .onConflictDoNothing({ target: messages.matrixEventId })
     .returning({ id: messages.id });
+  return result.length > 0;
+}
+
+/**
+ * The homeserver told us a room turned on encryption. One-way by design:
+ * Matrix itself never downgrades m.room.encryption, so neither do we.
+ */
+export async function markChannelEncrypted(matrixRoomId: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .update(channels)
+    .set({ encrypted: true, updatedAt: new Date() })
+    .where(eq(channels.matrixRoomId, matrixRoomId))
+    .returning({ id: channels.id });
   return result.length > 0;
 }
 
