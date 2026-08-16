@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="SOVRGN">
+  <title>SOVRGN</title>
+  <!--
+    Two blades of one angular S. Flat fills and a hard tonal split rather than
+    a bevel: gradients and highlights read as plastic at large sizes and turn
+    to mud at 16px, where this mark spends most of its life as a favicon.
+    The two tones carry the letterform on their own.
+  -->
+  <g fill="none" stroke-width="12" stroke-linejoin="miter" stroke-miterlimit="14">
+    <path stroke="#a78bfa" d="M53 11H23L11 23l12 12h9"/>
+    <path stroke="#6d28d9" d="M32 35h10l11 11-12 12H11"/>
+  </g>
+</svg>

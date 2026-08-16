@@ -130,3 +130,5 @@ temp/
 
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
+dendrite/matrix_key.pem
+dendrite/dendrite.yaml
