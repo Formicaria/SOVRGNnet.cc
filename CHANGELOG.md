@@ -1,11 +1,9 @@
 # Changelog
 
-## Unreleased
+## v0.4.1 — 2026-08-16
 
-<<<<<<< HEAD
-Deliberately unversioned: `package.json` still reads 0.4.0, which is what is
-tagged and shipped. The number moves when this is released, not before — the
-tag guard exists because those drifted apart once already.
+A patch release: the headline is that v0.4.0's Docker image could not start.
+The device-session work and the site rebuild ride along.
 
 **End-to-end verification, locally.** `pnpm preflight` runs in about 20 seconds
 before a push; `pnpm preflight --full` stands up Postgres, Dendrite, Kubo and
@@ -59,7 +57,7 @@ Documented before the claim rather than after.
 
 **ADR 0008** records the plan to invert the Matrix proxy so the client owns the
 session, which is a precondition for end-to-end encryption meaning anything.
-=======
+
 **The public site has a new landing page, and the rest of the site now matches
 it.** `site/index.html` is rebuilt around the SOVRGN mark and wordmark: a hero
 split between the mark and a preview of the client, the five-part ownership
@@ -88,7 +86,6 @@ and monospace faces are vendored under `assets/fonts` with their SIL OFL
 licences — about 82 kB, cached for a year — because `font-src 'self'` rules out
 a hosted webfont. Nothing needs a `style` attribute and the
 Content-Security-Policy is unchanged.
->>>>>>> origin/main
 
 ## v0.4.0 — 2026-08-15
 
@@ -235,7 +232,7 @@ and the site now separates what works from what's planned.
 
 See below for the full detail.
 
-## Unreleased
+## v0.4.1 — 2026-08-16
 
 ### Anyone can run this now
 
