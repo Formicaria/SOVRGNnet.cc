@@ -306,3 +306,160 @@ button.ghost:hover { color: var(--text); }
 }
 .notice button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; }
 .notice button:hover { color: var(--text); }
+
+/* --------------------------------------------------------- status button */
+
+.stage-info {
+  /* Sits at the right unless the "not encrypted" pill already claimed the
+     auto margin, in which case it follows it. */
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 10px;
+  /* The header is the window drag handle; a button inside it must not be. */
+  -webkit-app-region: no-drag;
+}
+.stage-warn + .stage-info { margin-left: 0; }
+.stage-info:hover { color: var(--text); border-color: var(--accent); }
+
+/* ------------------------------------------------------- instance panel */
+
+.panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 3, 14, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  z-index: 70;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 460px;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px;
+  font-size: 13px;
+}
+
+.panel-head { display: flex; align-items: flex-start; gap: 12px; }
+.panel-head h2 { font-size: 16px; font-weight: 600; }
+.panel-host { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-top: 2px; }
+.panel-close {
+  margin-left: auto;
+  background: none; border: 0; color: var(--muted);
+  cursor: pointer; font-size: 14px; line-height: 1;
+}
+.panel-close:hover { color: var(--text); }
+
+.panel-checking { color: var(--muted); margin: 20px 0; }
+
+.panel-status {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.24);
+}
+.panel-status p { color: var(--muted); margin-top: 3px; line-height: 1.45; }
+.panel-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex: none;
+  background: var(--muted);
+}
+.panel-status-healthy .panel-dot { background: var(--ok); }
+.panel-status-degraded .panel-dot { background: var(--warn); }
+.panel-status-unreachable .panel-dot,
+.panel-status-incompatible .panel-dot { background: var(--danger); }
+
+.panel-guidance {
+  list-style: none;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.panel-guidance li {
+  color: var(--muted);
+  line-height: 1.5;
+  padding-left: 14px;
+  position: relative;
+}
+.panel-guidance li::before {
+  content: "›";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
+
+.panel-section { margin-top: 20px; }
+.panel-section h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 9px;
+}
+
+.panel-deps, .panel-caps, .panel-facts { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.panel-deps li, .panel-caps li, .panel-facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(44, 31, 77, 0.5);
+}
+.panel-deps li:last-child, .panel-caps li:last-child, .panel-facts div:last-child { border-bottom: 0; }
+
+.panel-dep-state { font-size: 11px; color: var(--muted); }
+.panel-deps li.up .panel-dep-state { color: var(--ok); }
+.panel-deps li.down .panel-dep-state { color: var(--danger); }
+
+.panel-caps li span:last-child { font-size: 11px; color: var(--muted); }
+.panel-caps li.yes span:last-child { color: var(--ok); }
+
+.panel-facts div span:first-child { color: var(--muted); }
+.panel-facts div span:last-child { font-family: var(--mono); font-size: 11px; }
+
+.panel-warn {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: var(--warn);
+  line-height: 1.45;
+  font-size: 12px;
+}
+
+.panel-foot { display: flex; gap: 8px; margin-top: 22px; }
+.panel-foot button {
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  padding: 8px 14px;
+}
+.panel-foot button:disabled { opacity: 0.55; cursor: default; }
+.panel-foot button.ghost {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.panel-foot button.ghost:hover { color: var(--text); }

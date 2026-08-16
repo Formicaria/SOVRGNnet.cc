@@ -15,6 +15,7 @@ import {
 } from "@/lib/bridge";
 import AddServer from "@/components/AddServer";
 import FirstRun from "@/components/FirstRun";
+import InstancePanel from "@/components/InstancePanel";
 import Rail from "@/components/Rail";
 import SignIn from "@/components/SignIn";
 import UpdatePrompt from "@/components/UpdatePrompt";
@@ -54,6 +55,7 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   // Held in a ref as well as state so the deep-link handler — which is
   // registered once — always sees the current list rather than a stale
@@ -213,9 +215,25 @@ export default function App() {
                 not encrypted
               </span>
             )}
+            {/* Reachable from the frame rather than from inside the instance's
+                own interface, because the case it exists for is that interface
+                failing to load at all. */}
+            <button
+              className="stage-info"
+              onClick={() => setPanelOpen(true)}
+              title="Instance status and capabilities"
+            >
+              Status
+            </button>
           </div>
         )}
       </main>
+
+      <InstancePanel
+        connection={active}
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+      />
 
       {version && <UpdatePrompt currentVersion={version} />}
 
