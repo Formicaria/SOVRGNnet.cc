@@ -38,6 +38,14 @@ attribute will be silently dropped by the browser. Use a class in
 `assets/style.css` instead; there are small utilities at the bottom of the file
 for the one-off cases.
 
+**The landing page draws its own artwork.** `index.html` opens with an inline
+`<svg class="sprite">` holding every icon, the SOVRGN sigil, and the gradients,
+masks and filters the wordmark needs; everything else references them with
+`<use href="#id">`. CSS selectors do not reach inside a `<use>` shadow tree, so
+paint for the sigil is set on `#sigil` itself and inherits down. The mobile menu
+is a checkbox and two labels — no script — and the hero wordmark is vector
+letterforms, not a font, because `font-src 'self'` rules out a webfont.
+
 **The docs here mirror the repository, they don't replace it.** `QUICKSTART.md`,
 `docs/LXC.md`, `docs/DEPLOYMENT.md`, and the rest stay authoritative because
 they version with the code. These pages are the readable front door — when you
