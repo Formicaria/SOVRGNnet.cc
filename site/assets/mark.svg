@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="SOVRGN">
+  <title>SOVRGN</title>
+  <!--
+    The mark is two blades of one angular S, cut like crystal: each blade is a
+    stroked centreline used as a mask, then filled with a face gradient, a lit
+    chamfer along its top-left edges and a shadowed chamfer along its
+    bottom-right. Drawing it this way rather than as flat polygons keeps the
+    facets aligned to the letterform at any size, including 16px.
+  -->
+  <defs>
+    <linearGradient id="sovrgn-face-up" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#cbb2ff"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="sovrgn-face-dn" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#43188a"/>
+    </linearGradient>
+
+    <mask id="sovrgn-blade-up" maskUnits="userSpaceOnUse" x="-10" y="-10" width="84" height="84">
+      <path d="M53 11H23L11 23l12 12h9" stroke="#fff" stroke-width="12" fill="none" stroke-linejoin="miter" stroke-miterlimit="14"/>
+    </mask>
+    <mask id="sovrgn-blade-dn" maskUnits="userSpaceOnUse" x="-10" y="-10" width="84" height="84">
+      <path d="M32 35h10l11 11-12 12H11" stroke="#fff" stroke-width="12" fill="none" stroke-linejoin="miter" stroke-miterlimit="14"/>
+    </mask>
+  </defs>
+
+  <!-- upper blade -->
+  <g mask="url(#sovrgn-blade-up)">
+    <rect x="-10" y="-10" width="84" height="84" fill="url(#sovrgn-face-up)"/>
+    <path d="M53 11H23L11 23l12 12h9" transform="translate(-4.6,-4.6)" stroke="#f4efff" stroke-width="2.9" fill="none" stroke-linejoin="miter" stroke-miterlimit="14"/>
+    <path d="M53 11H23L11 23l12 12h9" transform="translate(4.6,4.6)" stroke="#3a1678" stroke-width="2.6" fill="none" stroke-linejoin="miter" stroke-miterlimit="14" opacity="0.9"/>
+  </g>
+
+  <!-- lower blade -->
+  <g mask="url(#sovrgn-blade-dn)">
+    <rect x="-10" y="-10" width="84" height="84" fill="url(#sovrgn-face-dn)"/>
+    <path d="M32 35h10l11 11-12 12H11" transform="translate(-4.6,-4.6)" stroke="#d5c3ff" stroke-width="2.9" fill="none" stroke-linejoin="miter" stroke-miterlimit="14"/>
+    <path d="M32 35h10l11 11-12 12H11" transform="translate(4.6,4.6)" stroke="#280d56" stroke-width="2.6" fill="none" stroke-linejoin="miter" stroke-miterlimit="14" opacity="0.9"/>
+  </g>
+</svg>
