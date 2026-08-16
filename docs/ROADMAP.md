@@ -100,6 +100,10 @@ Done: settings moved out of environment variables into an `instanceSettings` tab
 
 **Fixed here, and it was a real one:** the first account was documented as becoming the instance admin and never did. `adminProcedure` existed and checked `role === 'admin'`, but `createLocalUser` never assigned it — so no account on any instance was ever an administrator, and the admin surface was unreachable. First registration now takes the role, and an admin can't demote themselves out of existence.
 
+Also fixed: **the join policy was advertised but never enforced.** `/api/instance` reported `open`/`invite`/`closed` and registration ignored all three, so a server its owner had deliberately closed still accepted anyone who found the address. Now enforced — with the bootstrap exception that matters, since the default is invite-only and without it a fresh install could never create its own first account. Closed means closed even for someone holding an old invite link.
+
+A settings dialog in the client covers name, description, join policy, and directory listing, and states plainly that messages aren't encrypted and the administrator can read them.
+
 **Remaining:** WSL2 provisioning from the installer, lifecycle supervision, LAN reachability (WSL2's NAT address changes across reboots), and surfacing backups somewhere visible in Windows rather than inside the distro.
 
 ## Phase 8 — Client-side Matrix

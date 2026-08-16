@@ -12,7 +12,7 @@ import {
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { instanceInfo, normalizeJoinPolicy } from "./instance";
+import { canRegister, instanceInfo, normalizeJoinPolicy } from "./instance";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import * as db from "./db";
@@ -53,7 +53,13 @@ export const appRouter = router({
     ),
 
     register: publicProcedure
-      .input(credentialsInput.extend({ name: z.string().min(1).max(100).optional() }))
+      .input(
+        credentialsInput.extend({
+          name: z.string().min(1).max(100).optional(),
+          /** Carried from an invite link, for invite-only instances. */
+          inviteCode: z.string().min(1).max(32).optional(),
+        })
+      )
       .mutation(async ({ ctx, input }) => {
         const existing = await db.getUserByEmail(input.email);
         if (existing) {
@@ -68,6 +74,20 @@ export const appRouter = router({
         // user until an admin says otherwise. Without this nobody is ever an
         // admin and the instance has no administrator at all.
         const isFirstAccount = (await db.countUsers()) === 0;
+
+        // The instance's join policy was advertised by /api/instance but never
+        // actually enforced, so a server marked "closed" still accepted
+        // anyone. It does now.
+        const settings = await db.getInstanceSettings().catch(() => null);
+        const policy = instanceInfo(APP_VERSION, settings).joinPolicy;
+        const hasValidInvite = input.inviteCode
+          ? (await db.getServerByInviteCode(input.inviteCode)) != null
+          : false;
+
+        const verdict = canRegister({ policy, isFirstAccount, hasValidInvite });
+        if (!verdict.allowed) {
+          throw new TRPCError({ code: "FORBIDDEN", message: verdict.message });
+        }
 
         const passwordHash = await hashPassword(input.password);
         const user = await db.createLocalUser(

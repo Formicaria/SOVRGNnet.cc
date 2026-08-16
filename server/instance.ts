@@ -56,6 +56,48 @@ export function instanceId(): string {
   return createHash("sha256").update(`sovrgnnet:instance:${seed}`).digest("hex").slice(0, 16);
 }
 
+export type RegistrationVerdict =
+  | { allowed: true; reason: "bootstrap" | "open" | "invite" }
+  | { allowed: false; message: string };
+
+/**
+ * May this person create an account here?
+ *
+ * Pure, because the interesting part is the policy and not the database.
+ *
+ * The bootstrap case is the one that's easy to get wrong: the default policy
+ * is invite-only, so enforcing it without an exception would mean a freshly
+ * installed server could never create its own first account — the owner would
+ * need an invite to a community that doesn't exist yet. The first
+ * registration is always allowed, and it becomes the administrator.
+ */
+export function canRegister(input: {
+  policy: JoinPolicy;
+  isFirstAccount: boolean;
+  hasValidInvite: boolean;
+}): RegistrationVerdict {
+  if (input.isFirstAccount) return { allowed: true, reason: "bootstrap" };
+
+  switch (input.policy) {
+    case "open":
+      return { allowed: true, reason: "open" };
+
+    case "closed":
+      return {
+        allowed: false,
+        message: "This server isn't accepting new accounts.",
+      };
+
+    case "invite":
+      return input.hasValidInvite
+        ? { allowed: true, reason: "invite" }
+        : {
+            allowed: false,
+            message: "This server is invite-only. You'll need an invite link to join.",
+          };
+  }
+}
+
 export function normalizeJoinPolicy(raw: string | null | undefined): JoinPolicy {
   const value = (raw ?? "").toLowerCase();
   return value === "open" || value === "closed" ? value : "invite";
