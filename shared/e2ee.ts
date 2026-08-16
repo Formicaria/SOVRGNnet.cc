@@ -1,6 +1,6 @@
 /**
  * The parts of end-to-end encryption that are decisions rather than cryptography
- * — ADR 0008 stage 4, ADR 0010.
+ * — ADR 0008 stage 4, ADR 0011.
  *
  * Everything here is pure and dependency-free, for the same reason
  * `protocol.ts` is: it runs in the browser, in the desktop shell, in the
@@ -88,7 +88,9 @@ export interface DecryptionVerdict {
  * rather than pending: telling someone a message is "still arriving" when we
  * have no idea why it failed is a message that spins forever.
  */
-export function describeDecryptionFailure(code: string | null | undefined): DecryptionVerdict {
+export function describeDecryptionFailure(
+  code: string | null | undefined
+): DecryptionVerdict {
   switch (code) {
     case null:
     case undefined:
@@ -104,7 +106,8 @@ export function describeDecryptionFailure(code: string | null | undefined): Decr
     case "OLM_UNKNOWN_MESSAGE_INDEX":
       return {
         state: "pending",
-        detail: "This device joined the conversation after this message was sent.",
+        detail:
+          "This device joined the conversation after this message was sent.",
       };
 
     case "MEGOLM_KEY_WITHHELD_FOR_UNVERIFIED_DEVICE":
@@ -130,7 +133,8 @@ export function describeDecryptionFailure(code: string | null | undefined): Decr
     case "HISTORICAL_MESSAGE_WORKING_BACKUP":
       return {
         state: "pending",
-        detail: "Sent before this device existed. Restoring it from your key backup.",
+        detail:
+          "Sent before this device existed. Restoring it from your key backup.",
       };
 
     case "HISTORICAL_MESSAGE_NO_KEY_BACKUP":
@@ -308,5 +312,7 @@ export function looksLikeRecoveryKey(input: string): boolean {
 
 /** Display grouping for a freshly generated key. Four-character groups. */
 export function formatRecoveryKey(key: string): string {
-  return normaliseRecoveryKey(key).replace(/(.{4})/g, "$1 ").trim();
+  return normaliseRecoveryKey(key)
+    .replace(/(.{4})/g, "$1 ")
+    .trim();
 }

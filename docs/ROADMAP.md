@@ -206,12 +206,14 @@ this project exists to avoid.
 
 ## 0.7 — Network
 
-- [ ] Federation, tested rather than merely possible — the index can now
-      represent federated senders ([ADR 0010](adr/0010-federated-senders.md):
-      nullable local account + Matrix id on every message, ingest records
-      remote members of known rooms instead of leaving silent holes); the
-      checkbox closes when a two-instance harness proves messages, senders,
-      and redactions cross for real
+- [ ] Federation, tested rather than merely possible — the index represents
+      federated senders ([ADR 0010](adr/0010-federated-senders.md): nullable
+      local account + Matrix id on every message, ingest records remote
+      members of known rooms instead of leaving silent holes), and the
+      two-instance harness exists (`scripts/e2e-federation.sh`: federated
+      invite and join, messages both ways, both indexes attributing both
+      senders, a redaction clearing both). The box ticks on its first green
+      run on a real Docker host
 - [ ] Optional instance directory — opt-in, addresses only
 - [ ] Portable cryptographic identity
 
@@ -241,16 +243,23 @@ What deliberately did not move: sending (permission enforcement lives on the
 instance API), and the typing/member polls (instance-level data that never
 lived in Matrix rooms). Those move, if ever, as their own decisions.
 
-## End-to-end encryption (0.4)
+## End-to-end encryption (planned 0.4, shipped 0.5.1) ✅
 
-Olm/Megolm in the client. The part everyone underestimates isn't the
-encryption, it's key management: cross-device verification, key backup, and
-recovery phrases are the difference between encryption and permanent data loss.
+Olm/Megolm in the client. The prediction this section made held: the part
+everyone underestimates isn't the encryption, it's key management — and
+cross-signing, device verification, key backup, and a recovery key all had to
+work before `e2ee` flipped, because ADR 0008 committed to that in writing.
 
-The web app does not get E2EE — a server that serves the code that holds the
-keys cannot honestly claim the server can't read messages. It must stop
-implying otherwise, and the `e2ee` capability must stay false until the
-implementation genuinely delivers it.
+One position originally taken here was reversed on the way. This section ruled
+the web app out, on the grounds that a server serving the code that holds the
+keys can't honestly claim it cannot read messages. That risk is real and is
+still disclosed — it's the operator-cooperation and crypto-store-at-rest
+entries in the threat model, T20 and T21 — but it is not the case encryption
+exists to defeat: against an operator who reads the database, or whose backups
+leak, or who is handed a subpoena, keys on devices yield ciphertext, in the
+browser as much as anywhere. The desktop client carries shipped code for
+anyone who wants the stronger claim. What it cost and where it stops is
+[ADR 0011](adr/0011-crypto-machine.md).
 
 ## Portable backup (0.5) ✅
 
@@ -286,12 +295,19 @@ could.
 
 ## Federation (0.7)
 
-Possible today, off by default, and untested — which is why it isn't claimed.
-Federation makes every server's uptime and moderation policy everyone else's
-problem, and requires every instance to be publicly reachable, which
-contradicts running one on a laptop in a closet. Multi-connection came first
-for that reason. When federation lands it will be because it's tested, not
-because the homeserver technically supports it.
+Off by default, and claimed only as far as it's tested. Federation makes
+every server's uptime and moderation policy everyone else's problem, and
+requires every instance to be publicly reachable, which contradicts running
+one on a laptop in a closet. Multi-connection came first for that reason.
+
+What's tested now is the plumbing: `scripts/e2e-federation.sh` stands up two
+complete instances, opens federation between their Dendrites over a real TLS
+transport, and proves invites, messages, and redactions cross while both
+indexes attribute both senders (ADR 0010's criterion). What's deliberately
+not built yet is the product surface — joining a remote room from the client,
+backfilling history from before the join, remote profiles. Those come after
+the plumbing has passed on real hardware, in that order, so the UI never
+promises what the wire hasn't demonstrated.
 
 ## Directory (0.7)
 

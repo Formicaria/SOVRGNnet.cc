@@ -197,8 +197,10 @@ Five pieces, each in its own container:
 
 Your messages live on your machine. They pass through no company's servers.
 
-One honest caveat: messages are stored as plain text on *your* homeserver
-today — end-to-end encryption is on the [roadmap](docs/ROADMAP.md), not
-finished. Anyone with administrator access to that computer could read them.
-For most people that's just you, which is the entire point. But it's worth
-knowing before you use it for anything sensitive.
+One honest caveat: a channel is plaintext unless somebody turned encryption
+on. An administrator can encrypt a channel permanently — keys then live on
+members' devices, and the server keeps ciphertext it can't read — but in the
+default state, anyone with administrator access to that computer could read
+messages. For most people that's just you, which is the entire point. But it's
+worth knowing before you use it for anything sensitive, and
+[SECURITY.md](SECURITY.md) states the limits that come with encryption too.

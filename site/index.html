@@ -108,8 +108,8 @@
 
             <p class="hero-status">
               <span class="dot dot-warn" aria-hidden="true"></span>
-              v0.5.1 alpha — messaging, files, invites, roles, moderation,
-              encrypted backups &amp; metrics work; end-to-end encryption is next
+              v0.5.1 alpha — messaging, files, invites, roles, and moderation
+              work; channels can now be end-to-end encrypted, off by default
             </p>
           </div>
 
@@ -491,11 +491,12 @@ cd sovrgnnet
                <code>#general</code>.</p>
           </div>
           <div class="card card-step">
-            <h3>02 · The instance proxies Matrix</h3>
-            <p>The browser never touches Matrix directly. The app provisions a
-               Matrix account per user and acts on their behalf — one identity,
-               permissions enforced server-side on every read and write. This
-               inverts when end-to-end encryption lands.</p>
+            <h3>02 · The client owns its Matrix session</h3>
+            <p>The app provisions a Matrix account per user, and each client
+               holds its own device-scoped session — syncing directly where the
+               homeserver is reachable, falling back to the instance where it
+               isn't. Encrypted channels keep their keys on your devices, never
+               on the server.</p>
           </div>
           <div class="card card-step">
             <h3>03 · Nothing listens on your router</h3>
@@ -649,13 +650,14 @@ cd sovrgnnet
           for.
         </p>
         <div class="note">
-          <strong>End-to-end encryption is the next milestone.</strong>
-          Until it ships, messages are stored as plaintext on <em>your own</em>
-          homeserver, readable by whoever administers that machine — which for
-          most operators is only themselves. That is already a different
-          proposition from plaintext on somebody else's server, and it is still
-          not Signal. If you run an instance for other people, tell them where
-          it stands.
+          <strong>A channel is plaintext unless somebody turned encryption
+          on.</strong> That's the default, and in a plaintext channel messages
+          are readable by whoever administers the instance — which for most
+          operators is only themselves, on <em>their own</em> homeserver. An
+          administrator can permanently encrypt a channel: keys then live on
+          members' devices and the server holds ciphertext it cannot read.
+          Metadata is never encrypted, and none of this makes it Signal. If you
+          run an instance for other people, tell them where it stands.
         </div>
         <p class="muted">
           Also missing today: voice and video, mobile apps, federation between

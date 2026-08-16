@@ -246,8 +246,16 @@ describe("discovery endpoints are public", () => {
     expect(body.protocol).toBeDefined();
   });
 
-  it("never claims E2EE", async () => {
+  it("doesn't claim E2EE without a deployment to back it", async () => {
     const body = await (await fetch(`${base}/api/capabilities`)).json();
+    // This read "never claims E2EE", which was true of the software and is
+    // no longer. What holds now is the derivation (ADR 0011): this instance
+    // has no reachable homeserver and no appservice, so the claim is false —
+    // and it has to be false *for that reason* rather than because a constant
+    // says so. If either of the other two ever came up here, e2ee would be
+    // entitled to come up with them.
+    expect(body.capabilities.clientMatrix).toBe(false);
+    expect(body.capabilities.eventIngest).toBe(false);
     expect(body.capabilities.e2ee).toBe(false);
   });
 });

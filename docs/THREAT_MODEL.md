@@ -7,19 +7,43 @@ Written against the **implementation as it exists**, not the roadmap. Where a
 mitigation is planned rather than built, it says so. A threat model that
 describes intentions is worse than none, because people make decisions on it.
 
-Last reviewed: v0.4.0 development.
+Last reviewed: v0.6 development, after ADR 0008 stage 4.
 
 ---
 
 ## The single most important fact
 
-**Messages are not end-to-end encrypted.** They are stored as plaintext in the
-instance's database and homeserver. Everything below follows from that: the
-instance operator is inside your trust boundary, not outside it.
+**A channel is plaintext unless somebody turned encryption on.** That is the
+default, it does not change silently, and everything below depends on which
+kind of channel you are in.
 
-Client-side encryption is the next architectural milestone. Until it ships, no
-threat involving "someone with access to the instance" has a technical
-mitigation — only a social one, which is that you chose who runs it.
+*In a plaintext channel* — every channel, until an administrator encrypts it —
+messages are stored readable in the instance's database and homeserver. The
+operator is inside your trust boundary, not outside it, and no threat involving
+"someone with access to the instance" has a technical mitigation. Only a social
+one: you chose who runs it.
+
+*In an encrypted channel* — Megolm, since ADR 0008 stage 4 — the instance holds
+ciphertext it has no key for, and its own index stores those messages
+content-blind by design. Against a **passive** operator — one who reads the
+database, or whose backups leak, or who is compelled to hand over what they
+have — this works.
+
+Against an **active** operator it is weaker, and the honest version is worth
+reading twice. The instance can mint a Matrix device for any of its users at
+any time (T17). Room keys are shared only with devices carrying a
+cross-signature, so a minted device receives nothing until a real device signs
+it — but *whether it gets signed is a decision a person makes in a dialog*. The
+cryptography can refuse to send keys to an unverified device. It cannot stop
+someone clicking through.
+
+Better than plaintext by a wide margin. Not the same as Signal.
+
+Two further conditions. Encryption is only offered by an instance whose
+homeserver clients can actually reach and whose appservice is wired — the
+`e2ee` capability is derived from both rather than declared — and a client that
+cannot hold keys reads nothing in an encrypted channel rather than falling back
+to something readable.
 
 ---
 
@@ -50,19 +74,28 @@ outside it and deliberately kept ignorant.
 
 ### T1 — Malicious or curious instance operator
 
-**Capabilities:** Full database and homeserver access. Can read every message,
-impersonate any member, alter history, and read files.
+**Capabilities:** Full database and homeserver access. Can read every plaintext
+message, impersonate any member, alter history, and read files. Can read
+metadata everywhere: who is in which channel, who spoke, when, and how often.
 
-**Affected:** Everything on that instance.
+**Affected:** Everything on that instance except the *content* of encrypted
+channels.
 
-**Mitigations:** None technical, today. The interface states plainly that
-messages are readable by whoever runs the instance — on the login page, in the
-add-server dialog, and in the docs — so the choice is informed. Per-server
-identity limits blast radius to that one community.
+**Mitigations:** For a plaintext channel, none technical. The interface states
+plainly that messages are readable by whoever runs the instance — on the login
+page, in the add-server dialog, and in the docs — so the choice is informed.
+Per-server identity limits blast radius to that one community.
 
-**Residual risk: total, and by design for now.** Choosing whose instance you
-join *is* the security decision. E2EE moves this from "trusted" to "cannot
-read message contents", and nothing else in this document changes as much.
+For an encrypted channel, Megolm (ADR 0008 stage 4, ADR 0011). Keys live on
+members' devices; the instance stores ciphertext and its index records those
+messages content-blind, so there is no readable copy for it to hold. This
+covers content only — the metadata above is unchanged, and the operator still
+knows exactly who is talking to whom.
+
+**Residual risk: total in a plaintext channel, and metadata everywhere.**
+Choosing whose instance you join *is* the security decision. In an encrypted
+channel it drops to what an active operator can reach through T17 and T20,
+which is not nothing.
 
 ---
 
@@ -196,24 +229,37 @@ time, without the user's involvement.
 plaintext password is stored anywhere. Both are genuine benefits. The cost is
 that whatever can compute the HMAC can authenticate as anyone.
 
-**Mitigations:** None today. The app secret is loopback-scoped and never
-leaves the server process, so this is not reachable from outside — it is a
-capability the *instance* has, not one an external attacker gains.
+**Mitigations:** The app secret is loopback-scoped and never leaves the server
+process, so this is not reachable from outside — it is a capability the
+*instance* has, not one an external attacker gains.
 
-**Residual risk: subsumed by T1 today, decisive after E2EE.** While messages
-are plaintext, this adds nothing: the operator can already read everything.
-Once E2EE ships it becomes the sharpest remaining edge, because it means the
-operator can mint a device and wait for room keys. Matrix defends against
-exactly that with device verification — a new device is untrusted until an
-existing one signs it — but the defence only works if people act on the
-warning.
+For encrypted channels, `globalBlacklistUnverifiedDevices = true` paired with
+`setTrustCrossSignedDevices(true)` in the client, neither configurable. A
+minted device receives no room keys at all until a device belonging to that
+user cross-signs it. That is stronger than the SDK default, under which the
+minted device receives keys like any other and a warning is the only
+protection. The client
+lists every device with its verification state, puts unverified ones at the
+top, and says in as many words that an unrecognised device may have been
+created by whoever runs the instance.
 
-Stated plainly so the eventual E2EE claim is accurate: against a **passive**
-operator, E2EE will work. Against an **active** one who adds a device and
-waits, it reduces to "you would have been warned". That is a real improvement
-and it is not the same as Signal.
+**Residual risk: subsumed by T1 in a plaintext channel; the sharpest remaining
+edge in an encrypted one.** Where messages are plaintext this adds nothing —
+the operator can already read everything. In an encrypted channel it is the
+difference between a passive and an active adversary, and the defence now
+terminates in a person: the cryptography will refuse to send keys to an
+unverified device, and nothing stops someone verifying one they shouldn't.
 
-See [ADR 0008](adr/0008-client-side-matrix.md).
+Stated plainly, so the E2EE claim is accurate: against a **passive** operator,
+encryption works. Against an **active** one who mints a device and waits, it
+reduces to "you were shown a warning and had to act on it". A real improvement.
+Not the same as Signal.
+
+The fix is to remove the derived password, which requires solving Matrix
+account recovery without it. That is its own decision and has not been made.
+
+See [ADR 0008](adr/0008-client-side-matrix.md) and
+[ADR 0011](adr/0011-crypto-machine.md).
 
 ---
 
@@ -377,6 +423,72 @@ files and restarting both services.
 
 ---
 
+### T20 — The instance's cooperation in cross-signing setup
+
+**Capabilities:** During the moment a user sets up encryption, substitute the
+instance's own cross-signing keys for the ones the user's client generated —
+becoming, from that point, an identity other users' clients may trust.
+
+**Affected:** Any account setting up or resetting cross-signing.
+
+**Why it exists:** Uploading cross-signing keys is user-interactive-auth gated,
+and this instance's Matrix passwords are derived (T17), so the instance knows
+them and the browser does not. The alternative was to hand the derived password
+to the browser for the duration of the flow, which would put a permanent,
+unrotatable, fully-authorising credential inside a web page and within reach of
+any XSS. Instead the client starts the flow, receives a UIA session id, and
+asks the instance to satisfy that one stage. See [ADR 0011](adr/0011-crypto-machine.md).
+
+**Mitigations:** The private cross-signing keys never leave the browser and the
+password never enters it — only a session id the homeserver issued moments
+earlier crosses, and it is meaningless without the request the client is
+already making. The instance's own request carries an auth dict and no keys.
+The password used is derived from the authenticated caller's user id, so
+presenting somebody else's session id completes a stage the homeserver will
+then reject.
+
+Crucially, substitution is **not silent**: a master key change is published to
+every device of every user who has verified that account, and clients report it
+as exactly the identity change verification exists to surface.
+
+**Residual risk: real, visible, and the same shape as T17.** This is a second
+route to the same place, and it has the same resolution — removing the derived
+password. Until then it is disclosed rather than mitigated.
+
+---
+
+### T21 — Crypto store readable in the browser profile
+
+**Capabilities:** Read a user's Megolm inbound sessions, and therefore the
+plaintext of encrypted messages that device has received, from the browser's
+IndexedDB.
+
+**Affected:** Anyone with access to the browser profile on disk — malware
+running as the user, another process with filesystem access, someone at an
+unlocked machine, a synced or backed-up profile.
+
+**Why it exists:** The crypto store has to persist. Megolm inbound sessions are
+the only copy of the ability to read messages already received, so a store that
+reset on refresh would make every page reload permanent history loss.
+
+**Mitigations:** None cryptographic, deliberately. The store can be encrypted
+with a `storageKey`, but the browser has no keychain to hold one — the key
+would have to sit somewhere the same attacker can already read, or come from a
+passphrase prompt on every page load, which is a feature nobody keeps enabled.
+Obfuscation described as encryption is worse than a documented gap.
+
+What *is* mitigated: the Matrix access token is still never persisted. It lives
+in memory for the tab's lifetime and is re-minted over the authenticated
+instance API on reload (ADR 0008 stage 3), so a stolen profile yields past
+message keys but not a live session. Recovery keys and secret storage keys are
+memory-only for the same reason.
+
+**Residual risk: moderate, and inherent to a browser client.** The desktop
+shell has an OS keychain available and does not yet use it; that is the obvious
+improvement and has not been made.
+
+---
+
 ## What an attacker cannot do
 
 - Read messages on an instance they have no access to
@@ -388,8 +500,12 @@ files and restarting both services.
 
 ## Known gaps
 
-1. **No end-to-end encryption.** The largest by a distance.
-2. **The instance can log in as any user** (T17). Decisive once E2EE ships.
+1. **Encryption is per channel and off by default.** A channel nobody encrypted
+   is plaintext, and metadata — membership, timing, who spoke — stays readable
+   to the operator in every channel including encrypted ones.
+2. **The instance can log in as any user** (T17), and its cooperation is
+   required to set up cross-signing (T20). Both trace to the derived password,
+   and both are now the sharpest edge rather than a future one.
 3. **Communities created before v0.4.2 have public Matrix join rules** (T18).
    Creation-time settings; repairing them means rewriting live room state.
 4. **No session revocation.** Stateless one-year JWTs; logout doesn't invalidate.
@@ -398,7 +514,10 @@ files and restarting both services.
 7. **No `jti` replay tracking** within a token's lifetime.
 8. **No rate limiting on most API surface** beyond login.
 9. **No audit log** of administrative actions.
-10. **No independent security audit.** Careful review is not an audit.
+10. **The browser's crypto store is unencrypted at rest** (T21). The desktop
+    shell has an OS keychain and does not yet use it.
+11. **No independent security audit.** Careful review is not an audit, and the
+    cryptography arriving in this release raises what an audit would be worth.
 
 ## Related
 

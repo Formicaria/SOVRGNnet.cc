@@ -220,30 +220,45 @@ Native installs run each service as a separate unprivileged systemd unit with
 A plain-HTTP LAN deployment has no transport encryption. That is the documented
 trade-off of the LAN-only option, and it is why that option is LAN-only.
 
-## What is not encrypted
+## What is and isn't encrypted
 
-**Message contents.** Plaintext in the instance's database and homeserver.
-Whoever operates the instance can read everything.
+**Message contents, in a channel nobody encrypted.** Plaintext in the
+instance's database and homeserver; whoever operates the instance can read
+everything. This is the default state of every channel.
 
-`E2EE_AVAILABLE` in `server/instance.ts` is a hard-coded `false` with tests
-guarding it. It was previously derived from whether the homeserver had a public
-URL, which would have made the instance claim encryption the moment it got a
-public address — a configuration change silently turning into a security claim.
-It is now a constant precisely so that no environment variable can flip it.
+**Message contents, in an encrypted channel.** Megolm, since ADR 0008 stage 4.
+Keys live on members' devices, the homeserver holds ciphertext, and the
+instance's index stores those rows content-blind. Room keys are withheld from
+any device its owner has not cross-signed
+(`globalBlacklistUnverifiedDevices`), which is what limits the operator's
+ability to mint a device and collect keys (T17, T20).
 
-**Backups.** Written `0600` and not encrypted at rest. Each contains every
-message and every secret. Treat one as password material.
+**Metadata, in every channel.** Not encrypted, and not encryptable in this
+design: membership, timing, and who spoke are how the index works.
 
-The `e2ee` capability stays false until the implementation genuinely delivers
-it. Claiming a security property you don't have is worse than not having it,
-because people make decisions on the claim.
+**Backups.** `0600`, and encrypted at rest when `SOVRGN_BACKUP_PASSPHRASE` is
+set (scrypt + AES-256-GCM). Without it they are plaintext and contain every
+message and every secret — treat one as password material.
+
+**The browser's crypto store.** Unencrypted in IndexedDB (T21). The access
+token is not stored at all.
+
+`e2eeAvailable()` in `server/instance.ts` derives the capability from three
+conditions — the build ships crypto, a homeserver answered at the advertised
+address, and the appservice is wired — and the rule itself lives in
+`shared/e2ee.ts` where it is unit-tested. It was a hard-coded `false` while
+stage 4 was outstanding, and before that it was briefly derived from whether
+the homeserver had a public URL, which would have made an instance claim
+encryption the moment it got a public address. The current form is the same
+lesson applied forwards: no environment variable sets any of the three.
 
 ## Known gaps
 
 Restated together so they aren't scattered:
 
-1. No end-to-end encryption
-2. The instance can log in as any user — derived Matrix passwords (T17)
+1. Encryption is per channel and off by default; metadata is never encrypted
+2. The instance can log in as any user, and must cooperate in cross-signing
+   setup — both from derived Matrix passwords (T17, T20)
 3. No server-side session revocation; sessions live a year
 4. No 2FA on local accounts
 5. Backups unencrypted at rest

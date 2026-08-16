@@ -1,6 +1,8 @@
 # ADR 0008 — The client owns the Matrix session
 
-**Status:** Accepted · August 2026 · stages 1–3 implemented; 4 outstanding
+**Status:** Accepted · August 2026 · all four stages implemented
+**Completed by:** [ADR 0011](0011-crypto-machine.md), which records the
+decisions stage 4 turned out to require
 **Reverses:** the proxy decision in [ADR 0001](0001-multi-server-client.md) and
 [ARCHITECTURE.md](../ARCHITECTURE.md)
 
@@ -121,18 +123,29 @@ a product decision this stage doesn't smuggle in. Sending also stays on the
 instance API, where permission enforcement already lives. The proxy remains
 for instances that have not completed stage 2, selected by capability.
 
-**4 — Olm/Megolm.** Encryption, cross-signing, device verification, and key
+**4 — Olm/Megolm.** ✅ Encryption, cross-signing, device verification, and key
 backup. `e2ee` flips only when all of it works, including recovery.
 
-*In progress.* The transport and index groundwork is done: sync delivers the
-crypto signal set (to-device messages — including from the initial batch,
-where queued room keys live — device-list changes, one-time-key counts), the
-appservice records `m.room.encryption` state so the index knows which rooms
-are encrypted, encrypted events are stored content-blind, clients render them
-as explicitly unreadable, and both send paths refuse plaintext into encrypted
-rooms rather than quietly undermining them. What remains is the crypto machine
-itself: Olm/Megolm sessions, verification, backup, recovery. `e2ee` stays
-false until all of it — including recovery — works.
+The groundwork landed first and separately: sync delivering the crypto signal
+set (to-device messages — including from the initial batch, where queued room
+keys live — device-list changes, one-time-key counts), the appservice
+recording `m.room.encryption` so the index knows which rooms are encrypted,
+encrypted events stored content-blind, and both send paths refusing plaintext
+into an encrypted room.
+
+The machine itself is matrix-js-sdk with the Rust crypto backend, which is
+what the sentence at the top of stage 3 promised. Adopting it retires the
+hand-rolled sync engine rather than running alongside it — the reason for
+separating stages 3 and 4 was to avoid a failure with two candidate causes,
+and two sync engines would have made that arrangement permanent. Cross-signing
+setup needed a way to satisfy user-interactive auth without the derived
+password reaching the browser; keys are shared only with cross-signed devices,
+which is what turns "you would have been warned" into "nothing was sent". Both,
+and the two consequences that fall out of them, are in
+[ADR 0011](0011-crypto-machine.md).
+
+`e2ee` is now derived from three conditions rather than declared, and is
+false on any instance whose homeserver clients cannot reach.
 
 Stages 1 and 2 are worth having on their own merits even if 3 and 4 slipped.
 That is the test for whether a staged plan is real.

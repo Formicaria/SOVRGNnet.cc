@@ -244,20 +244,48 @@ describe("self-consistency", () => {
     expect(find(results, "consistency-registration")?.status).toBe("fail");
   });
 
-  it("catches an E2EE claim the architecture cannot support", () => {
+  it("catches an E2EE claim from an instance that proxies everything", () => {
     const d = descriptor();
     d.capabilities.e2ee = true;
+    d.capabilities.eventIngest = true;
     d.capabilities.clientMatrix = false;
     const results = runConformance(probes({ instance: okProbe(d) }));
     const check = find(results, "consistency-e2ee");
     expect(check?.status).toBe("fail");
-    expect(check?.detail).toContain("holds the keys");
+    // Without clientMatrix the instance holds the keys, which is not
+    // end-to-end encryption under any description.
+    expect(check?.detail).toContain("clientMatrix");
   });
 
-  it("accepts E2EE alongside client-side Matrix", () => {
+  it("catches an E2EE claim from an instance that records nothing", () => {
     const d = descriptor();
     d.capabilities.e2ee = true;
     d.capabilities.clientMatrix = true;
+    d.capabilities.eventIngest = false;
+    d.matrix.baseUrl = "https://matrix.test.example";
+    const results = runConformance(probes({ instance: okProbe(d) }));
+    const check = find(results, "consistency-e2ee");
+    // An encrypted message the instance never indexes isn't unreadable to
+    // other members — it's absent.
+    expect(check?.status).toBe("fail");
+    expect(check?.detail).toContain("eventIngest");
+  });
+
+  it("names both when both are missing", () => {
+    const d = descriptor();
+    d.capabilities.e2ee = true;
+    d.capabilities.clientMatrix = false;
+    d.capabilities.eventIngest = false;
+    const results = runConformance(probes({ instance: okProbe(d) }));
+    const check = find(results, "consistency-e2ee");
+    expect(check?.detail).toContain("clientMatrix and eventIngest");
+  });
+
+  it("accepts E2EE alongside client-side Matrix and event ingest", () => {
+    const d = descriptor();
+    d.capabilities.e2ee = true;
+    d.capabilities.clientMatrix = true;
+    d.capabilities.eventIngest = true;
     d.matrix.baseUrl = "https://matrix.test.example";
     const results = runConformance(probes({ instance: okProbe(d) }));
     expect(find(results, "consistency-e2ee")?.status).toBe("pass");

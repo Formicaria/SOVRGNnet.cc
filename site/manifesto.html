@@ -146,13 +146,14 @@
 
       <h2>6 · State the gaps before someone discovers them</h2>
       <div class="warning">
-        <strong>Messages are not end-to-end encrypted yet.</strong>
-        They are stored as plaintext on <em>your</em> homeserver. Anyone with
-        administrator access to that machine can read them — for most operators
-        that is only themselves, which is rather the point. E2EE is the next
-        architectural milestone, and until it ships this belongs on the
+        <strong>A channel is plaintext unless somebody turned encryption on.</strong>
+        Encryption is per channel and off by default. In the default state your
+        messages are readable by whoever administers the homeserver — for most
+        operators that is only themselves, which is rather the point. Turning
+        it on is permanent, puts the keys on members' devices, and still leaves
+        metadata readable. None of that makes it Signal, and it belongs on the
         homepage rather than in a changelog. If you run an instance for other
-        people, tell them.
+        people, tell them which kind of channel they're typing into.
       </div>
       <p class="muted">
         Also missing today: voice and video, mobile apps, federation between
