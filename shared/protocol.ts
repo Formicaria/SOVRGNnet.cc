@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 /**
  * The SOVRGN protocol — the interoperability layer between any client and any
  * instance.
@@ -12,6 +10,14 @@ import { z } from "zod";
  * thing this architecture exists to avoid.
  *
  * The PostgreSQL schema is implementation state. *This* is the contract.
+ *
+ * **This module has no dependencies, deliberately.** Two reasons. It is
+ * imported by the desktop client, which keeps a four-package runtime and should
+ * not gain a validation library to read a JSON document. And a specification
+ * defined in terms of one language's schema library is a specification nobody
+ * can implement in another language — "whatever zod does with this" is not
+ * something a Go implementer can read. The parser below is the normative
+ * description of the wire format, in explicit structural terms.
  */
 
 /**
@@ -24,42 +30,60 @@ import { z } from "zod";
  */
 export const PROTOCOL_VERSION = { major: 1, minor: 0 } as const;
 
-export const protocolVersionSchema = z.object({
-  major: z.number().int().nonnegative(),
-  minor: z.number().int().nonnegative(),
-});
-export type ProtocolVersion = z.infer<typeof protocolVersionSchema>;
+export interface ProtocolVersion {
+  major: number;
+  minor: number;
+}
 
 /**
  * What an instance can do.
  *
- * Every capability defaults to **false**. That direction matters: an older
- * instance that has never heard of a capability must read as "doesn't have
- * it", never as "probably fine". Optimistic defaults are how a client ends up
- * offering a feature that silently does nothing.
+ * Every capability defaults to **false** except messaging. That direction
+ * matters: an older instance that has never heard of a capability must read as
+ * "doesn't have it", never as "probably fine". Optimistic defaults are how a
+ * client ends up offering a feature that silently does nothing.
  */
-export const capabilitiesSchema = z.object({
+export interface Capabilities {
   /** Text messaging. The one thing every instance has. */
-  messaging: z.boolean().default(true),
+  messaging: boolean;
   /** File sharing through the instance's own storage. */
-  media: z.boolean().default(false),
+  media: boolean;
   /** End-to-end encryption. False until keys genuinely live on devices. */
-  e2ee: z.boolean().default(false),
+  e2ee: boolean;
   /** Voice and video channels. */
-  voice: z.boolean().default(false),
+  voice: boolean;
   /** Whether this homeserver talks to other Matrix servers. */
-  federation: z.boolean().default(false),
+  federation: boolean;
   /** Whether this instance accepts identities from an identity provider. */
-  sso: z.boolean().default(false),
+  sso: boolean;
   /** Whether anyone may create an account without an invite. */
-  publicRegistration: z.boolean().default(false),
+  publicRegistration: boolean;
   /** Whether the client may talk to Matrix directly rather than via the app. */
-  clientMatrix: z.boolean().default(false),
+  clientMatrix: boolean;
   /** Whether this instance can produce and consume portable backups. */
-  portableBackup: z.boolean().default(false),
-});
-export type Capabilities = z.infer<typeof capabilitiesSchema>;
+  portableBackup: boolean;
+}
+
 export type CapabilityName = keyof Capabilities;
+
+/** Applied to any capability an instance didn't mention. */
+export const DEFAULT_CAPABILITIES: Capabilities = {
+  messaging: true,
+  media: false,
+  e2ee: false,
+  voice: false,
+  federation: false,
+  sso: false,
+  publicRegistration: false,
+  clientMatrix: false,
+  portableBackup: false,
+};
+
+export const CAPABILITY_NAMES = Object.keys(DEFAULT_CAPABILITIES) as CapabilityName[];
+
+export type JoinPolicy = "open" | "invite" | "closed";
+
+export const JOIN_POLICIES: JoinPolicy[] = ["open", "invite", "closed"];
 
 /**
  * What an instance says about itself, to anyone who asks.
@@ -68,31 +92,150 @@ export type CapabilityName = keyof Capabilities;
  * no user data. A stranger fetching this learns what the software can do and
  * whether they may join — nothing about who is already there.
  */
-export const instanceDescriptorSchema = z.object({
+export interface InstanceDescriptor {
   /** Confirms this is a SOVRGNnet instance and not something else entirely. */
-  product: z.literal("sovrgnnet"),
-  protocol: protocolVersionSchema,
-  server: z.object({
+  product: "sovrgnnet";
+  protocol: ProtocolVersion;
+  server: {
     /** Application version. Informational — never used for compatibility. */
-    version: z.string(),
-    /** Stable, non-secret identifier for this instance. */
-    id: z.string().regex(/^[0-9a-f]{16}$/),
-    name: z.string().min(1).max(120),
-    description: z.string().max(500).nullable().default(null),
-  }),
-  capabilities: capabilitiesSchema,
-  matrix: z.object({
+    version: string;
+    /**
+     * Stable, non-secret identifier: exactly 16 lowercase hex characters,
+     * SHA-256 of `sovrgnnet:instance:<matrix server name>` truncated.
+     *
+     * The format is normative because this value is the audience of every
+     * identity token minted for the instance, and an ambiguous audience means
+     * two instances could both plausibly claim the same token.
+     */
+    id: string;
+    name: string;
+    description: string | null;
+  };
+  capabilities: Capabilities;
+  matrix: {
     /** The domain in Matrix IDs. Permanent for the life of the instance. */
-    serverName: z.string(),
+    serverName: string;
     /** Public homeserver URL, when clients may reach it directly. */
-    baseUrl: z.string().url().nullable().default(null),
-  }),
+    baseUrl: string | null;
+  };
   /** open = anyone · invite = invite required · closed = nobody */
-  joinPolicy: z.enum(["open", "invite", "closed"]).default("invite"),
+  joinPolicy: JoinPolicy;
   /** Where identities come from, if this instance accepts external ones. */
-  identityIssuer: z.string().url().nullable().default(null),
-});
-export type InstanceDescriptor = z.infer<typeof instanceDescriptorSchema>;
+  identityIssuer: string | null;
+}
+
+// ------------------------------------------------------------------- parsing
+
+const INSTANCE_ID = /^[0-9a-f]{16}$/;
+const MAX_NAME = 120;
+const MAX_DESCRIPTION = 500;
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function wholeNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/** A URL, or null. Anything unparseable is rejected rather than passed on —
+ *  these end up in fetch() and in the address bar. */
+function absoluteUrl(value: unknown): { ok: true; value: string | null } | { ok: false } {
+  if (value === null || value === undefined) return { ok: true, value: null };
+  if (typeof value !== "string") return { ok: false };
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return { ok: false };
+    return { ok: true, value };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
+ * Read a capability set, treating anything absent or non-boolean as absent.
+ *
+ * A string "true" is not a boolean and does not mean yes. Being strict here is
+ * what makes the false-by-default rule actually hold.
+ */
+export function parseCapabilities(raw: unknown): Capabilities {
+  const source = record(raw) ?? {};
+  const result = { ...DEFAULT_CAPABILITIES };
+  for (const name of CAPABILITY_NAMES) {
+    const value = source[name];
+    if (typeof value === "boolean") result[name] = value;
+  }
+  return result;
+}
+
+export function parseProtocolVersion(raw: unknown): ProtocolVersion | null {
+  const source = record(raw);
+  if (!source) return null;
+  const major = wholeNumber(source.major);
+  const minor = wholeNumber(source.minor);
+  if (major === null || minor === null) return null;
+  return { major, minor };
+}
+
+/**
+ * Parse whatever an instance returned.
+ *
+ * Anything unrecognisable is null rather than an exception, because pointing a
+ * client at the wrong address is an ordinary thing people do, not an
+ * exceptional condition.
+ */
+export function parseInstanceDescriptor(raw: unknown): InstanceDescriptor | null {
+  const source = record(raw);
+  if (!source) return null;
+  if (source.product !== "sovrgnnet") return null;
+
+  const protocol = parseProtocolVersion(source.protocol);
+  if (!protocol) return null;
+
+  const server = record(source.server);
+  if (!server) return null;
+
+  if (typeof server.version !== "string") return null;
+  if (typeof server.id !== "string" || !INSTANCE_ID.test(server.id)) return null;
+  if (typeof server.name !== "string" || server.name.length < 1 || server.name.length > MAX_NAME) {
+    return null;
+  }
+
+  let description: string | null = null;
+  if (server.description !== null && server.description !== undefined) {
+    if (typeof server.description !== "string" || server.description.length > MAX_DESCRIPTION) {
+      return null;
+    }
+    description = server.description;
+  }
+
+  const matrix = record(source.matrix);
+  if (!matrix || typeof matrix.serverName !== "string") return null;
+
+  const baseUrl = absoluteUrl(matrix.baseUrl);
+  if (!baseUrl.ok) return null;
+
+  const issuer = absoluteUrl(source.identityIssuer);
+  if (!issuer.ok) return null;
+
+  let joinPolicy: JoinPolicy = "invite";
+  if (source.joinPolicy !== undefined && source.joinPolicy !== null) {
+    if (!JOIN_POLICIES.includes(source.joinPolicy as JoinPolicy)) return null;
+    joinPolicy = source.joinPolicy as JoinPolicy;
+  }
+
+  return {
+    product: "sovrgnnet",
+    protocol,
+    server: { version: server.version, id: server.id, name: server.name, description },
+    capabilities: parseCapabilities(source.capabilities),
+    matrix: { serverName: matrix.serverName, baseUrl: baseUrl.value },
+    joinPolicy,
+    identityIssuer: issuer.value,
+  };
+}
 
 // -------------------------------------------------------------- compatibility
 
@@ -127,18 +270,6 @@ export function checkCompatibility(
     };
   }
   return { ok: true, protocol: instance };
-}
-
-/**
- * Parse whatever an instance returned.
- *
- * Anything unrecognisable is "not-sovrgnnet" rather than an exception, because
- * pointing a client at the wrong address is an ordinary thing people do, not
- * an exceptional condition.
- */
-export function parseInstanceDescriptor(raw: unknown): InstanceDescriptor | null {
-  const parsed = instanceDescriptorSchema.safeParse(raw);
-  return parsed.success ? parsed.data : null;
 }
 
 /**

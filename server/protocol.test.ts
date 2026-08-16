@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   PROTOCOL_VERSION,
-  capabilitiesSchema,
   checkCompatibility,
   explainMissing,
-  instanceDescriptorSchema,
+  parseCapabilities,
   parseInstanceDescriptor,
   supports,
   type InstanceDescriptor,
@@ -32,7 +31,7 @@ describe("capabilities", () => {
   it("default to absent, not present", () => {
     // The direction matters: an instance that has never heard of a capability
     // must read as "doesn't have it", never as "probably fine".
-    const caps = capabilitiesSchema.parse({});
+    const caps = parseCapabilities({});
     expect(caps.e2ee).toBe(false);
     expect(caps.voice).toBe(false);
     expect(caps.federation).toBe(false);
@@ -43,18 +42,18 @@ describe("capabilities", () => {
   });
 
   it("assumes messaging, since every instance has it", () => {
-    expect(capabilitiesSchema.parse({}).messaging).toBe(true);
+    expect(parseCapabilities({}).messaging).toBe(true);
   });
 
   it("reads what an instance actually declares", () => {
-    const caps = capabilitiesSchema.parse({ e2ee: true, voice: true });
+    const caps = parseCapabilities({ e2ee: true, voice: true });
     expect(caps.e2ee).toBe(true);
     expect(caps.voice).toBe(true);
   });
 });
 
 describe("supports", () => {
-  const parsed = instanceDescriptorSchema.parse(descriptor());
+  const parsed = parseInstanceDescriptor(descriptor())!;
 
   it("is true for a declared capability", () => {
     expect(supports(parsed, "media")).toBe(true);
@@ -152,7 +151,7 @@ describe("parseInstanceDescriptor", () => {
 
 describe("explainMissing", () => {
   it("explains every capability in words a person can act on", () => {
-    const names = Object.keys(capabilitiesSchema.parse({})) as Array<
+    const names = Object.keys(parseCapabilities({})) as Array<
       keyof InstanceDescriptor["capabilities"]
     >;
     for (const name of names) {

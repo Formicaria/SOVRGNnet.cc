@@ -23,7 +23,18 @@
  */
 
 import { z } from "zod";
-import { PROTOCOL_VERSION, protocolVersionSchema } from "./protocol";
+import { PROTOCOL_VERSION } from "./protocol";
+
+/**
+ * Declared here rather than imported: shared/protocol.ts is deliberately
+ * dependency-free so the desktop client can read it without gaining a
+ * validation library. Backups are a server concern, so zod stays on this side
+ * of that line.
+ */
+const protocolVersionSchema = z.object({
+  major: z.number().int().nonnegative(),
+  minor: z.number().int().nonnegative(),
+});
 
 /** Bumped only for changes that older readers cannot handle. */
 export const BACKUP_FORMAT_VERSION = 1;
