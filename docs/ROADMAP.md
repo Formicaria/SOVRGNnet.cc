@@ -155,7 +155,9 @@ this project exists to avoid.
 - [x] **Deterministic infrastructure** — every image pinned, no `latest`
 - [x] **Conformance suite** — `pnpm conformance <url>`, an executable definition
       of "is a SOVRGNnet instance"
-- [ ] **Client-side Matrix** — the client owns the Matrix session
+- [x] **Device-scoped Matrix sessions** — named, listable, individually
+      revocable; the instance's own session is visible rather than hidden
+- [ ] **Client-side Matrix** — the client owns the Matrix session ([ADR 0008](adr/0008-client-side-matrix.md))
 - [ ] **E2EE** via Olm/Megolm, with device verification and key backup
 
 ## 0.5 — Portable infrastructure

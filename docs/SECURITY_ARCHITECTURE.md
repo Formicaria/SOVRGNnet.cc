@@ -97,8 +97,33 @@ Each user's Matrix access token is held server-side in `userProfiles` and
 **never sent to a browser**. The desktop client stores its instance credentials
 in the OS keychain, not in browser storage.
 
-There is no per-device Matrix session revocation yet. Device management arrives
-with client-side Matrix.
+### Device-scoped sessions
+
+Every login carries a `device_id` and a display name. The instance's own
+session uses a fixed, recognisable device (`SOVRGNNET_SERVER`, "SOVRGNnet
+server"), so re-authenticating after a lost token *replaces* that session
+rather than adding another beside it — homeservers previously accumulated one
+anonymous device per recovery.
+
+Sessions are listable and individually revocable from account settings, through
+the user's own token rather than the admin API, so the list reflects what that
+user can actually see and act on. The instance's session is shown and flagged,
+not hidden: the server does hold one, and concealing it would be the dishonest
+option. Signing it out is refused, because it would break every operation the
+server performs on that user's behalf and would present as the account silently
+failing.
+
+### The instance can log in as any user
+
+Matrix passwords are derived — `HMAC(app secret, "matrix-account:<id>")` — so a
+lost token is always recoverable and no plaintext password is stored. The cost
+is that whatever computes the HMAC can authenticate as anyone, which means
+revoking a device does not lock the instance out.
+
+While messages are plaintext this adds nothing an operator couldn't already do.
+It becomes decisive under E2EE, and it is recorded as T17 rather than left to
+be discovered when the encryption claim is made. See
+[ADR 0008](adr/0008-client-side-matrix.md).
 
 ## Files
 
@@ -211,8 +236,8 @@ because people make decisions on the claim.
 Restated together so they aren't scattered:
 
 1. No end-to-end encryption
-2. No server-side session revocation; sessions live a year
-3. No per-device Matrix session revocation
+2. The instance can log in as any user — derived Matrix passwords (T17)
+3. No server-side session revocation; sessions live a year
 4. No 2FA on local accounts
 5. Backups unencrypted at rest
 6. No `jti` replay tracking

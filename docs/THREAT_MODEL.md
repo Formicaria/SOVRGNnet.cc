@@ -161,10 +161,47 @@ outright.
 **Capabilities:** Act as that user on the homeserver.
 
 **Mitigations:** Tokens are held server-side and never sent to browsers.
-Desktop credentials live in the OS keychain, not browser storage.
+Desktop credentials live in the OS keychain, not browser storage. Sessions are
+now **device-scoped and named**: the instance's own session is a fixed,
+recognisable device, and every session is listable and individually revocable
+from account settings.
 
-**Residual risk: moderate.** There is no per-device revocation yet. Device
-management arrives with client-side Matrix.
+**Residual risk: moderate.** Revocation exists now, but see T17 — the instance
+can create a new session at any time, so revoking one does not lock the
+instance out.
+
+---
+
+### T17 — The instance can log in as any of its users
+
+**Capabilities:** Create a Matrix session for any account, silently, at any
+time, without the user's involvement.
+
+**Affected:** Every account on the instance.
+
+**Why:** Matrix passwords are derived — `HMAC(app secret, "matrix-account:<id>")`
+— so a lost access token can always be recovered by logging in again, and no
+plaintext password is stored anywhere. Both are genuine benefits. The cost is
+that whatever can compute the HMAC can authenticate as anyone.
+
+**Mitigations:** None today. The app secret is loopback-scoped and never
+leaves the server process, so this is not reachable from outside — it is a
+capability the *instance* has, not one an external attacker gains.
+
+**Residual risk: subsumed by T1 today, decisive after E2EE.** While messages
+are plaintext, this adds nothing: the operator can already read everything.
+Once E2EE ships it becomes the sharpest remaining edge, because it means the
+operator can mint a device and wait for room keys. Matrix defends against
+exactly that with device verification — a new device is untrusted until an
+existing one signs it — but the defence only works if people act on the
+warning.
+
+Stated plainly so the eventual E2EE claim is accurate: against a **passive**
+operator, E2EE will work. Against an **active** one who adds a device and
+waits, it reduces to "you would have been warned". That is a real improvement
+and it is not the same as Signal.
+
+See [ADR 0008](adr/0008-client-side-matrix.md).
 
 ---
 
@@ -280,8 +317,8 @@ the tooling — an explicit gap, and a good candidate for the next pass.
 ## Known gaps
 
 1. **No end-to-end encryption.** The largest by a distance.
-2. **No session revocation.** Stateless one-year JWTs; logout doesn't invalidate.
-3. **No per-device Matrix session revocation.**
+2. **The instance can log in as any user** (T17). Decisive once E2EE ships.
+3. **No session revocation.** Stateless one-year JWTs; logout doesn't invalidate.
 4. **No 2FA for local accounts.**
 5. **Backups are unencrypted at rest.**
 6. **No `jti` replay tracking** within a token's lifetime.
