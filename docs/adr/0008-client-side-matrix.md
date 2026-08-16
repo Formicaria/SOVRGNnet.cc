@@ -1,6 +1,6 @@
 # ADR 0008 — The client owns the Matrix session
 
-**Status:** Accepted · August 2026 · **not yet implemented** (targeted at v0.5.0)
+**Status:** Accepted · August 2026 · stages 1–2 implemented; 3–4 outstanding
 **Reverses:** the proxy decision in [ADR 0001](0001-multi-server-client.md) and
 [ARCHITECTURE.md](../ARCHITECTURE.md)
 
@@ -90,11 +90,23 @@ recognisable device ("SOVRGNnet server"), and each client gets a separate one.
 Devices become listable and revocable. Nothing else changes yet, and T8's gap
 closes on its own.
 
-**2 — The homeserver becomes reachable.** It moves off loopback behind proper
-`.well-known` delegation. `clientMatrix` flips to true only when this is
-actually configured — derived from real readiness, not from an environment
-variable being present, for the same reason `E2EE_AVAILABLE` is a hard-coded
-constant.
+**2 — The homeserver becomes reachable.** ✅ The app serves
+`/.well-known/matrix/client` and `/.well-known/matrix/server`, so delegation
+works in every deployment shape rather than only where nginx was configured by
+hand. Server delegation is gated on federation actually being enabled, because
+advertising an endpoint the instance then refuses is worse than advertising
+none.
+
+`clientMatrix` is now derived from a cached probe of
+`/_matrix/client/versions` at the advertised address — it takes a homeserver
+answering, not an environment variable being set. It was `Boolean(
+MATRIX_PUBLIC_URL)`, which is the same mistake `encryption` made in v0.3: a
+deployment detail silently becoming a claim. The probe distinguishes "something
+answered" from "a homeserver answered", because a reverse proxy's own 200 page
+passes a naive check and fails every real request afterwards.
+
+Opt-in per instance: an operator who sets nothing keeps the proxy, and nothing
+about their deployment changes.
 
 **3 — Direct sync.** The client takes over `/sync` and the four polling
 intervals go away. The proxy stays in place for instances that have not

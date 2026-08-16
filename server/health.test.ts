@@ -184,6 +184,55 @@ describe("/ready — readiness", () => {
   });
 });
 
+describe("Matrix delegation", () => {
+  const OLD_URL = process.env.MATRIX_PUBLIC_URL;
+  const OLD_FED = process.env.MATRIX_ALLOW_FEDERATION;
+
+  afterEach(() => {
+    if (OLD_URL === undefined) delete process.env.MATRIX_PUBLIC_URL;
+    else process.env.MATRIX_PUBLIC_URL = OLD_URL;
+    if (OLD_FED === undefined) delete process.env.MATRIX_ALLOW_FEDERATION;
+    else process.env.MATRIX_ALLOW_FEDERATION = OLD_FED;
+  });
+
+  it("404s the client delegation when no homeserver is published", async () => {
+    delete process.env.MATRIX_PUBLIC_URL;
+    const response = await fetch(`${base}/.well-known/matrix/client`);
+    expect(response.status).toBe(404);
+  });
+
+  it("serves the client delegation when one is", async () => {
+    process.env.MATRIX_PUBLIC_URL = "https://matrix.test.example";
+    const response = await fetch(`${base}/.well-known/matrix/client`);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      "m.homeserver": { base_url: "https://matrix.test.example" },
+    });
+  });
+
+  it("is readable cross-origin — a Matrix client elsewhere is who reads it", async () => {
+    process.env.MATRIX_PUBLIC_URL = "https://matrix.test.example";
+    const response = await fetch(`${base}/.well-known/matrix/client`);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+  });
+
+  it("404s the server delegation while federation is off", async () => {
+    // Advertising a federation endpoint the instance then refuses is worse
+    // than advertising nothing.
+    process.env.MATRIX_PUBLIC_URL = "https://matrix.test.example";
+    process.env.MATRIX_ALLOW_FEDERATION = "false";
+    const response = await fetch(`${base}/.well-known/matrix/server`);
+    expect(response.status).toBe(404);
+  });
+
+  it("serves the server delegation once federation is on", async () => {
+    process.env.MATRIX_PUBLIC_URL = "https://matrix.test.example";
+    process.env.MATRIX_ALLOW_FEDERATION = "true";
+    const response = await fetch(`${base}/.well-known/matrix/server`);
+    expect(await response.json()).toEqual({ "m.server": "matrix.test.example:443" });
+  });
+});
+
 describe("discovery endpoints are public", () => {
   it("serves /api/instance cross-origin without credentials", async () => {
     const response = await fetch(`${base}/api/instance`);
