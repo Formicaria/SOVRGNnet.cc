@@ -25,13 +25,42 @@ export async function ensureMatrixCredentials(
   }
 }
 
-/** Join the space and every channel room of a server. */
+/**
+ * Put a user into a community's rooms.
+ *
+ * The Space is invite-only, so this invites and then joins. The invite runs as
+ * the community owner because it needs the invite power level and the person
+ * joining has none — by design. SOVRGN decides who may join, through its own
+ * join policy, invite codes and bans; this is how that decision reaches Matrix.
+ *
+ * Channel rooms use a restricted join rule keyed on Space membership, so once
+ * someone is in the Space they can join channels without a separate invite.
+ *
+ * The inviter is optional so this still works for communities created before
+ * the rooms became invite-only: those Spaces are still publicly joinable and a
+ * plain join succeeds.
+ */
 export async function joinServerRooms(
   accessToken: string,
   spaceRoomId: string,
-  channelRoomIds: string[]
+  channelRoomIds: string[],
+  invite?: { ownerAccessToken: string; joiningMatrixUserId: string } | null
 ): Promise<void> {
+  if (invite) {
+    try {
+      await matrix.inviteToRoom(
+        invite.ownerAccessToken,
+        spaceRoomId,
+        invite.joiningMatrixUserId
+      );
+    } catch {
+      // Already invited, already a member, or an older public Space that needs
+      // no invite at all. The join below is what actually decides.
+    }
+  }
+
   await matrix.joinRoom(accessToken, spaceRoomId);
+
   for (const roomId of channelRoomIds) {
     try {
       await matrix.joinRoom(accessToken, roomId);
