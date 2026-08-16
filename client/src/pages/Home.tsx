@@ -27,6 +27,31 @@ export default function Home() {
     }
   }, [user, setLocation]);
 
+  // Whether this server accepts sovrgnnet.cc accounts. Read from the server
+  // rather than assumed, because it's an operator's choice and most instances
+  // will have it switched off.
+  const [sso, setSso] = useState<{ enabled: boolean; issuer: string | null } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/instance")
+      .then(res => (res.ok ? res.json() : null))
+      .then(info => {
+        if (!cancelled && info?.sso) setSso(info.sso);
+      })
+      .catch(() => {
+        // An instance that can't describe itself simply doesn't offer SSO.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const startSso = () => {
+    if (!sso?.issuer) return;
+    const returnUrl = `${window.location.origin}/sso/callback`;
+    window.location.href = `${sso.issuer.replace(/\/+$/, "")}/authorize?return=${encodeURIComponent(returnUrl)}`;
+  };
+
   const handleEmailAuth = async () => {
     try {
       setAuthLoading(true);
@@ -263,6 +288,32 @@ export default function Home() {
               {isSignUp ? "Sign In" : "Sign Up"}
             </button>
           </div>
+
+          {/* Only shown when the operator has opted in. Most instances won't,
+              and an inert button would just raise questions. */}
+          {sso?.enabled && sso.issuer && (
+            <>
+              <div className="flex items-center gap-3 pt-2">
+                <div className="h-px flex-1 bg-slate-700" />
+                <span className="text-xs text-slate-500">or</span>
+                <div className="h-px flex-1 bg-slate-700" />
+              </div>
+
+              <Button
+                variant="outline"
+                onClick={startSso}
+                disabled={authLoading}
+                className="w-full border-slate-600 bg-slate-800/60 hover:bg-slate-700"
+              >
+                Continue with SOVRGNnet
+              </Button>
+
+              <p className="text-[11px] text-slate-500 text-center">
+                One account for every server that accepts it. This server will
+                learn your name and email — not your password.
+              </p>
+            </>
+          )}
         </Card>
 
         <div className="space-y-2">
