@@ -25,6 +25,12 @@ export const users = pgTable("users", {
   /** scrypt hash for first-party email/password accounts. Null for external identities. */
   passwordHash: text("passwordHash"),
   loginMethod: varchar("loginMethod", { length: 64 }),
+  /**
+   * Subject claim from a sovrgnnet.cc identity token, for accounts signed in
+   * through central SSO. Null for purely local accounts, which continue to
+   * work and are what every instance's first administrator uses.
+   */
+  ssoSubject: varchar("ssoSubject", { length: 128 }).unique(),
   role: roleEnum("role").default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -159,6 +165,13 @@ export const serverMembers = pgTable("serverMembers", {
   serverId: integer("serverId").notNull(),
   userId: integer("userId").notNull(),
   role: serverMemberRoleEnum("role").default("member").notNull(),
+  /**
+   * Per-server profile, the way Discord does it: one identity, but you can be
+   * "Zach" in one community and "chronus" in another. Null means fall back to
+   * the account's global name and avatar.
+   */
+  nickname: varchar("nickname", { length: 80 }),
+  avatar: text("avatar"),
   joinedAt: timestamp("joinedAt").defaultNow().notNull(),
 });
 

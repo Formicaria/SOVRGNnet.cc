@@ -426,7 +426,13 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
         }
         await requireServerMembership(channel.serverId, ctx.user.id);
-        return await db.getMessagesByChannel(input.channelId, input.limit);
+        // The server id lets each sender be shown under their per-server
+        // nickname rather than their account name.
+        return await db.getMessagesByChannel(
+          input.channelId,
+          input.limit,
+          channel.serverId
+        );
       }),
 
     send: protectedProcedure
@@ -828,6 +834,46 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         await requireServerRole(input.serverId, ctx.user.id, "moderator");
         return await db.getServerBans(input.serverId);
+      }),
+
+    /**
+     * Your profile within one server.
+     *
+     * One identity, many faces: the same account can be "Zach" in one
+     * community and "chronus" in another, the way Discord handles it.
+     */
+    myProfile: protectedProcedure
+      .input(z.object({ serverId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await requireServerMembership(input.serverId, ctx.user.id);
+        const profile = await db.getServerProfile(input.serverId, ctx.user.id);
+        return {
+          nickname: profile?.nickname ?? null,
+          avatar: profile?.avatar ?? null,
+          /** What's shown if the nickname is cleared. */
+          accountName: ctx.user.name,
+        };
+      }),
+
+    updateMyProfile: protectedProcedure
+      .input(
+        z.object({
+          serverId: z.number(),
+          // Empty string clears it, falling back to the account name.
+          nickname: z.string().max(80).nullable(),
+          avatar: z.string().max(500).nullable().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await requireServerMembership(input.serverId, ctx.user.id);
+
+        const nickname = input.nickname?.trim() ? input.nickname.trim() : null;
+        await db.setServerProfile(input.serverId, ctx.user.id, {
+          nickname,
+          ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
+        });
+
+        return { nickname, name: db.displayName(nickname, ctx.user.name) };
       }),
 
     /** Your own role here — the client uses this to decide what to show. */
