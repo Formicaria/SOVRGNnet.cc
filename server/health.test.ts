@@ -37,6 +37,8 @@ let base: string;
 beforeEach(async () => {
   vi.clearAllMocks();
   process.env.MATRIX_SERVER_NAME = "test.example";
+  // Short, so the hang tests below don't cost the suite the real bound.
+  process.env.READY_TIMEOUT_MS = "300";
 
   // Sensible defaults so each test only states what it's actually about.
   pingDatabase.mockResolvedValue({ ok: true });
@@ -132,6 +134,43 @@ describe("/ready — readiness", () => {
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ ready: true, checks: { database: "ok", matrix: "ok" } });
+  });
+
+  it("answers even when the homeserver check never resolves", async () => {
+    // The bug: isHomeserverReachable had no timeout, so while Dendrite was
+    // starting the fetch hung and took /ready with it. A readiness probe that
+    // never answers is worse than one reporting a failure — the caller gets a
+    // timeout instead of information.
+    pingDatabase.mockResolvedValue({ ok: true });
+    isHomeserverReachable.mockReturnValue(new Promise(() => {}));
+
+    const response = await Promise.race([
+      fetch(`${base}/ready`),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("/ready hung")), 5000)
+      ),
+    ]);
+
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.checks.matrix).toBe("down");
+  });
+
+  it("answers even when the database check never resolves", async () => {
+    pingDatabase.mockReturnValue(new Promise(() => {}));
+    isHomeserverReachable.mockResolvedValue(true);
+
+    const response = await Promise.race([
+      fetch(`${base}/ready`),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("/ready hung")), 5000)
+      ),
+    ]);
+
+    const body = await response.json();
+    expect(response.status).toBe(503);
+    expect(body.checks.database).toBe("down");
+    expect(body.detail.database).toBe("timed out");
   });
 
   it("never reports a dependency as 'unknown'", async () => {

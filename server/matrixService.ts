@@ -39,7 +39,8 @@ async function matrixRequest<T>(
   method: string,
   path: string,
   body?: unknown,
-  accessToken?: string
+  accessToken?: string,
+  options?: { signal?: AbortSignal }
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
@@ -48,6 +49,7 @@ async function matrixRequest<T>(
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal: options?.signal,
   });
 
   const text = await res.text();
@@ -589,11 +591,29 @@ export async function getRoomMessages(
 }
 
 /** Liveness check against the homeserver. */
-export async function isHomeserverReachable(): Promise<boolean> {
+/**
+ * Is the homeserver answering right now?
+ *
+ * **Bounded on purpose.** Without a timeout this hangs whenever the homeserver
+ * is starting, half-up, or reachable-but-not-responding — and since /ready
+ * calls it, the readiness endpoint hung too. A readiness check that never
+ * returns is worse than one that reports a failure: an orchestrator sees a
+ * timeout rather than an answer, and an operator watching it learns nothing.
+ *
+ * Three seconds is well beyond a healthy local response and well under any
+ * sensible probe interval.
+ */
+export async function isHomeserverReachable(timeoutMs = 3000): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    await matrixRequest("GET", "/_matrix/client/versions");
+    await matrixRequest("GET", "/_matrix/client/versions", undefined, undefined, {
+      signal: controller.signal,
+    });
     return true;
   } catch {
     return false;
+  } finally {
+    clearTimeout(timer);
   }
 }
