@@ -7,25 +7,52 @@ it changes.
 
 ## Status
 
-**Scaffold.** The shell, the deep-link handler, and the connection layer are
-real. The encrypted transport is not — the client still loads each server's
-web UI, which means messages still go through that server in plaintext. That
-changes in step 4 of the sequencing in ADR 0001, and nothing here should be
-described as encrypted until it does.
+**Written, not yet run.** Every file here is complete and coherent, but the
+Rust has never been compiled and the frontend has never been rendered —
+neither has a toolchain in the environment it was written in. Treat the first
+`pnpm tauri dev` as the real test, and expect to fix things.
 
-What works:
+The parts that *are* verified are the ones that matter most, because they live
+in `shared/` and are covered by the root test suite: connection management
+(23 tests), invite parsing (20), and deep-link routing (15). Those are the
+pieces where a bug would be subtle. The rest is wiring.
 
-- Multi-server connection management — see `shared/connections.ts`, which is
-  shared with the web app and covered by tests
-- `sovrgn://invite/<host>/<code>` deep links, registered with the OS
-- Per-server credentials in the OS keychain rather than browser storage
+The encrypted transport does not exist. The client loads each server's own web
+UI, so messages still pass through that server in plaintext. That changes at
+step 4 of ADR 0001, and nothing here should be described as encrypted until it
+does.
 
-What doesn't, yet:
+What's built:
 
-- Client-side Matrix sync (each server's web UI is loaded in a webview)
+- Multi-server connection management, shared with the web app
+- `sovrgn://invite/<host>/<code>` deep links, including the cold-start case
+  where the URL arrives before React has mounted
+- One webview per server, kept alive on switch so each origin holds its own
+  cookies, storage, and scroll position — the thing a browser tab can't do
+- Per-server credentials in the OS keychain
+- Scheme checking on every URL before a webview is pointed at it
+
+What isn't:
+
+- Client-side Matrix sync
 - End-to-end encryption
 - Voice
 - Auto-update
+- Any packaging beyond the bundle config
+
+## Verifying it yourself
+
+The root suite covers the shared logic:
+
+```bash
+pnpm test          # from the repository root
+```
+
+The desktop package typechecks separately, since it has its own dependencies:
+
+```bash
+cd desktop && pnpm install && pnpm check
+```
 
 ## Building it
 
