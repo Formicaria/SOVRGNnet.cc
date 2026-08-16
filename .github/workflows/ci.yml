@@ -69,6 +69,10 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://sovrgn:sovrgn_test@localhost:5432/sovrgnnet_test
+      # Account provisioning refuses to run without this, by design — a server
+      # that can't prove itself to the homeserver should fail loudly rather
+      # than silently create nothing. The integration tests exercise that path.
+      MATRIX_SHARED_SECRET: test-shared-secret-for-ci
 
     steps:
       - uses: actions/checkout@v4

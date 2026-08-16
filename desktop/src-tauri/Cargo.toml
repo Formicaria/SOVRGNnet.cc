@@ -22,9 +22,6 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2.11", features = ["unstable"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
-# Opens release pages and sign-in in the user's own browser rather than an
-# app webview.
-tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["time"] }
