@@ -1,0 +1,465 @@
+/* The shell's own chrome. Everything inside a server's webview is styled by
+   that server, not here — this is only the frame around it. */
+
+:root {
+  --bg: #0a0614;
+  --panel: #170f2b;
+  --border: #2c1f4d;
+  --text: #e8e3f5;
+  --muted: #9c92b8;
+  --accent: #a855f7;
+  --warn: #fbbf24;
+  --ok: #4ade80;
+  --danger: #f87171;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  color-scheme: dark;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+.shell { display: flex; height: 100vh; }
+
+/* ------------------------------------------------------------------- rail */
+
+.rail {
+  width: 68px;
+  background: #100a1e;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.rail::-webkit-scrollbar { display: none; }
+
+.rail-item {
+  position: relative;
+  width: 46px; height: 46px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.rail-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px; height: 46px;
+  border-radius: 16px;
+  background: #241a3d;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  transition: border-radius 0.15s, background 0.15s, color 0.15s;
+}
+.rail-item:hover .rail-badge { border-radius: 12px; background: #2f2350; color: var(--text); }
+.rail-item.is-active .rail-badge {
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+}
+.rail-add .rail-badge { font-size: 20px; color: var(--accent); }
+
+/* Reachability, not presence: whether the machine answered recently. */
+.rail-dot {
+  position: absolute;
+  right: 2px; bottom: 2px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #4b4066;
+  border: 2px solid #100a1e;
+}
+.rail-dot.is-up { background: var(--ok); }
+
+.rail-tip {
+  position: absolute;
+  left: 56px; top: 50%;
+  transform: translateY(-50%);
+  background: #050308;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+  z-index: 10;
+  text-align: left;
+}
+.rail-item:hover .rail-tip { opacity: 1; }
+.rail-tip strong { display: block; font-size: 13px; }
+.rail-tip em { display: block; font-style: normal; font-size: 11px; color: var(--muted); }
+
+/* ------------------------------------------------------------------ stage */
+
+.stage { flex: 1; position: relative; display: flex; flex-direction: column; }
+
+.stage-header {
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: #0d0818;
+  font-size: 12px;
+  /* The shell's title bar is also the window's drag handle. */
+  -webkit-app-region: drag;
+}
+.stage-name { font-weight: 600; }
+.stage-host { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.stage-warn {
+  margin-left: auto;
+  color: var(--warn);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: 999px;
+  padding: 1px 9px;
+  font-size: 11px;
+}
+
+.empty {
+  margin: auto;
+  max-width: 380px;
+  text-align: center;
+  padding: 40px 20px;
+}
+.empty h1 { font-size: 22px; margin-bottom: 10px; }
+.empty p { color: var(--muted); font-size: 14px; margin-bottom: 22px; }
+
+/* ------------------------------------------------------------- first run */
+
+.firstrun {
+  margin: auto;
+  max-width: 420px;
+  text-align: center;
+  padding: 40px 24px;
+  user-select: text;
+}
+.firstrun-mark {
+  width: 62px; height: 62px;
+  margin: 0 auto 20px;
+  border-radius: 18px;
+  background: linear-gradient(120deg, var(--accent), #ec4899);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 20px; color: #fff;
+}
+.firstrun h1 { font-size: 22px; margin-bottom: 10px; }
+.firstrun > p { font-size: 14px; margin-bottom: 26px; }
+.firstrun-actions { display: flex; flex-direction: column; gap: 10px; }
+.firstrun-actions button { width: 100%; margin: 0; }
+
+.linky {
+  background: none; border: 0; padding: 8px 0; margin-top: 16px;
+  color: var(--muted); font-size: 12.5px; cursor: pointer; text-decoration: underline;
+}
+.linky:hover { color: var(--text); }
+.linky.inline { padding: 0; margin: 0; font-size: inherit; color: var(--accent); }
+
+.firstrun-why {
+  margin-top: 14px; padding: 14px 16px; text-align: left;
+  border: 1px solid var(--border); border-radius: 10px; background: #0d0818;
+}
+.firstrun-why p { font-size: 12.5px; margin-bottom: 10px; }
+.firstrun-why p:last-child { margin-bottom: 0; }
+
+/* The code someone reads off this screen and types into a browser. */
+.devicecode {
+  font-family: var(--mono);
+  font-size: 30px;
+  letter-spacing: 5px;
+  padding: 18px;
+  margin: 6px 0 14px;
+  border-radius: 12px;
+  background: #0d0818;
+  border: 1px solid var(--border);
+  user-select: all;
+}
+
+/* ---------------------------------------------------------------- dialog */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 3, 8, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.dialog {
+  width: min(460px, calc(100vw - 48px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px;
+  user-select: text;
+}
+.dialog h2 { font-size: 17px; margin-bottom: 4px; }
+.dialog input {
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0d0818;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.dialog input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+
+button.primary, button.ghost {
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+button.primary { background: var(--accent); color: #fff; }
+button.primary:disabled { opacity: 0.45; cursor: default; }
+button.ghost { background: none; border-color: var(--border); color: var(--muted); }
+button.ghost:hover { color: var(--text); }
+
+.found {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0d0818;
+}
+.found p { margin-top: 6px; font-size: 12.5px; }
+
+.dim { color: var(--muted); font-size: 13px; }
+.mono { font-family: var(--mono); font-size: 11.5px; }
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.error {
+  margin-top: 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: var(--danger);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- update */
+
+.update {
+  position: fixed;
+  right: 18px; bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  max-width: 440px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  z-index: 70;
+}
+/* A security release looks different on purpose — if every prompt looks the
+   same, people stop reading the ones that matter. */
+.update.is-security { border-color: rgba(251, 191, 36, 0.5); }
+.update.is-security strong { color: var(--warn); }
+
+.update-text { display: flex; flex-direction: column; gap: 3px; }
+.update-text strong { font-size: 13.5px; }
+.update-text span { font-size: 12.5px; color: var(--muted); }
+.update-actions { display: flex; gap: 8px; margin-left: auto; }
+.update-actions button { margin: 0; padding: 7px 14px; font-size: 12.5px; width: auto; }
+
+/* ---------------------------------------------------------------- notice */
+
+.notice {
+  position: fixed;
+  left: 50%; bottom: 20px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  z-index: 60;
+  max-width: 560px;
+}
+.notice button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; }
+.notice button:hover { color: var(--text); }
+
+/* --------------------------------------------------------- status button */
+
+.stage-info {
+  /* Sits at the right unless the "not encrypted" pill already claimed the
+     auto margin, in which case it follows it. */
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 10px;
+  /* The header is the window drag handle; a button inside it must not be. */
+  -webkit-app-region: no-drag;
+}
+.stage-warn + .stage-info { margin-left: 0; }
+.stage-info:hover { color: var(--text); border-color: var(--accent); }
+
+/* ------------------------------------------------------- instance panel */
+
+.panel-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 3, 14, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  z-index: 70;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 460px;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px;
+  font-size: 13px;
+}
+
+.panel-head { display: flex; align-items: flex-start; gap: 12px; }
+.panel-head h2 { font-size: 16px; font-weight: 600; }
+.panel-host { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-top: 2px; }
+.panel-close {
+  margin-left: auto;
+  background: none; border: 0; color: var(--muted);
+  cursor: pointer; font-size: 14px; line-height: 1;
+}
+.panel-close:hover { color: var(--text); }
+
+.panel-checking { color: var(--muted); margin: 20px 0; }
+
+.panel-status {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.24);
+}
+.panel-status p { color: var(--muted); margin-top: 3px; line-height: 1.45; }
+.panel-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex: none;
+  background: var(--muted);
+}
+.panel-status-healthy .panel-dot { background: var(--ok); }
+.panel-status-degraded .panel-dot { background: var(--warn); }
+.panel-status-unreachable .panel-dot,
+.panel-status-incompatible .panel-dot { background: var(--danger); }
+
+.panel-guidance {
+  list-style: none;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.panel-guidance li {
+  color: var(--muted);
+  line-height: 1.5;
+  padding-left: 14px;
+  position: relative;
+}
+.panel-guidance li::before {
+  content: "›";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
+
+.panel-section { margin-top: 20px; }
+.panel-section h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 9px;
+}
+
+.panel-deps, .panel-caps, .panel-facts { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.panel-deps li, .panel-caps li, .panel-facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(44, 31, 77, 0.5);
+}
+.panel-deps li:last-child, .panel-caps li:last-child, .panel-facts div:last-child { border-bottom: 0; }
+
+.panel-dep-state { font-size: 11px; color: var(--muted); }
+.panel-deps li.up .panel-dep-state { color: var(--ok); }
+.panel-deps li.down .panel-dep-state { color: var(--danger); }
+
+.panel-caps li span:last-child { font-size: 11px; color: var(--muted); }
+.panel-caps li.yes span:last-child { color: var(--ok); }
+
+.panel-facts div span:first-child { color: var(--muted); }
+.panel-facts div span:last-child { font-family: var(--mono); font-size: 11px; }
+
+.panel-warn {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: var(--warn);
+  line-height: 1.45;
+  font-size: 12px;
+}
+
+.panel-foot { display: flex; gap: 8px; margin-top: 22px; }
+.panel-foot button {
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  padding: 8px 14px;
+}
+.panel-foot button:disabled { opacity: 0.55; cursor: default; }
+.panel-foot button.ghost {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.panel-foot button.ghost:hover { color: var(--text); }

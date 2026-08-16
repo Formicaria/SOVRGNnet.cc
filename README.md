@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # SOVRGNnet
 
 **Sovereign communications.** A self-hosted, Discord-style platform built on open protocols — Matrix for messaging, IPFS for file storage, and optional Web3 identity — designed to run on your own hardware under your own domain.
@@ -5,6 +6,88 @@
 Production target: **[sovrgnnet.cc](https://sovrgnnet.cc)** · Operated by [Formicaria](https://formicaria.us)
 
 > **Status: v0.1.0 alpha.** Text chat, file sharing, and invites work end-to-end on a real Matrix homeserver. Voice and E2EE are on the [roadmap](docs/ROADMAP.md). See [CHANGELOG.md](CHANGELOG.md) for what shipped.
+=======
+```
+   ███████╗ ██████╗ ██╗   ██╗██████╗  ██████╗ ███╗   ██╗
+   ██╔════╝██╔═══██╗██║   ██║██╔══██╗██╔════╝ ████╗  ██║
+   ███████╗██║   ██║██║   ██║██████╔╝██║  ███╗██╔██╗ ██║
+   ╚════██║██║   ██║╚██╗ ██╔╝██╔══██╗██║   ██║██║╚██╗██║
+   ███████║╚██████╔╝ ╚████╔╝ ██║  ██║╚██████╔╝██║ ╚████║
+   ╚══════╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+
+   Your own chat network. Your hardware. Your rules.
+```
+
+# SOVRGNnet
+
+**Independent communications infrastructure you can operate yourself.**
+
+SOVRGNnet is a network of independent instances. Each one is a complete
+communications server — messaging, files, membership, moderation — run by
+whoever owns the machine it's on. Communities talk through instances they
+control rather than renting space inside somebody else's product.
+
+Maintained by [Formicaria](https://formicaria.us) · reference instance at
+[sovrgnnet.cc](https://sovrgnnet.cc)
+
+> **Status: v0.3.0 alpha.** Messaging, files, invites, roles, and moderation
+> work end-to-end. The desktop client connects to multiple independent
+> instances. **Messages are not yet end-to-end encrypted** — see
+> [SECURITY.md](SECURITY.md). Full history in [CHANGELOG.md](CHANGELOG.md).
+
+## What "sovereign" means here, technically
+
+Not a slogan — a testable property:
+
+> **If sovrgnnet.cc disappeared tomorrow, a correctly configured instance keeps
+> running.** Its members keep talking, its backups keep restoring, its operator
+> keeps control of the data.
+
+Everything centralised is therefore optional and off by default:
+
+| Service | Required? | If it vanishes |
+|---|---|---|
+| Instance (yours) | **Yes** — it *is* the product | Your instance is the thing |
+| Matrix homeserver | Yes, bundled per instance | Runs on your hardware |
+| PostgreSQL, IPFS | Yes, bundled per instance | Runs on your hardware |
+| sovrgnnet.cc identity | **No** — off by default | Local accounts unaffected; existing sessions continue |
+| Instance directory | **No** — not built, will be opt-in | Invite links keep working |
+| Cloudflare | **No** — one of four access options | Use your own domain, TLS, or LAN only |
+
+## Architecture
+
+```
+                         SOVRGNnet Network
+              ┌─────────────────┼─────────────────┐
+         Instance A        Instance B        Instance C
+         SOVRGN API        SOVRGN API        SOVRGN API
+         Matrix            Matrix            Matrix
+         PostgreSQL        PostgreSQL        PostgreSQL
+         IPFS              IPFS              IPFS
+              └─────────────────┼─────────────────┘
+                        SOVRGNnet Client
+                    ┌───────────┼───────────┐
+                Instance A  Instance B  Instance C
+```
+
+Responsibilities are deliberately split:
+
+- **SOVRGN** owns instance identity, membership, roles, permissions,
+  moderation, invites, and capability negotiation.
+- **Matrix** owns message transport, rooms, events, sync, and (in future)
+  message encryption.
+- **IPFS** owns content addressing and media distribution.
+
+The database is implementation state. The **SOVRGN protocol** — versioned
+separately from the application — is the interoperability contract. See
+[docs/PROTOCOL.md](docs/PROTOCOL.md).
+
+Anyone can write another implementation, and there's a suite to check the claim:
+
+```bash
+pnpm conformance https://any-instance.example
+```
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
 ## Run it
 
@@ -23,6 +106,7 @@ separate setup step to forget.
 Never done this before? [**QUICKSTART.md**](QUICKSTART.md) walks through it
 assuming no prior experience.
 
+<<<<<<< HEAD
 Day to day: `./sovrgnnet status | start | stop | url | backup | update`
 
 ## What it is
@@ -33,6 +117,57 @@ SOVRGNnet gives a community the familiar Discord experience — servers, channel
 - **Files** are stored on [IPFS](https://ipfs.tech) with WebTorrent for large transfers.
 - **Identity** starts with plain email/password; wallet-based login (ENS, WalletConnect) is on the roadmap as an optional layer, not a requirement.
 - **Everything self-hosts** via Docker Compose: app, Postgres, Matrix, IPFS, and nginx in one stack.
+=======
+**No Docker?** [`scripts/install-lxc.sh`](docs/LXC.md) installs everything as
+plain systemd services — PostgreSQL, Dendrite, Kubo, and the app. Built for a
+Proxmox LXC, fine on any bare Debian box.
+
+Day to day, either install:
+
+```
+sovrgnnet status | start | stop | url | logs | update
+sovrgnnet backup | verify | restore
+```
+
+Backups are portable: a manifest with a checksum per component, verified before
+a restore touches anything, so moving to another machine is checkable rather
+than hopeful. See [docs/BACKUP.md](docs/BACKUP.md).
+
+## How identity works
+
+Three modes, and only the first is required:
+
+**Local accounts** — every instance issues its own. Email and password, scrypt
+hashed, stored in that instance's database. No external service involved. This
+always works and is the default.
+
+**SOVRGNnet identity** *(optional, off by default)* — one account across every
+instance that opts in, so a new computer picks up your servers. Sign-in goes
+through Google, Microsoft, GitHub, or Discord, so no password store exists to
+breach. Instances verify tokens against a **cached** public key, meaning the
+identity service going down blocks new sign-ins but logs nobody out. Enable
+with `INSTANCE_ALLOW_SSO=true`; leave it unset and your instance never contacts
+it.
+
+**Portable identity** *(future)* — the architecture keeps the identity service
+non-authoritative so key-based identity can be added without it becoming so.
+
+> SOVRGNnet can provide identity services. SOVRGNnet must not own your identity.
+
+## How encryption works — and doesn't, yet
+
+Traffic to your instance is HTTPS. Between internal services it stays on
+loopback. Files are streamed with membership checks rather than from a public
+gateway.
+
+**Message contents are not end-to-end encrypted.** They're plaintext in the
+instance's database and homeserver, readable by whoever operates it. That's the
+honest state, it's stated in the interface where people can see it, and it's
+the next architectural milestone — client-side Matrix sessions with Olm/Megolm,
+so the server holds ciphertext it cannot read.
+
+[SECURITY.md](SECURITY.md) · [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
 ## Stack
 
@@ -41,10 +176,36 @@ SOVRGNnet gives a community the familiar Discord experience — servers, channel
 | Frontend | React 19, Vite, Tailwind 4, shadcn/ui, wouter |
 | API | Express + tRPC 11, Zod |
 | Database | PostgreSQL + Drizzle ORM |
+<<<<<<< HEAD
 | Messaging | Matrix (Conduit homeserver), matrix-js-sdk |
 | Storage | IPFS (Kubo), WebTorrent |
 | Web3 (optional) | wagmi, viem, RainbowKit, ethers |
 | Deploy | Docker Compose, nginx, ARM64-friendly (Pi 5 supported) |
+=======
+| Messaging | Matrix (Dendrite homeserver) |
+| Storage | IPFS (Kubo) |
+| Native client | Tauri 2 (Linux, macOS, Windows) |
+| Identity *(optional)* | Ed25519 tokens, OAuth via Google/Microsoft/GitHub/Discord |
+| Deploy | Docker Compose or plain systemd; ARM64-friendly |
+
+Infrastructure images are pinned to explicit versions — an install is
+deterministic, and upgrades are deliberate.
+
+## Current limitations
+
+Stated up front rather than discovered later:
+
+- **No end-to-end encryption.** The instance operator can read messages.
+- **No session revocation.** Sessions are stateless and last a year.
+- **No voice or video.**
+- **No federation between instances** by default, and it's untested.
+- **The instance directory doesn't exist** — you join via invite links.
+- **No mobile apps.**
+- **Live updates are polling**, not a push stream.
+- **Presence is single-process** — correct for one instance, would need Redis
+  to run several app processes.
+- **No independent security audit.**
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
 ## Repository layout
 
@@ -53,11 +214,23 @@ client/          React frontend (pages, contexts, shadcn/ui components)
 server/          Express + tRPC backend
   _core/         Server plumbing: env, context, auth, vite integration
   routers.ts     API surface (servers, channels, messages, files, matrix proxy)
+<<<<<<< HEAD
   db.ts          Drizzle query helpers
 shared/          Types and constants shared by client and server
 drizzle/         Schema, migrations, snapshots
 scripts/         Setup, backup, and restore scripts
 docs/            Architecture, audit, roadmap, deployment
+=======
+  instance.ts    Instance identity, capabilities, join policy
+  db.ts          Drizzle query helpers
+shared/          Types shared by client and server
+  protocol.ts    The SOVRGN protocol contract — versions, capabilities
+desktop/         Tauri 2 native client
+identity/        Optional identity provider (deploys separately)
+drizzle/         Schema, migrations, snapshots
+scripts/         Setup, backup, and restore scripts
+docs/            Architecture, protocol, threat model, roadmap, deployment
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 ```
 
 ## Quick start (development)
@@ -99,10 +272,36 @@ Two settings are worth knowing about:
 
 ## Documentation
 
+<<<<<<< HEAD
 - [docs/AUDIT.md](docs/AUDIT.md) — current state of the codebase: what works, what's broken, what's missing
 - [docs/ROADMAP.md](docs/ROADMAP.md) — phased plan from here to a live platform
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the pieces fit together
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — hosting on sovrgnnet.cc
+=======
+**Getting it running**
+
+- [QUICKSTART.md](QUICKSTART.md) — setup for someone who's never done this before
+- [docs/LXC.md](docs/LXC.md) — native install, no Docker (Proxmox LXC or bare Debian)
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — hosting on sovrgnnet.cc
+- [docs/BACKUP.md](docs/BACKUP.md) — backups, verification, moving to another machine
+
+**How it works**
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — how the pieces fit together
+- [docs/PROTOCOL.md](docs/PROTOCOL.md) — the SOVRGN protocol: versioning, capabilities, discovery
+- [docs/adr/](docs/adr/) — architecture decision records, including the ones later reversed
+
+**Security**
+
+- [SECURITY.md](SECURITY.md) — reporting, what's protected, what isn't
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) — threats, mitigations, residual risk
+- [docs/SECURITY_ARCHITECTURE.md](docs/SECURITY_ARCHITECTURE.md) — mechanisms: token formats, lifetimes, key caching
+
+**Where it's going**
+
+- [docs/ROADMAP.md](docs/ROADMAP.md) — milestones 0.4 through 0.7
+- [docs/AUDIT.md](docs/AUDIT.md) — current state of the codebase: what works, what's broken, what's missing
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
 ## License
 

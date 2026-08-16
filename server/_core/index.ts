@@ -6,6 +6,10 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 // First-party auth: session cookie resolved in createContext
 import { appRouter } from "../routers";
 import { registerFileRoutes } from "../fileRoutes";
+<<<<<<< HEAD
+=======
+import { registerInstanceRoutes } from "../instanceRoutes";
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 import { runMigrations, waitForDatabase } from "../migrate";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -52,6 +56,13 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+<<<<<<< HEAD
+=======
+  // Public identity: how a client that has never seen this server finds out
+  // what it is. Registered before auth-bearing routes because none of it
+  // requires a session.
+  registerInstanceRoutes(app);
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
   // File upload/download (bytes go through REST, metadata through tRPC)
   registerFileRoutes(app);
   // Auth endpoints live in the tRPC auth router

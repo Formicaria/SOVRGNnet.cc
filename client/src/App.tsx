@@ -8,9 +8,17 @@ import { Web3Provider } from "./contexts/Web3Context";
 import { MatrixProvider } from "./contexts/MatrixContext";
 import { IPFSProvider } from "./contexts/IPFSContext";
 import { AuthProvider } from "./contexts/AuthContext";
+<<<<<<< HEAD
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Invite from "./pages/Invite";
+=======
+import { ConnectionsProvider } from "./contexts/ConnectionsContext";
+import Home from "./pages/Home";
+import Dashboard from "./pages/Dashboard";
+import Invite from "./pages/Invite";
+import SsoCallback from "./pages/SsoCallback";
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 import { WagmiProvider } from "wagmi";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { config } from "./lib/wagmi";
@@ -24,6 +32,10 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/invite/:code" component={Invite} />
+<<<<<<< HEAD
+=======
+      <Route path="/sso/callback" component={SsoCallback} />
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>
@@ -34,6 +46,12 @@ function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
+<<<<<<< HEAD
+=======
+        {/* Which servers this client knows about. Outside the per-server
+            providers below, because it outlives any one connection. */}
+        <ConnectionsProvider>
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
         <WagmiProvider config={config}>
           <RainbowKitProvider>
             <Web3Provider>
@@ -50,6 +68,10 @@ function App() {
             </Web3Provider>
           </RainbowKitProvider>
         </WagmiProvider>
+<<<<<<< HEAD
+=======
+        </ConnectionsProvider>
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
       </AuthProvider>
     </ErrorBoundary>
   );

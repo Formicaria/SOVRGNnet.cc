@@ -1,6 +1,19 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+<<<<<<< HEAD
 process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-router-tests";
+=======
+// ENV is captured when ./routers imports matrixService, and ES module imports
+// are hoisted above ordinary statements — so these must be set inside
+// vi.hoisted or they land too late. Account provisioning now refuses to run
+// without a shared secret, which would fail every test in this file during
+// setup rather than at the assertion that cares.
+vi.hoisted(() => {
+  process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret-for-router-tests";
+  process.env.MATRIX_SHARED_SECRET =
+    process.env.MATRIX_SHARED_SECRET || "test-shared-secret-for-router-tests";
+});
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
@@ -26,8 +39,14 @@ function contextFor(user: AuthenticatedUser): TrpcContext {
  */
 let roomCounter = 0;
 function installFakeHomeserver() {
+<<<<<<< HEAD
   const fakeFetch = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
+=======
+  const fakeFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     const json = (body: unknown) =>
       new Response(JSON.stringify(body), {
         status: 200,
@@ -35,6 +54,13 @@ function installFakeHomeserver() {
       });
 
     if (url.includes("/register")) {
+<<<<<<< HEAD
+=======
+      // Shared-secret registration is two calls: GET for a nonce, then POST
+      // carrying it back with a MAC. Answering both with the same body would
+      // leave the nonce undefined and hide a real bug behind a passing test.
+      if (method === "GET") return json({ nonce: `nonce_${Date.now()}` });
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
       return json({
         user_id: `@fake_${Date.now()}_${Math.random().toString(36).slice(2, 6)}:test`,
         access_token: `tok_${Math.random().toString(36).slice(2)}`,

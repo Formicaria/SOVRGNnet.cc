@@ -25,6 +25,12 @@ export const users = pgTable("users", {
   /** scrypt hash for first-party email/password accounts. Null for external identities. */
   passwordHash: text("passwordHash"),
   loginMethod: varchar("loginMethod", { length: 64 }),
+  /**
+   * Subject claim from a sovrgnnet.cc identity token, for accounts signed in
+   * through central SSO. Null for purely local accounts, which continue to
+   * work and are what every instance's first administrator uses.
+   */
+  ssoSubject: varchar("ssoSubject", { length: 128 }).unique(),
   role: roleEnum("role").default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -159,6 +165,13 @@ export const serverMembers = pgTable("serverMembers", {
   serverId: integer("serverId").notNull(),
   userId: integer("userId").notNull(),
   role: serverMemberRoleEnum("role").default("member").notNull(),
+  /**
+   * Per-server profile, the way Discord does it: one identity, but you can be
+   * "Zach" in one community and "chronus" in another. Null means fall back to
+   * the account's global name and avatar.
+   */
+  nickname: varchar("nickname", { length: 80 }),
+  avatar: text("avatar"),
   joinedAt: timestamp("joinedAt").defaultNow().notNull(),
 });
 
@@ -184,6 +197,33 @@ export const serverBans = pgTable("serverBans", {
 export type ServerBan = typeof serverBans.$inferSelect;
 export type InsertServerBan = typeof serverBans.$inferInsert;
 
+<<<<<<< HEAD
+=======
+/**
+ * Instance-wide settings, editable by an administrator from the client.
+ *
+ * These used to be environment variables, which meant reconfiguring an
+ * instance required SSH and a restart. A server owner should be able to rename
+ * their instance or close registration from the app they already have open.
+ *
+ * Exactly one row, id = 1. Environment variables remain the bootstrap
+ * defaults for a fresh install; once a row exists it wins.
+ */
+export const instanceSettings = pgTable("instanceSettings", {
+  id: integer("id").primaryKey().default(1),
+  name: varchar("name", { length: 120 }),
+  description: text("description"),
+  /** open = anyone may register · invite = invite required · closed = nobody */
+  joinPolicy: varchar("joinPolicy", { length: 16 }).default("invite").notNull(),
+  /** Whether to appear in the sovrgnnet.cc directory. Opt-in, always. */
+  listed: boolean("listed").default(false).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+export type InstanceSettings = typeof instanceSettings.$inferSelect;
+export type InsertInstanceSettings = typeof instanceSettings.$inferInsert;
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   profiles: many(userProfiles),

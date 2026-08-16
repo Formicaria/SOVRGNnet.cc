@@ -9,11 +9,127 @@ permissions:
   packages: write
 
 jobs:
+<<<<<<< HEAD
   docker:
+=======
+  # The version in the tag and the version in the repository must agree, or
+  # you ship installers named one thing that report another. Cheapest possible
+  # gate, and it runs before anything expensive.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          ./scripts/check-versions.sh
+          FILE="$(node -e "process.stdout.write(require('./package.json').version)")"
+          if [ "$TAG" != "$FILE" ]; then
+            echo "::error::Tag v$TAG doesn't match package.json ($FILE). Run ./scripts/bump-version.sh $TAG first."
+            exit 1
+          fi
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+
+  # Created up front and left as a draft so the platform builds have somewhere
+  # to upload to, and so a half-finished release is never publicly visible.
+  draft:
+    needs: guard
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.create.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: create
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: v${{ needs.guard.outputs.version }}
+          generate_release_notes: true
+
+  desktop:
+    needs: [guard, draft]
+    strategy:
+      # One platform failing shouldn't throw away the others' build minutes.
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04, not latest: binaries link against the runner's glibc, and
+          # building on a newer Ubuntu produces packages that refuse to start
+          # on older but perfectly current distributions.
+          - platform: ubuntu-22.04
+            args: ""
+            required: true
+          # macOS compiles fine but bundle_dmg.sh fails on the runner, and
+          # nobody here has a Mac to debug it on. Marked optional so a broken
+          # DMG degrades the release to Linux + Windows rather than blocking
+          # it entirely. Make it required again once it's been made to work.
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            required: false
+          - platform: windows-latest
+            args: ""
+            required: true
+
+    runs-on: ${{ matrix.platform }}
+    continue-on-error: ${{ !matrix.required }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Linux build dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          # libappindicator3-dev and libayatana-appindicator3-dev conflict with
+          # each other — ayatana is the maintained one and what Tauri 2 wants.
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev librsvg2-dev libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            patchelf build-essential curl wget file libssl-dev
+
+      - name: Install
+        working-directory: desktop
+        run: pnpm install --no-frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # bundle_dmg.sh drives Finder with AppleScript to arrange the disk
+          # image window. There's no Finder on a CI runner, so it hangs or
+          # fails; CI=true makes it skip the cosmetics and just build the DMG.
+          CI: true
+        with:
+          projectPath: desktop
+          releaseId: ${{ needs.draft.outputs.id }}
+          args: ${{ matrix.args }}
+
+  # The server image. This is what people actually run; the desktop apps are
+  # clients for it.
+  server:
+    needs: guard
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
+<<<<<<< HEAD
+=======
+      - uses: docker/setup-qemu-action@v3
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -41,7 +157,43 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+<<<<<<< HEAD
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+=======
+  # Only once every platform and the image are done. Until this runs, the
+  # release is a draft nobody can download half of.
+  publish:
+    needs: [guard, draft, desktop, server]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          name: v${{ needs.guard.outputs.version }}
+          body: |
+            ## Install a server
+
+            ```bash
+            git clone https://github.com/${{ github.repository }}.git sovrgnnet
+            cd sovrgnnet && ./install.sh
+            ```
+
+            No Docker? `scripts/install-lxc.sh` installs everything as systemd
+            services. Already running one? `sovrgnnet update`.
+
+            Container image: `ghcr.io/${{ github.repository }}:${{ needs.guard.outputs.version }}`
+
+            ## Desktop apps
+
+            Attached below for Linux, macOS, and Windows. The desktop client
+            connects to servers other people run — it is not required to use a
+            SOVRGNnet server, which works in any browser.
+
+            **Messages are not end-to-end encrypted.** They are stored as plain
+            text on whichever server you're using, and whoever runs that server
+            can read them. See `docs/adr/0001-multi-server-client.md`.
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
           generate_release_notes: true

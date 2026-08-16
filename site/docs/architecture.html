@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>How it works — SOVRGNnet</title>
+  <meta name="description" content="Why a server is a Matrix Space, why the browser never talks to Matrix, and where your data physically sits." />
+  <meta name="theme-color" content="#0a0614" />
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <nav>
+        <a class="logo" href="/">SOVRGN<b>net</b></a>
+        <div class="links">
+          <a href="/docs/">Docs</a>
+          <a href="/docs/install.html">Install</a>
+          <a href="/docs/operating.html">Operating</a>
+          <a href="/docs/architecture.html" aria-current="page">Architecture</a>
+          <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main class="doc">
+    <div class="wrap narrow">
+      <h1>How it works</h1>
+      <p class="subtitle">
+        A thin, opinionated layer over boring, proven pieces — and the reasoning
+        behind each choice.
+      </p>
+
+      <h2>The pieces</h2>
+      <table>
+        <tr><th>Piece</th><th>Holds</th></tr>
+        <tr><td><strong>The app</strong> (Node, Express, tRPC)</td>
+            <td>Identity, community structure, permissions. The only thing users
+                talk to.</td></tr>
+        <tr><td><strong>PostgreSQL</strong></td>
+            <td>Accounts, communities, channels, message index, file metadata,
+                roles, bans.</td></tr>
+        <tr><td><strong>Dendrite</strong> (Matrix homeserver)</td>
+            <td>Message transport. Every message is a real Matrix event. Stores
+                its rooms in the same PostgreSQL instance, so there's one
+                database to back up rather than two.</td></tr>
+        <tr><td><strong>Kubo</strong> (IPFS)</td>
+            <td>The actual bytes of every shared file.</td></tr>
+        <tr><td><strong>cloudflared</strong> <span class="muted">(optional)</span></td>
+            <td>Outbound-only tunnel, when you want a public address.</td></tr>
+      </table>
+      <p class="muted">
+        Either as Docker containers on one network, or as systemd services on
+        one machine. Same architecture, different packaging.
+      </p>
+
+      <h2>Words used precisely</h2>
+      <p>These overlap badly if left loose, so throughout the docs:</p>
+      <table>
+        <tr><th>Term</th><th>Means</th></tr>
+        <tr><td><strong>Instance</strong></td>
+            <td>One deployment — app, database, homeserver, IPFS — on one
+                operator's hardware. The unit of sovereignty.</td></tr>
+        <tr><td><strong>Community</strong></td>
+            <td>A space <em>inside</em> an instance. What Discord calls a
+                server.</td></tr>
+        <tr><td><strong>Channel</strong></td>
+            <td>A room inside a community.</td></tr>
+      </table>
+      <p class="muted">
+        "Server" is avoided because it means both the machine and the
+        Discord-style community. The database still calls communities
+        <code>servers</code> — renaming tables is a migration with real risk and
+        no user-visible benefit, so the schema keeps the old name and the
+        documentation carries the distinction.
+      </p>
+
+      <h2>A community is a Matrix Space</h2>
+      <p>
+        Creating a community creates a Space on your homeserver. Every channel
+        inside it is a Matrix room, linked as a child of that Space — starting
+        with <code>#general</code>, created for you.
+      </p>
+      <p>
+        This isn't decoration. It means a third-party Matrix client like Element
+        can connect to your homeserver and see the same rooms, the same
+        messages, the same power levels. Your community isn't trapped in this
+        particular app.
+      </p>
+
+      <h2>The browser never talks to Matrix</h2>
+      <p>
+        This is the load-bearing decision, and it's worth explaining because
+        most Matrix clients do the opposite.
+      </p>
+      <p>
+        The app provisions one Matrix account per user on first use and holds
+        that access token server-side, in the database. It never reaches the
+        browser. Every Matrix operation — sending, editing, reacting, joining,
+        redacting — goes through the app, acting on the user's behalf over the
+        internal network.
+      </p>
+      <p>Three things fall out of that:</p>
+      <ul>
+        <li><strong>Permissions are enforced in one place.</strong> Every read
+            and write checks membership and role server-side. A client that
+            lies about who it is gets nowhere.</li>
+        <li><strong>The homeserver never needs to be publicly exposed.</strong>
+            It listens on loopback. Users reach the app; the app reaches
+            Matrix.</li>
+        <li><strong>One identity.</strong> You sign in once, to the app. There's
+            no second Matrix login to understand.</li>
+      </ul>
+      <p class="muted">
+        The cost is honest: the app is now on the critical path for every
+        message, and it can read them. See
+        <a href="/docs/security.html">security</a> for what that means.
+      </p>
+
+      <h2>Instances negotiate before they connect</h2>
+      <p>
+        A client talks to several independent instances, each run by a different
+        person on a different upgrade schedule. So before offering a feature it
+        asks what the instance can actually do:
+      </p>
+<pre><code>GET /api/instance      what this instance is and can do
+GET /api/capabilities  the same, cheap to poll
+GET /api/version       versions, for humans
+GET /health            is the app alive?
+GET /ready             are its dependencies?</code></pre>
+      <p>
+        All unauthenticated, because a client connecting to an instance it has
+        never seen has no credentials yet. None of them expose members,
+        channels, or messages.
+      </p>
+      <p>
+        <strong>Every capability defaults to absent.</strong> An instance that
+        has never heard of a feature must read as "doesn't have it", never as
+        "probably fine" — optimistic defaults are how a client ends up offering
+        something that silently does nothing. When a capability is missing the
+        client explains why rather than hiding the button, because someone whose
+        friend's instance has no voice should learn that instead of wondering
+        where it went.
+      </p>
+      <p class="muted">
+        <code>/health</code> deliberately doesn't touch the database. A liveness
+        check that fails when Postgres fails can't distinguish "the app is down"
+        from "the database is down" — the first question at 3am — and it makes
+        orchestrators restart a perfectly healthy process.
+      </p>
+      <p>
+        The protocol is versioned <em>separately from the application</em>,
+        because requiring independently operated instances to move in lockstep
+        with our releases would make every one of them quietly dependent on us.
+        Compatibility is one rule: the same protocol major version. Application
+        versions never gate a connection.
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/PROTOCOL.md">The specification →</a>
+      </p>
+
+      <h2>Files</h2>
+      <p>
+        Uploads go to your own IPFS node and are pinned there. The file's
+        content identifier and metadata are recorded in PostgreSQL against the
+        channel.
+      </p>
+      <p>
+        Downloads stream back <em>through the app</em>, not from a public IPFS
+        gateway — so membership is checked on every request and content
+        identifiers never leak to people outside the channel. Uploads cap at
+        50 MB.
+      </p>
+
+      <h2>Accounts: local, or one across every server</h2>
+      <p>
+        Every server issues its own accounts, and always will — a server with
+        no connection to sovrgnnet.cc works completely.
+      </p>
+      <p>
+        Optionally, an operator can also accept <strong>sovrgnnet.cc
+        accounts</strong>, so one sign-in works across every server that opts
+        in. That is centralisation, in the part of a system where it matters
+        most, and it's worth being plain about the trade rather than selling it:
+      </p>
+      <ul>
+        <li>Servers verify sign-ins against a <strong>cached public key</strong>.
+            sovrgnnet.cc being unreachable blocks new sign-ins; it does not log
+            anyone out and does not take a single server offline.</li>
+        <li>Every token names <strong>one server</strong> and works only there,
+            so whoever runs one server can't replay their users' sign-ins
+            against another.</li>
+        <li>Sign-in itself goes through Google, Microsoft, GitHub, or Discord —
+            they have already verified the email address, and it means no
+            password store to breach.</li>
+        <li>An operator who wants none of this sets
+            <code>INSTANCE_ALLOW_SSO=false</code> and the server is entirely
+            unaffected.</li>
+      </ul>
+      <p class="muted">
+        One identity doesn't mean one face: each server keeps its own nickname
+        and avatar, so the same account can be "Zach" in one community and
+        "chronus" in another.
+      </p>
+
+      <h2>Authority, in two layers</h2>
+      <p>
+        SOVRGNnet keeps its own roles — owner, admin, moderator, member — in
+        PostgreSQL, ranked, and checks them on every operation. That's the
+        authoritative layer.
+      </p>
+      <p>
+        Matrix power levels are kept in sync as a best-effort mirror, so
+        third-party clients show a sensible picture. But the app never trusts
+        the homeserver's opinion about who's allowed to do what. If the two ever
+        disagree, the app's answer is the one that counts.
+      </p>
+
+      <h2>Nothing listens on your router</h2>
+      <p>
+        When you want a public address, it runs over an outbound tunnel: your
+        machine connects out, and traffic comes back down that connection. No
+        forwarded ports, no exposed home IP, nothing for a scanner to find.
+      </p>
+      <p>
+        The landing site you're reading is deliberately separate — static files
+        on Cloudflare Pages, so this page stays up even when the homelab
+        doesn't.
+      </p>
+
+      <h2>What's deliberately not here</h2>
+      <ul>
+        <li><strong>No third-party auth is ever required.</strong> Local
+            accounts are rows in your database, passwords hashed with scrypt,
+            sessions in httpOnly cookies. Third-party sign-in exists as an
+            option an operator switches on, never as the only way in.</li>
+        <li><strong>No telemetry.</strong> The app phones nobody. The desktop
+            client checks for updates on launch, and that's the extent of it.</li>
+        <li><strong>No required blockchain.</strong> Wallet identity is a
+            possible future option, never a requirement.</li>
+        <li><strong>No federation by default.</strong> Your homeserver talks to
+            no other server until you turn it on.</li>
+      </ul>
+
+      <h2>What's honestly missing</h2>
+      <ul>
+        <li><strong>End-to-end encryption.</strong> Messages are plaintext on
+            your homeserver. This is the big one — see
+            <a href="/docs/security.html">security</a>.</li>
+        <li><strong>Live updates are polling.</strong> The client polls every
+            three seconds rather than holding a push connection. It works; it
+            isn't elegant. A sync bridge replaces it later.</li>
+        <li><strong>Presence is single-process.</strong> Typing indicators and
+            online status live in one app process's memory. Correct for one
+            container; running several would need Redis.</li>
+        <li><strong>No voice or video</strong>, no password reset by email, no
+            mobile apps.</li>
+      </ul>
+
+      <p class="muted">
+        The engineering-detail version lives in
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/ARCHITECTURE.md">ARCHITECTURE.md</a>,
+        and the ordering of what's next is in
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/ROADMAP.md">ROADMAP.md</a>.
+      </p>
+
+      <div class="next-prev">
+        <a href="/docs/operating.html"><span>Back</span> ← Running it</a>
+        <a href="/docs/security.html"><span>Next</span> Security &amp; privacy →</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <span class="logo">SOVRGN<b>net</b></span>
+      <span>MIT © 2026 · <a href="https://formicaria.us">Formicaria</a></span>
+      <div class="links">
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        <a href="/legal.html">Legal</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

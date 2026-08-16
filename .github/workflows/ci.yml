@@ -2,11 +2,62 @@ name: CI
 
 on:
   push:
+<<<<<<< HEAD
     branches: [main, master]
   pull_request:
 
 jobs:
   verify:
+=======
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A newer push to the same branch makes the older run pointless.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Which parts of the repository actually changed. Editing the landing site
+  # or a markdown file has no business spinning up Postgres and building the
+  # whole application.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      desktop: ${{ steps.filter.outputs.desktop }}
+      identity: ${{ steps.filter.outputs.identity }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'server/**'
+              - 'client/**'
+              - 'shared/**'
+              - 'drizzle/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'tsconfig.json'
+              - 'vite.config.ts'
+              - 'vitest.config.ts'
+              - 'Dockerfile'
+              - '.github/workflows/ci.yml'
+            desktop:
+              - 'desktop/**'
+              - 'shared/**'
+              - '.github/workflows/ci.yml'
+            identity:
+              - 'identity/**'
+              - 'shared/**'
+              - '.github/workflows/ci.yml'
+
+  app:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     runs-on: ubuntu-latest
 
     services:
@@ -26,6 +77,13 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://sovrgn:sovrgn_test@localhost:5432/sovrgnnet_test
+<<<<<<< HEAD
+=======
+      # Account provisioning refuses to run without this, by design — a server
+      # that can't prove itself to the homeserver should fail loudly rather
+      # than silently create nothing. The integration tests exercise that path.
+      MATRIX_SHARED_SECRET: test-shared-secret-for-ci
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
     steps:
       - uses: actions/checkout@v4
@@ -38,8 +96,12 @@ jobs:
           node-version: 22
           cache: pnpm
 
+<<<<<<< HEAD
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+=======
+      - run: pnpm install --frozen-lockfile
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
       - name: Typecheck
         run: pnpm check
@@ -52,3 +114,79 @@ jobs:
 
       - name: Build
         run: pnpm build
+<<<<<<< HEAD
+=======
+
+  # The desktop package has its own dependency tree, so it typechecks
+  # separately. No Rust here — compiling Tauri on every PR would cost more
+  # minutes than it catches bugs; the release build is where that happens.
+  desktop:
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        working-directory: desktop
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck
+        working-directory: desktop
+        run: pnpm check
+
+  # The identity provider is its own service with its own dependencies. Its
+  # crypto is tested in the root suite, since shared/identity.ts is what both
+  # this service and every server rely on.
+  identity:
+    needs: changes
+    if: needs.changes.outputs.identity == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        working-directory: identity
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck
+        working-directory: identity
+        run: pnpm check
+
+  # Version strings live in five files and drift silently. Cheap to check,
+  # miserable to discover during a release.
+  versions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-versions.sh
+
+  # The single required status check. It always runs, so a site-only pull
+  # request can still merge even though the app jobs were skipped — a skipped
+  # required check never reports and would block the merge forever.
+  ci:
+    needs: [app, desktop, identity, versions]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify nothing failed
+        run: |
+          echo "app:      ${{ needs.app.result }}"
+          echo "desktop:  ${{ needs.desktop.result }}"
+          echo "identity: ${{ needs.identity.result }}"
+          echo "versions: ${{ needs.versions.result }}"
+          for result in "${{ needs.app.result }}" "${{ needs.desktop.result }}" "${{ needs.identity.result }}" "${{ needs.versions.result }}"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "::error::A required job did not pass."; exit 1 ;;
+            esac
+          done
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03

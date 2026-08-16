@@ -1,0 +1,44 @@
+[package]
+name = "sovrgnnet-desktop"
+version = "0.4.0"
+description = "SOVRGNnet desktop client"
+authors = ["Formicaria"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# The "unstable" feature is what exposes multiple webviews inside one window —
+# `Window`, `WebviewBuilder`, and `add_child`. That's load-bearing here: one
+# webview per server is what lets the app hold several signed-in servers at
+# once, each keeping its own cookies and storage.
+#
+# Tauri flags this API as unstable, meaning it can change between minor
+# versions. The pin below is deliberate: `tauri update` on this crate is a
+# thing to do on purpose and then test, not something to take automatically.
+tauri = { version = "2.11", features = ["unstable"] }
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["time"] }
+# Deep links are untrusted input; URLs get parsed and scheme-checked before
+# any webview is pointed at them.
+url = "2"
+# Per-server credentials belong in the OS keychain, not in browser storage —
+# doubly so once this process holds Matrix encryption keys.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+
+[features]
+# Enabled by `tauri build` for production bundles.
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

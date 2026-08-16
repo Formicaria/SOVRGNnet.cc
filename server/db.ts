@@ -1,7 +1,11 @@
 import { eq, and, sql, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+<<<<<<< HEAD
 import { InsertUser, users, servers, channels, messages, fileShares, soundboardClips, nitroSubscriptions, serverMembers, serverBans, userProfiles } from "../drizzle/schema";
+=======
+import { InsertUser, users, servers, channels, messages, fileShares, soundboardClips, nitroSubscriptions, serverMembers, serverBans, userProfiles, instanceSettings } from "../drizzle/schema";
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -18,6 +22,34 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+/**
+ * Does the database actually answer?
+ *
+ * Deliberately separate from every other query in this file. The rest swallow
+ * errors and fall back, because a server that can't read one row should still
+ * serve traffic on defaults. That policy is right for request handling and
+ * exactly wrong for a readiness probe: `/ready` reported `database: "ok"`
+ * against a DATABASE_URL pointing nowhere, because the function it called
+ * caught the failure and returned null exactly as designed.
+ *
+ * A readiness check that cannot fail is not a check. This one round-trips.
+ */
+export async function pingDatabase(): Promise<{ ok: boolean; error?: string }> {
+  if (!process.env.DATABASE_URL) {
+    return { ok: false, error: "DATABASE_URL is not set" };
+  }
+
+  const db = await getDb();
+  if (!db) return { ok: false, error: "no database connection" };
+
+  try {
+    await db.execute(sql`select 1`);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -119,7 +151,12 @@ export async function getUserByEmail(email: string) {
 export async function createLocalUser(
   email: string,
   passwordHash: string,
+<<<<<<< HEAD
   name?: string
+=======
+  name?: string,
+  role: "user" | "admin" = "user"
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 ) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -132,6 +169,76 @@ export async function createLocalUser(
       passwordHash,
       name: name ?? email.split("@")[0],
       loginMethod: "password",
+<<<<<<< HEAD
+=======
+      role,
+    })
+    .returning();
+  return result[0];
+}
+
+/**
+ * How many accounts exist.
+ *
+ * Used to decide whether a registration is the very first one — the person
+ * setting the instance up — and therefore its administrator.
+ */
+export async function countUsers(): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db.select({ count: sql<number>`count(*)::int` }).from(users);
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function getUserBySsoSubject(subject: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const rows = await db
+    .select()
+    .from(users)
+    .where(eq(users.ssoSubject, subject))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Bind an existing local account to a sovrgnnet.cc identity. */
+export async function linkSsoSubject(userId: number, subject: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(users)
+    .set({ ssoSubject: subject, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
+/**
+ * Create an account from a verified identity token.
+ *
+ * No password hash: this account signs in through sovrgnnet.cc. It can be
+ * given a local password later, but it never has one implicitly.
+ */
+export async function createSsoUser(
+  subject: string,
+  email: string | null,
+  name: string | null,
+  role: "user" | "admin" = "user"
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .insert(users)
+    .values({
+      openId: `sso:${subject}`,
+      ssoSubject: subject,
+      email: email?.toLowerCase() ?? null,
+      name: name ?? email?.split("@")[0] ?? "New member",
+      loginMethod: "sovrgnnet",
+      role,
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     })
     .returning();
   return result[0];
@@ -246,8 +353,23 @@ export async function createMessage(channelId: number, userId: number, content: 
   return result[0];
 }
 
+<<<<<<< HEAD
 /** Messages with sender names, oldest first. */
 export async function getMessagesByChannel(channelId: number, limit: number = 50) {
+=======
+/**
+ * Messages with sender names, oldest first.
+ *
+ * The sender's name is their per-server nickname when they've set one, and
+ * their account name otherwise — so someone can be "Zach" in one community and
+ * "chronus" in another without two accounts.
+ */
+export async function getMessagesByChannel(
+  channelId: number,
+  limit: number = 50,
+  serverId?: number
+) {
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -261,15 +383,87 @@ export async function getMessagesByChannel(channelId: number, limit: number = 50
       createdAt: messages.createdAt,
       editedAt: messages.editedAt,
       reactions: messages.reactions,
+<<<<<<< HEAD
       senderName: users.name,
     })
     .from(messages)
     .leftJoin(users, eq(messages.userId, users.id))
+=======
+      accountName: users.name,
+      nickname: serverMembers.nickname,
+      memberAvatar: serverMembers.avatar,
+    })
+    .from(messages)
+    .leftJoin(users, eq(messages.userId, users.id))
+    .leftJoin(
+      serverMembers,
+      serverId === undefined
+        ? sql`false`
+        : and(
+            eq(serverMembers.userId, messages.userId),
+            eq(serverMembers.serverId, serverId)
+          )
+    )
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     .where(eq(messages.channelId, channelId))
     .orderBy(sql`${messages.createdAt} DESC`)
     .limit(limit);
 
+<<<<<<< HEAD
   return rows.reverse();
+=======
+  return rows.reverse().map(row => ({
+    ...row,
+    senderName: displayName(row.nickname, row.accountName),
+    senderAvatar: row.memberAvatar,
+  }));
+}
+
+/**
+ * Which name to show for someone in a given server.
+ *
+ * Per-server nickname wins; the account name is the fallback. A nickname of
+ * whitespace is treated as unset rather than rendering as a blank author.
+ */
+export function displayName(
+  nickname: string | null | undefined,
+  accountName: string | null | undefined
+): string | null {
+  const trimmed = nickname?.trim();
+  if (trimmed) return trimmed;
+  return accountName ?? null;
+}
+
+/** Set or clear the current user's profile within one server. */
+export async function setServerProfile(
+  serverId: number,
+  userId: number,
+  values: { nickname?: string | null; avatar?: string | null }
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(serverMembers)
+    .set(values)
+    .where(and(eq(serverMembers.serverId, serverId), eq(serverMembers.userId, userId)));
+}
+
+export async function getServerProfile(serverId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select({
+      nickname: serverMembers.nickname,
+      avatar: serverMembers.avatar,
+      role: serverMembers.role,
+    })
+    .from(serverMembers)
+    .where(and(eq(serverMembers.serverId, serverId), eq(serverMembers.userId, userId)))
+    .limit(1);
+  return rows[0] ?? null;
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 }
 
 // Matrix credential storage (userProfiles)
@@ -538,12 +732,22 @@ export async function getServerMembersDetailed(serverId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
+<<<<<<< HEAD
   return await db
+=======
+  const rows = await db
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     .select({
       userId: serverMembers.userId,
       role: serverMembers.role,
       joinedAt: serverMembers.joinedAt,
+<<<<<<< HEAD
       name: users.name,
+=======
+      accountName: users.name,
+      nickname: serverMembers.nickname,
+      avatar: serverMembers.avatar,
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
       email: users.email,
       matrixUserId: userProfiles.matrixUserId,
     })
@@ -551,6 +755,11 @@ export async function getServerMembersDetailed(serverId: number) {
     .leftJoin(users, eq(serverMembers.userId, users.id))
     .leftJoin(userProfiles, eq(serverMembers.userId, userProfiles.userId))
     .where(eq(serverMembers.serverId, serverId));
+<<<<<<< HEAD
+=======
+
+  return rows.map(row => ({ ...row, name: displayName(row.nickname, row.accountName) }));
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 }
 
 export async function getServerMemberRole(
@@ -634,6 +843,80 @@ export async function getServerBans(serverId: number) {
     .where(eq(serverBans.serverId, serverId));
 }
 
+<<<<<<< HEAD
+=======
+/** Everyone with an account here, for the admin surface. Never exposes hashes. */
+export async function listUsers() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      createdAt: users.createdAt,
+      lastSignedIn: users.lastSignedIn,
+    })
+    .from(users)
+    .orderBy(users.createdAt);
+}
+
+export async function setUserRole(userId: number, role: "user" | "admin"): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, userId));
+}
+
+// Instance settings — one row, id 1. Absent until an admin saves something,
+// at which point it takes precedence over the environment.
+export async function getInstanceSettings() {
+  const db = await getDb();
+  if (!db) return null;
+
+  try {
+    const rows = await db
+      .select()
+      .from(instanceSettings)
+      .where(eq(instanceSettings.id, 1))
+      .limit(1);
+    return rows[0] ?? null;
+  } catch {
+    // A server that can't read its own settings should still serve traffic
+    // on environment defaults rather than fail to start.
+    return null;
+  }
+}
+
+export async function saveInstanceSettings(values: {
+  name?: string | null;
+  description?: string | null;
+  joinPolicy?: string;
+  listed?: boolean;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await getInstanceSettings();
+  if (existing) {
+    const result = await db
+      .update(instanceSettings)
+      .set({ ...values, updatedAt: new Date() })
+      .where(eq(instanceSettings.id, 1))
+      .returning();
+    return result[0];
+  }
+
+  const result = await db
+    .insert(instanceSettings)
+    .values({ id: 1, ...values })
+    .returning();
+  return result[0];
+}
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 /** The Matrix user id for an app user, if they've been provisioned. */
 export async function getMatrixUserId(userId: number): Promise<string | null> {
   const db = await getDb();
@@ -704,7 +987,11 @@ export async function toggleMessageReaction(
   if (reactors.size === 0) {
     delete current[emoji];
   } else {
+<<<<<<< HEAD
     current[emoji] = [...reactors];
+=======
+    current[emoji] = Array.from(reactors);
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
   }
 
   await setMessageReactions(messageId, current);

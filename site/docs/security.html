@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Security &amp; privacy — SOVRGNnet</title>
+  <meta name="description" content="What's protected, what isn't, and an honest account of the encryption story." />
+  <meta name="theme-color" content="#0a0614" />
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <nav>
+        <a class="logo" href="/">SOVRGN<b>net</b></a>
+        <div class="links">
+          <a href="/docs/">Docs</a>
+          <a href="/docs/install.html">Install</a>
+          <a href="/docs/operating.html">Operating</a>
+          <a href="/docs/architecture.html">Architecture</a>
+          <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main class="doc">
+    <div class="wrap narrow">
+      <h1>Security &amp; privacy</h1>
+      <p class="subtitle">
+        What's protected, what isn't, and where the sharp edges are. Written to
+        be useful rather than reassuring.
+      </p>
+
+      <h2>The one that matters most</h2>
+      <div class="warning">
+        <strong>Messages are not end-to-end encrypted.</strong>
+        They are stored as plain text in your database and on your Matrix
+        homeserver. Anyone with administrator access to that machine can read
+        every message ever sent.
+      </div>
+      <p>
+        For a self-hosted instance that's usually one person — you — which is
+        the whole point of running it yourself. It's a categorically different
+        situation from a company holding your messages on its servers.
+      </p>
+      <p>
+        But it is not the same as Signal, and it shouldn't be described as
+        private in the way Signal is private. If you're running an instance for
+        other people, they deserve to know this before they type anything into
+        it. If someone else is running the instance you're on, they can read
+        your messages.
+      </p>
+      <p class="muted">
+        End-to-end encryption via Olm/Megolm is the next major phase. It isn't
+        built yet, and claiming otherwise would be the kind of thing this
+        project exists to avoid.
+      </p>
+
+      <h2>What is protected</h2>
+      <table>
+        <tr><th>Area</th><th>How</th></tr>
+        <tr>
+          <td>Passwords</td>
+          <td>scrypt hashes. Never stored or logged in plaintext.</td>
+        </tr>
+        <tr>
+          <td>Sessions</td>
+          <td>Signed JWT in an httpOnly, SameSite=Lax cookie. JavaScript on the
+              page can't read it. <em>Stateless — see the gaps below.</em></td>
+        </tr>
+        <tr>
+          <td>Desktop credentials</td>
+          <td>Stored in the operating system's keychain, not in browser
+              storage.</td>
+        </tr>
+        <tr>
+          <td>Identity tokens <span class="muted">(if you enable SSO)</span></td>
+          <td>Ed25519, valid five minutes, and bound to a single instance — a
+              token minted for one instance is refused by every other. Verified
+              against a cached key, so the identity service going down blocks
+              new sign-ins but logs nobody out.</td>
+        </tr>
+        <tr>
+          <td>Backups</td>
+          <td>Written <code>0600</code>, with a checksum per component verified
+              before any restore.</td>
+        </tr>
+        <tr>
+          <td>Brute force</td>
+          <td>Login attempts rate-limited per IP and email — ten per fifteen
+              minutes.</td>
+        </tr>
+        <tr>
+          <td>Matrix tokens</td>
+          <td>Held server-side only. The browser never receives one.</td>
+        </tr>
+        <tr>
+          <td>Every read and write</td>
+          <td>Membership and role checked server-side. The client's opinion
+              about what it's allowed to do is never trusted.</td>
+        </tr>
+        <tr>
+          <td>File downloads</td>
+          <td>Streamed through the app with membership checks, not from a public
+              IPFS gateway. Content identifiers don't leak outside the
+              channel.</td>
+        </tr>
+        <tr>
+          <td>Homeserver registration</td>
+          <td>Disabled outright. Accounts are created by the app using a shared
+              secret that never leaves the server process, so nobody who finds
+              your homeserver directly can sign up on it.</td>
+        </tr>
+        <tr>
+          <td>Traffic in transit</td>
+          <td>HTTPS whenever you use a public address. Between services, traffic
+              stays on loopback or a private container network.</td>
+        </tr>
+      </table>
+
+      <h2>What listens where</h2>
+      <p>
+        Only two ports are reachable from outside the machine. Everything else
+        is bound to loopback deliberately.
+      </p>
+      <table>
+        <tr><th>Port</th><th>Reachable from</th><th>What</th></tr>
+        <tr><td>3000</td><td>your network</td><td>the app</td></tr>
+        <tr><td>4001</td><td>the internet</td><td>IPFS peering</td></tr>
+        <tr><td>6167 / 8008</td><td>loopback only</td><td>Matrix homeserver</td></tr>
+        <tr><td>5001</td><td>loopback only</td><td>IPFS admin API</td></tr>
+        <tr><td>5432</td><td>loopback only</td><td>PostgreSQL</td></tr>
+      </table>
+      <div class="note">
+        <strong>Why 5001 matters</strong>
+        The IPFS API is an unauthenticated admin socket — anyone who can reach
+        it controls the node completely. It was briefly published to the host in
+        an earlier version of the compose file. It isn't now, and it shouldn't
+        be in any deployment you build.
+      </div>
+
+      <h2>Known gaps</h2>
+      <p>
+        Stated together rather than scattered, because a gap you have to hunt
+        for is a gap that gets missed.
+      </p>
+      <ul>
+        <li><strong>No end-to-end encryption.</strong> The largest by a
+            distance.</li>
+        <li><strong>No session revocation.</strong> Sessions are stateless
+            tokens lasting a year. Logging out clears the cookie but doesn't
+            invalidate the token, so a stolen copy keeps working. The only
+            revocation lever is rotating <code>JWT_SECRET</code>, which signs
+            everyone out at once.</li>
+        <li><strong>No per-device sign-out</strong> for Matrix sessions.</li>
+        <li><strong>No two-factor authentication</strong> on local accounts.
+            Signing in through a provider inherits theirs, which is one of the
+            better arguments for using SSO.</li>
+        <li><strong>Backups are not encrypted at rest.</strong> The tooling
+            writes them <code>0600</code> and stops there.</li>
+        <li><strong>Rate limiting covers login only</strong>, not the rest of
+            the API.</li>
+        <li><strong>No audit log</strong> of administrative actions.</li>
+        <li><strong>No independent security audit.</strong> Careful review is
+            not an audit.</li>
+      </ul>
+      <p class="muted">
+        The full analysis — sixteen threats with attacker capabilities,
+        mitigations, and residual risk each — is in the
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/THREAT_MODEL.md">threat model</a>.
+        Mechanism-level detail is in the
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/SECURITY_ARCHITECTURE.md">security architecture</a>.
+      </p>
+
+      <h2>Federation is off by default</h2>
+      <p>
+        Your homeserver talks to no other Matrix server until you set
+        <code>MATRIX_ALLOW_FEDERATION=true</code>. Turning it on is a real
+        decision: it means other homeservers can reach yours, your users can
+        join rooms elsewhere, and your server name becomes publicly meaningful.
+      </p>
+      <p class="muted">
+        Federation is genuinely valuable — it's much of why Matrix is worth
+        building on. It just shouldn't happen by accident.
+      </p>
+
+      <h2>If you use a sovrgnnet.cc account</h2>
+      <p>
+        Signing in with a sovrgnnet.cc account is optional — every server also
+        issues its own local accounts, and an operator can refuse the shared
+        ones entirely. If you do use one, this is what it means:
+      </p>
+      <ul>
+        <li><strong>The sign-in itself goes through Google, Microsoft, GitHub,
+            or Discord.</strong> sovrgnnet.cc holds no password for you, only a
+            record that a given provider account maps to your identity.</li>
+        <li><strong>A server learns your name and email, not your password</strong>
+            — it never sees one.</li>
+        <li><strong>Each sign-in token names one server</strong> and works only
+            there, so whoever runs a server can't reuse yours elsewhere.</li>
+        <li><strong>sovrgnnet.cc can see which servers you sign into</strong>,
+            because it issues the tokens. It cannot see your messages, your
+            channels, or who you talk to.</li>
+        <li><strong>Losing the provider account loses the servers</strong> unless
+            you've linked a second provider. Worth doing.</li>
+      </ul>
+      <p class="muted">
+        The desktop app signs in with a device code you approve in your own
+        browser, rather than a redirect back into the app — a redirect would
+        hand a sign-in token to whichever application had registered that link
+        type, which isn't something any operating system verifies.
+      </p>
+
+      <h2>What you're responsible for</h2>
+      <p>
+        Self-hosting means the security boundary is yours. Concretely:
+      </p>
+      <ul>
+        <li><strong>Keep the machine updated.</strong> <code>apt upgrade</code>
+            covers the system; <code>sovrgnnet update</code> covers the app.
+            Dendrite and IPFS don't come from your package manager on the LXC
+            install and update separately. Dendrite's release cadence is slow,
+            which is a real consideration: watch
+            <a href="https://github.com/element-hq/dendrite/releases">its releases</a>
+            rather than assuming updates arrive.</li>
+        <li><strong>Guard your backups.</strong> Each archive contains your
+            secrets and everyone's messages. Encrypt them if they leave your
+            control.</li>
+        <li><strong>Guard <code>.env</code>.</strong> Written <code>600</code>
+            for a reason. It's ignored by git; keep it that way.</li>
+        <li><strong>Think about who gets admin.</strong> The first account is
+            the admin, and admins can read anything on the instance.</li>
+      </ul>
+
+      <h2>Reporting a vulnerability</h2>
+      <p>
+        Please don't open a public issue for a security bug. Email
+        <a href="mailto:security@formicaria.us">security@formicaria.us</a> with
+        what you found and how to reproduce it. You'll get an acknowledgement,
+        and credit in the changelog if you want it.
+      </p>
+      <p class="muted">
+        This is alpha software that has not been independently audited. It's
+        written carefully and reviewed honestly, but those aren't the same
+        thing as an audit, and it would be wrong to imply otherwise.
+      </p>
+
+      <div class="next-prev">
+        <a href="/docs/architecture.html"><span>Back</span> ← How it works</a>
+        <a href="/legal.html"><span>Next</span> Legal →</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <span class="logo">SOVRGN<b>net</b></span>
+      <span>MIT © 2026 · <a href="https://formicaria.us">Formicaria</a></span>
+      <div class="links">
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        <a href="/legal.html">Legal</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

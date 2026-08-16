@@ -1,3 +1,15 @@
+<<<<<<< HEAD
+=======
+```
+   ███████╗ ██████╗ ██╗   ██╗██████╗  ██████╗ ███╗   ██╗
+   ██╔════╝██╔═══██╗██║   ██║██╔══██╗██╔════╝ ████╗  ██║
+   ███████╗██║   ██║██║   ██║██████╔╝██║  ███╗██╔██╗ ██║
+   ╚════██║██║   ██║╚██╗ ██╔╝██╔══██╗██║   ██║██║╚██╗██║
+   ███████║╚██████╔╝ ╚████╔╝ ██║  ██║╚██████╔╝██║ ╚████║
+   ╚══════╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+```
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 # Setting up SOVRGNnet
 
 Your own private chat network — like Discord, except it runs on a computer you
@@ -158,6 +170,24 @@ or run SOVRGNnet on a machine that isn't busy.
 
 ---
 
+<<<<<<< HEAD
+=======
+## Running it without Docker
+
+If you're on Proxmox and would rather use an LXC container — lighter, no
+Docker layer — there's a second installer that sets everything up as ordinary
+system services:
+
+```bash
+apt update && apt install -y git
+git clone https://github.com/Formicaria/SOVRGNnet.cc.git /opt/sovrgnnet
+/opt/sovrgnnet/scripts/install-lxc.sh
+```
+
+Same questions, same result, same `sovrgnnet` commands afterward.
+[docs/LXC.md](docs/LXC.md) has the details, including creating the container.
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 ## What's actually running
 
 Not required reading, but useful if you're curious.
@@ -166,7 +196,11 @@ Five pieces, each in its own container:
 
 - **app** — the website you log into
 - **db** — PostgreSQL, holding accounts and message history
+<<<<<<< HEAD
 - **matrix** — a Conduit homeserver; the actual chat protocol
+=======
+- **matrix** — a Dendrite homeserver; the actual chat protocol
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 - **ipfs** — stores the files people share
 - **cloudflared** — only if you chose option 2 or 3; carries traffic in from
   the internet without opening any ports on your router

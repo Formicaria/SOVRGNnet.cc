@@ -274,7 +274,14 @@ write_env() {
   local jwt db_pass matrix_token
   jwt="$(env_get JWT_SECRET)";                 [ -z "$jwt" ]          && jwt="$(secret)"
   db_pass="$(env_get DB_PASSWORD)";            [ -z "$db_pass" ]      && db_pass="$(secret)"
+<<<<<<< HEAD
   matrix_token="$(env_get MATRIX_REGISTRATION_TOKEN)"
+=======
+  # Read the old name too, so upgrading from a Conduit-era install keeps
+  # working rather than silently minting a secret the homeserver won't accept.
+  matrix_token="$(env_get MATRIX_SHARED_SECRET)"
+  [ -z "$matrix_token" ] && matrix_token="$(env_get MATRIX_REGISTRATION_TOKEN)"
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
   [ -z "$matrix_token" ] && matrix_token="$(secret)"
 
   if [ -f "$ENV_FILE" ]; then
@@ -291,7 +298,13 @@ write_env() {
 # --- secrets (generated) ---
 JWT_SECRET=$jwt
 DB_PASSWORD=$db_pass
+<<<<<<< HEAD
 MATRIX_REGISTRATION_TOKEN=$matrix_token
+=======
+# Lets the app create Matrix accounts. Public registration on the homeserver
+# is disabled entirely, so this is the only way accounts come into existence.
+MATRIX_SHARED_SECRET=$matrix_token
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
 # --- your instance ---
 # The Matrix domain baked into every user and room ID. Changing this after
@@ -314,6 +327,51 @@ EOF
 
   chmod 600 "$ENV_FILE"
   ok "Settings saved to .env (passwords generated for you)."
+<<<<<<< HEAD
+=======
+
+  write_dendrite_config "$matrix_token" "$db_pass"
+}
+
+# ------------------------------------------------------------------- matrix
+
+# The homeserver needs a config file and a signing key before it will start.
+# Both are generated here rather than by hand, and the key is generated once
+# and never regenerated — it *is* this server's identity on the Matrix network.
+write_dendrite_config() {
+  local shared_secret="$1" db_pass="$2"
+
+  install -d -m 0755 "$REPO_DIR/dendrite"
+
+  local key="$REPO_DIR/dendrite/matrix_key.pem"
+  if [ ! -f "$key" ]; then
+    if $DOCKER_COMPOSE run --rm --no-deps --entrypoint /usr/bin/generate-keys matrix \
+        --private-key /etc/dendrite/matrix_key.pem >/dev/null 2>&1; then
+      ok "Generated the homeserver signing key"
+    else
+      # Fall back to openssl: generate-keys needs the image pulled, and on a
+      # first run that hasn't happened yet.
+      openssl genpkey -algorithm ed25519 -out "$key" 2>/dev/null
+      ok "Generated the homeserver signing key"
+    fi
+    chmod 600 "$key"
+  else
+    ok "Keeping the existing homeserver signing key"
+  fi
+
+  local federation="true"
+  [ "${MATRIX_ALLOW_FEDERATION:-false}" = "true" ] && federation="false"
+
+  sed \
+    -e "s|__MATRIX_SERVER_NAME__|$MATRIX_SERVER_NAME|g" \
+    -e "s|__MATRIX_SHARED_SECRET__|$shared_secret|g" \
+    -e "s|__DENDRITE_DISABLE_FEDERATION__|$federation|g" \
+    -e "s|__DENDRITE_DATABASE_URL__|postgresql://sovrgn:$db_pass@db:5432/dendrite?sslmode=disable|g" \
+    "$REPO_DIR/dendrite/dendrite.yaml.template" > "$REPO_DIR/dendrite/dendrite.yaml"
+
+  chmod 600 "$REPO_DIR/dendrite/dendrite.yaml"
+  ok "Homeserver configured"
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 }
 
 # ------------------------------------------------------------------- launch

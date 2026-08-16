@@ -43,13 +43,21 @@ export function getTypingUserIds(channelId: number, excludeUserId: number): numb
 
   const now = Date.now();
   const active: number[] = [];
+<<<<<<< HEAD
   for (const [userId, expiresAt] of channel) {
+=======
+  Array.from(channel.entries()).forEach(([userId, expiresAt]) => {
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     if (expiresAt <= now) {
       channel.delete(userId);
     } else if (userId !== excludeUserId) {
       active.push(userId);
     }
+<<<<<<< HEAD
   }
+=======
+  });
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
   return active;
 }
 
@@ -69,6 +77,7 @@ export function onlineUserIds(userIds: number[]): Set<number> {
 /** Drop expired entries so an idle instance doesn't grow forever. */
 export function sweep(): void {
   const now = Date.now();
+<<<<<<< HEAD
   for (const [channelId, channel] of typing) {
     for (const [userId, expiresAt] of channel) {
       if (expiresAt <= now) channel.delete(userId);
@@ -78,6 +87,17 @@ export function sweep(): void {
   for (const [userId, seen] of lastSeen) {
     if (now - seen > ONLINE_TTL_MS * 10) lastSeen.delete(userId);
   }
+=======
+  Array.from(typing.entries()).forEach(([channelId, channel]) => {
+    Array.from(channel.entries()).forEach(([userId, expiresAt]) => {
+      if (expiresAt <= now) channel.delete(userId);
+    });
+    if (channel.size === 0) typing.delete(channelId);
+  });
+  Array.from(lastSeen.entries()).forEach(([userId, seen]) => {
+    if (now - seen > ONLINE_TTL_MS * 10) lastSeen.delete(userId);
+  });
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 }
 
 // unref() so this timer never holds the process open on shutdown.

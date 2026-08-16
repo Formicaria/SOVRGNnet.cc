@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 import { COOKIE_NAME } from "@shared/const";
+=======
+import { APP_VERSION, COOKIE_NAME } from "@shared/const";
+import { inviteDeepLink, inviteUrl } from "@shared/invite";
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 import { TRPCError } from "@trpc/server";
 import {
   checkLoginRateLimit,
@@ -10,7 +15,18 @@ import {
 } from "./_core/auth";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
+<<<<<<< HEAD
 import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+=======
+import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { canRegister, instanceId, instanceInfo, normalizeJoinPolicy } from "./instance";
+import {
+  JwksCache,
+  decideSsoLink,
+  ssoConfigFromEnv,
+  verifySsoToken,
+} from "./sso";
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import * as db from "./db";
@@ -18,6 +34,10 @@ import * as matrix from "./matrixService";
 import {
   ensureMatrixCredentials,
   joinServerRooms,
+<<<<<<< HEAD
+=======
+  removeFromServerRooms,
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
   requireServerMembership,
   syncPowerLevels,
 } from "./matrixBridge";
@@ -36,6 +56,20 @@ const credentialsInput = z.object({
   password: z.string().min(8).max(256),
 });
 
+<<<<<<< HEAD
+=======
+/**
+ * Signing keys from the identity provider, cached for the process lifetime.
+ *
+ * One instance, so every request shares the cache — and so an outage at the
+ * provider is survived by the whole server rather than per-request.
+ */
+const jwksCache = new JwksCache(
+  process.env.IDENTITY_ISSUER?.trim() || "https://sovrgnnet.cc"
+);
+const ssoConfig = () => ssoConfigFromEnv(instanceId());
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 /** Public shape of a user — never expose passwordHash. */
 function toPublicUser(user: User) {
   const { passwordHash: _passwordHash, ...publicUser } = user;
@@ -50,7 +84,17 @@ export const appRouter = router({
     ),
 
     register: publicProcedure
+<<<<<<< HEAD
       .input(credentialsInput.extend({ name: z.string().min(1).max(100).optional() }))
+=======
+      .input(
+        credentialsInput.extend({
+          name: z.string().min(1).max(100).optional(),
+          /** Carried from an invite link, for invite-only instances. */
+          inviteCode: z.string().min(1).max(32).optional(),
+        })
+      )
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
       .mutation(async ({ ctx, input }) => {
         const existing = await db.getUserByEmail(input.email);
         if (existing) {
@@ -60,8 +104,38 @@ export const appRouter = router({
           });
         }
 
+<<<<<<< HEAD
         const passwordHash = await hashPassword(input.password);
         const user = await db.createLocalUser(input.email, passwordHash, input.name);
+=======
+        // Whoever registers first is the person who set this instance up, so
+        // they get the keys to it. Every account after that is an ordinary
+        // user until an admin says otherwise. Without this nobody is ever an
+        // admin and the instance has no administrator at all.
+        const isFirstAccount = (await db.countUsers()) === 0;
+
+        // The instance's join policy was advertised by /api/instance but never
+        // actually enforced, so a server marked "closed" still accepted
+        // anyone. It does now.
+        const settings = await db.getInstanceSettings().catch(() => null);
+        const policy = instanceInfo(APP_VERSION, settings).joinPolicy;
+        const hasValidInvite = input.inviteCode
+          ? (await db.getServerByInviteCode(input.inviteCode)) != null
+          : false;
+
+        const verdict = canRegister({ policy, isFirstAccount, hasValidInvite });
+        if (!verdict.allowed) {
+          throw new TRPCError({ code: "FORBIDDEN", message: verdict.message });
+        }
+
+        const passwordHash = await hashPassword(input.password);
+        const user = await db.createLocalUser(
+          input.email,
+          passwordHash,
+          input.name,
+          isFirstAccount ? "admin" : "user"
+        );
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
         const token = await createSessionToken(user.id);
         setSessionCookie(ctx.req, ctx.res, token);
@@ -99,6 +173,85 @@ export const appRouter = router({
         return toPublicUser(user);
       }),
 
+<<<<<<< HEAD
+=======
+    /**
+     * Sign in with a sovrgnnet.cc account.
+     *
+     * The token was minted for this server specifically and is verified
+     * against a cached public key, so this works even when the identity
+     * provider is unreachable. Servers that want nothing to do with central
+     * identity leave INSTANCE_ALLOW_SSO unset and this always refuses.
+     */
+    ssoLogin: publicProcedure
+      .input(z.object({ token: z.string().min(1).max(4096) }))
+      .mutation(async ({ ctx, input }) => {
+        let claims;
+        try {
+          claims = await verifySsoToken(input.token, jwksCache, ssoConfig());
+        } catch (err) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: err instanceof Error ? err.message : "That sign-in couldn't be verified.",
+          });
+        }
+
+        const [existingBySubject, existingByEmail] = await Promise.all([
+          db.getUserBySsoSubject(claims.sub),
+          claims.email ? db.getUserByEmail(claims.email) : Promise.resolve(null),
+        ]);
+
+        const decision = decideSsoLink({
+          claims,
+          existingBySubject: existingBySubject ? { id: existingBySubject.id } : null,
+          existingByEmail: existingByEmail
+            ? { id: existingByEmail.id, ssoSubject: existingByEmail.ssoSubject }
+            : null,
+        });
+
+        if (decision.action === "refuse") {
+          throw new TRPCError({ code: "CONFLICT", message: decision.message });
+        }
+
+        let user;
+        if (decision.action === "create") {
+          // The same join policy applies to SSO as to local sign-up — a
+          // closed server stays closed no matter where the identity is from.
+          const isFirstAccount = (await db.countUsers()) === 0;
+          const settings = await db.getInstanceSettings().catch(() => null);
+          const verdict = canRegister({
+            policy: instanceInfo(APP_VERSION, settings).joinPolicy,
+            isFirstAccount,
+            hasValidInvite: false,
+          });
+          if (!verdict.allowed) {
+            throw new TRPCError({ code: "FORBIDDEN", message: verdict.message });
+          }
+
+          user = await db.createSsoUser(
+            claims.sub,
+            claims.email ?? null,
+            claims.name ?? null,
+            isFirstAccount ? "admin" : "user"
+          );
+        } else {
+          if (decision.action === "link") {
+            await db.linkSsoSubject(decision.userId, claims.sub);
+          }
+          const found = await db.getUserById(decision.userId);
+          if (!found) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Account not found." });
+          }
+          user = found;
+        }
+
+        await db.touchLastSignedIn(user.id);
+        const token = await createSessionToken(user.id);
+        setSessionCookie(ctx.req, ctx.res, token);
+        return toPublicUser(user);
+      }),
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -202,11 +355,31 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Server not found." });
         }
         await requireServerRole(input.serverId, ctx.user.id, "admin");
+<<<<<<< HEAD
         if (server.inviteCode) return { code: server.inviteCode };
 
         const code = nanoid(10);
         await db.setServerInviteCode(server.id, code);
         return { code };
+=======
+
+        let code = server.inviteCode;
+        if (!code) {
+          code = nanoid(10);
+          await db.setServerInviteCode(server.id, code);
+        }
+
+        // The link has to name the server, not just the code — a client
+        // connected to several servers can't resolve a bare code. Derived
+        // from the Host header so it's correct behind a tunnel or proxy,
+        // where the app has no reliable idea of its own public address.
+        const host = String(ctx.req.headers["x-forwarded-host"] ?? ctx.req.headers.host ?? "");
+        return {
+          code,
+          url: host ? inviteUrl(host, code) : null,
+          deepLink: host ? inviteDeepLink(host, code) : null,
+        };
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
       }),
 
     /** Join via invite code — works for private servers too. */
@@ -313,6 +486,60 @@ export const appRouter = router({
         if (!channel) return undefined;
         await requireServerMembership(channel.serverId, ctx.user.id);
         return channel;
+<<<<<<< HEAD
+=======
+      }),
+
+    /** "I'm typing" — call while someone is composing. */
+    setTyping: protectedProcedure
+      .input(z.object({ channelId: z.number(), typing: z.boolean().default(true) }))
+      .mutation(async ({ ctx, input }) => {
+        const channel = await db.getChannelById(input.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        await requireServerMembership(channel.serverId, ctx.user.id);
+
+        if (input.typing) {
+          presence.noteTyping(input.channelId, ctx.user.id);
+        } else {
+          presence.clearTyping(input.channelId, ctx.user.id);
+        }
+
+        // Also tell Matrix, so people watching from Element see it too.
+        const [creds, matrixUserId] = await Promise.all([
+          db.getMatrixCredentials(ctx.user.id),
+          db.getMatrixUserId(ctx.user.id),
+        ]);
+        if (creds && matrixUserId) {
+          matrix
+            .setTyping(creds.accessToken, channel.matrixRoomId, matrixUserId, input.typing)
+            .catch(() => {
+              // A lost typing notification is not worth surfacing.
+            });
+        }
+
+        return { ok: true } as const;
+      }),
+
+    /** Names of everyone currently typing here, excluding you. */
+    whoIsTyping: protectedProcedure
+      .input(z.object({ channelId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const channel = await db.getChannelById(input.channelId);
+        if (!channel) return [];
+        await requireServerMembership(channel.serverId, ctx.user.id);
+
+        // Reading the channel is a sign of life, so it doubles as a heartbeat.
+        presence.noteActivity(ctx.user.id);
+
+        const userIds = presence.getTypingUserIds(input.channelId, ctx.user.id);
+        if (userIds.length === 0) return [];
+
+        const members = await db.getServerMembersDetailed(channel.serverId);
+        const nameById = new Map(members.map(m => [m.userId, m.name]));
+        return userIds.map(id => ({ userId: id, name: nameById.get(id) ?? "Someone" }));
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
       }),
   }),
 
@@ -329,7 +556,17 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
         }
         await requireServerMembership(channel.serverId, ctx.user.id);
+<<<<<<< HEAD
         return await db.getMessagesByChannel(input.channelId, input.limit);
+=======
+        // The server id lets each sender be shown under their per-server
+        // nickname rather than their account name.
+        return await db.getMessagesByChannel(
+          input.channelId,
+          input.limit,
+          channel.serverId
+        );
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
       }),
 
     send: protectedProcedure
@@ -351,6 +588,11 @@ export const appRouter = router({
           input.content
         );
 
+<<<<<<< HEAD
+=======
+        presence.clearTyping(input.channelId, ctx.user.id);
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
         // E2EE lands in a later phase; until then messages are plaintext.
         return await db.createMessage(
           input.channelId,
@@ -361,7 +603,100 @@ export const appRouter = router({
         );
       }),
 
+<<<<<<< HEAD
     /** Delete a message — author or server owner. Redacts on Matrix too. */
+=======
+    /** Edit your own message. Moderators can't rewrite what others said. */
+    edit: protectedProcedure
+      .input(z.object({
+        messageId: z.number(),
+        content: z.string().min(1).max(4000),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.messageId);
+        if (!message) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Message not found." });
+        }
+        if (message.userId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only edit your own messages.",
+          });
+        }
+
+        const channel = await db.getChannelById(message.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        await requireServerMembership(channel.serverId, ctx.user.id);
+
+        const creds = await db.getMatrixCredentials(ctx.user.id);
+        if (creds) {
+          try {
+            await matrix.editMessage(
+              creds.accessToken,
+              channel.matrixRoomId,
+              message.matrixEventId,
+              input.content
+            );
+          } catch {
+            // The homeserver keeps the original; our copy is what the app shows.
+          }
+        }
+
+        return await db.updateMessageContent(message.id, input.content);
+      }),
+
+    /** Toggle one emoji reaction for the current user. */
+    react: protectedProcedure
+      .input(z.object({
+        messageId: z.number(),
+        // Emoji only — this is a reaction, not a second message body.
+        emoji: z.string().min(1).max(16),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const message = await db.getMessageById(input.messageId);
+        if (!message) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Message not found." });
+        }
+        const channel = await db.getChannelById(message.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        await requireServerMembership(channel.serverId, ctx.user.id);
+
+        const existing = (message.reactions as db.ReactionMap | null) ?? {};
+        const wasReacted = (existing[input.emoji] ?? []).includes(ctx.user.id);
+
+        const reactions = await db.toggleMessageReaction(
+          message.id,
+          ctx.user.id,
+          input.emoji
+        );
+
+        // Matrix has no "unreact" beyond redacting the annotation event, and
+        // we don't track annotation ids yet — so only additions propagate.
+        if (!wasReacted) {
+          const creds = await db.getMatrixCredentials(ctx.user.id);
+          if (creds) {
+            try {
+              await matrix.sendReaction(
+                creds.accessToken,
+                channel.matrixRoomId,
+                message.matrixEventId,
+                input.emoji
+              );
+            } catch {
+              // Cosmetic on the Matrix side; the app's copy is authoritative.
+            }
+          }
+        }
+
+        return reactions;
+      }),
+
+    /** Delete a message — the author, or a moderator and above. */
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     delete: protectedProcedure
       .input(z.object({ messageId: z.number() }))
       .mutation(async ({ ctx, input }) => {
@@ -373,17 +708,33 @@ export const appRouter = router({
         if (!channel) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
         }
+<<<<<<< HEAD
         const server = await db.getServerById(channel.serverId);
         const isAuthor = message.userId === ctx.user.id;
         const isOwner = server?.ownerId === ctx.user.id;
         if (!isAuthor && !isOwner) {
+=======
+        const isAuthor = message.userId === ctx.user.id;
+        const role = await getServerRole(channel.serverId, ctx.user.id);
+        if (!role) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You are not a member of this server.",
+          });
+        }
+        if (!isAuthor && !atLeast(role, "moderator")) {
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "You can only delete your own messages.",
           });
         }
 
+<<<<<<< HEAD
         // Redact as the author when possible, else as the acting owner.
+=======
+        // Redact as the author when possible, else as the acting moderator.
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
         const creds = await db.getMatrixCredentials(
           isAuthor ? ctx.user.id : message.userId
         ) ?? await db.getMatrixCredentials(ctx.user.id);
@@ -500,16 +851,275 @@ export const appRouter = router({
       }),
   }),
 
+<<<<<<< HEAD
   // Server members (joining happens via servers.join)
+=======
+  // Server members (joining happens via servers.join / servers.joinByInvite)
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
   serverMembers: router({
+    /** Everyone in the server, with role and whether they're around. */
     list: protectedProcedure
       .input(z.object({ serverId: z.number() }))
       .query(async ({ ctx, input }) => {
         await requireServerMembership(input.serverId, ctx.user.id);
+<<<<<<< HEAD
         return await db.getServerMembers(input.serverId);
       }),
   }),
 
+=======
+        presence.noteActivity(ctx.user.id);
+
+        const server = await db.getServerById(input.serverId);
+        const members = await db.getServerMembersDetailed(input.serverId);
+
+        // The owner may predate the membership table; make sure they appear.
+        const rows = members.some(m => m.userId === server?.ownerId)
+          ? members
+          : server
+            ? [
+                {
+                  userId: server.ownerId,
+                  role: "owner" as const,
+                  joinedAt: server.createdAt,
+                  name: null as string | null,
+                  email: null as string | null,
+                  matrixUserId: null as string | null,
+                },
+                ...members,
+              ]
+            : members;
+
+        const online = presence.onlineUserIds(rows.map(r => r.userId));
+        const rank: Record<string, number> = { owner: 0, admin: 1, moderator: 2, member: 3 };
+
+        return rows
+          .map(r => ({
+            userId: r.userId,
+            name: r.name,
+            role: r.userId === server?.ownerId ? ("owner" as const) : r.role,
+            joinedAt: r.joinedAt,
+            online: online.has(r.userId),
+          }))
+          .sort(
+            (a, b) =>
+              rank[a.role] - rank[b.role] ||
+              (a.name ?? "").localeCompare(b.name ?? "")
+          );
+      }),
+
+    /** Promote or demote. Only the owner hands out admin. */
+    setRole: protectedProcedure
+      .input(z.object({
+        serverId: z.number(),
+        userId: z.number(),
+        role: z.enum(["admin", "moderator", "member"]),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const { actorRole } = await requireAuthorityOver(
+          input.serverId,
+          ctx.user.id,
+          input.userId
+        );
+
+        // You can't hand out authority at or above your own.
+        const granting: ServerRole = input.role;
+        const rankOf: Record<ServerRole, number> = {
+          owner: 4, admin: 3, moderator: 2, member: 1,
+        };
+        if (rankOf[granting] >= rankOf[actorRole]) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can't grant a role equal to or above your own.",
+          });
+        }
+
+        await db.setServerMemberRole(input.serverId, input.userId, input.role);
+        await syncPowerLevels(
+          input.serverId,
+          ctx.user.id,
+          input.userId,
+          matrix.POWER_LEVELS[input.role]
+        );
+
+        return { role: input.role } as const;
+      }),
+
+    /** Remove someone. They can come back through discovery or an invite. */
+    kick: protectedProcedure
+      .input(z.object({ serverId: z.number(), userId: z.number(), reason: z.string().max(500).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireAuthorityOver(input.serverId, ctx.user.id, input.userId);
+        await removeFromServerRooms(
+          input.serverId,
+          ctx.user.id,
+          input.userId,
+          "kick",
+          input.reason
+        );
+        await db.removeServerMember(input.serverId, input.userId);
+        return { kicked: true } as const;
+      }),
+
+    /** Remove someone and keep them out. */
+    ban: protectedProcedure
+      .input(z.object({ serverId: z.number(), userId: z.number(), reason: z.string().max(500).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireAuthorityOver(input.serverId, ctx.user.id, input.userId);
+        await removeFromServerRooms(
+          input.serverId,
+          ctx.user.id,
+          input.userId,
+          "ban",
+          input.reason
+        );
+        await db.removeServerMember(input.serverId, input.userId);
+        await db.banServerMember(
+          input.serverId,
+          input.userId,
+          ctx.user.id,
+          input.reason
+        );
+        return { banned: true } as const;
+      }),
+
+    unban: protectedProcedure
+      .input(z.object({ serverId: z.number(), userId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireServerRole(input.serverId, ctx.user.id, "moderator");
+        await db.unbanServerMember(input.serverId, input.userId);
+        return { unbanned: true } as const;
+      }),
+
+    listBans: protectedProcedure
+      .input(z.object({ serverId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await requireServerRole(input.serverId, ctx.user.id, "moderator");
+        return await db.getServerBans(input.serverId);
+      }),
+
+    /**
+     * Your profile within one server.
+     *
+     * One identity, many faces: the same account can be "Zach" in one
+     * community and "chronus" in another, the way Discord handles it.
+     */
+    myProfile: protectedProcedure
+      .input(z.object({ serverId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        await requireServerMembership(input.serverId, ctx.user.id);
+        const profile = await db.getServerProfile(input.serverId, ctx.user.id);
+        return {
+          nickname: profile?.nickname ?? null,
+          avatar: profile?.avatar ?? null,
+          /** What's shown if the nickname is cleared. */
+          accountName: ctx.user.name,
+        };
+      }),
+
+    updateMyProfile: protectedProcedure
+      .input(
+        z.object({
+          serverId: z.number(),
+          // Empty string clears it, falling back to the account name.
+          nickname: z.string().max(80).nullable(),
+          avatar: z.string().max(500).nullable().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await requireServerMembership(input.serverId, ctx.user.id);
+
+        const nickname = input.nickname?.trim() ? input.nickname.trim() : null;
+        await db.setServerProfile(input.serverId, ctx.user.id, {
+          nickname,
+          ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
+        });
+
+        return { nickname, name: db.displayName(nickname, ctx.user.name) };
+      }),
+
+    /** Your own role here — the client uses this to decide what to show. */
+    myRole: protectedProcedure
+      .input(z.object({ serverId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        return await getServerRole(input.serverId, ctx.user.id);
+      }),
+  }),
+
+  /**
+   * Instance administration.
+   *
+   * Everything a server owner would otherwise SSH in to change. Restricted to
+   * accounts with the instance-level admin role — which is the first account
+   * registered, and anyone they promote.
+   *
+   * Works the same whether the client is on the same machine as the server or
+   * across the internet: administering a box in your closet from the laptop
+   * in your hand is the point, not a special case.
+   */
+  admin: router({
+    getSettings: adminProcedure.query(async () => {
+      const stored = await db.getInstanceSettings();
+      const info = instanceInfo(APP_VERSION, stored);
+      return {
+        name: info.name,
+        description: info.description,
+        joinPolicy: info.joinPolicy,
+        listed: info.listed,
+        // Read-only facts an admin needs to see but cannot change here:
+        // the Matrix name is permanent, and encryption depends on deployment.
+        matrixServerName: info.matrixServerName,
+        encryption: info.encryption,
+        instanceId: info.id,
+        version: info.software.version,
+        /** True once an admin has saved anything; false means env defaults. */
+        configured: stored != null,
+      };
+    }),
+
+    updateSettings: adminProcedure
+      .input(
+        z.object({
+          name: z.string().min(1).max(120).optional(),
+          description: z.string().max(500).nullable().optional(),
+          joinPolicy: z.enum(["open", "invite", "closed"]).optional(),
+          listed: z.boolean().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const saved = await db.saveInstanceSettings(input);
+        return {
+          name: saved.name,
+          description: saved.description,
+          joinPolicy: normalizeJoinPolicy(saved.joinPolicy),
+          listed: saved.listed,
+        };
+      }),
+
+    /** Everyone with an account on this instance. */
+    listUsers: adminProcedure.query(async () => {
+      return await db.listUsers();
+    }),
+
+    /** Grant or revoke instance administration. */
+    setUserRole: adminProcedure
+      .input(z.object({ userId: z.number(), role: z.enum(["user", "admin"]) }))
+      .mutation(async ({ ctx, input }) => {
+        if (input.userId === ctx.user.id && input.role === "user") {
+          // An instance with no administrator can only be repaired from a
+          // database console, which is exactly what this surface exists to
+          // avoid needing.
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "You can't remove your own admin access.",
+          });
+        }
+        await db.setUserRole(input.userId, input.role);
+        return { role: input.role } as const;
+      }),
+  }),
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
   // Matrix status (everything else goes through servers/channels/messages)
   matrix: router({
     status: publicProcedure.query(async () => ({

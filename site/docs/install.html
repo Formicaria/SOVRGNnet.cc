@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Installing — SOVRGNnet</title>
+  <meta name="description" content="From a bare machine to a working chat network in about ten minutes. No domain and no accounts required." />
+  <meta name="theme-color" content="#0a0614" />
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <nav>
+        <a class="logo" href="/">SOVRGN<b>net</b></a>
+        <div class="links">
+          <a href="/docs/">Docs</a>
+          <a href="/docs/install.html" aria-current="page">Install</a>
+          <a href="/docs/operating.html">Operating</a>
+          <a href="/docs/architecture.html">Architecture</a>
+          <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        </div>
+      </nav>
+    </div>
+  </header>
+
+  <main class="doc">
+    <div class="wrap narrow">
+      <h1>Installing SOVRGNnet</h1>
+      <p class="subtitle">
+        From a bare machine to a working chat network. Ten minutes, most of it
+        waiting.
+      </p>
+
+      <div class="note">
+        <strong>What you need</strong>
+        A computer that stays on — an old laptop, a Raspberry Pi 5, a mini PC, a
+        spare desktop. About 4 GB of memory. That's the whole list. No domain
+        name, no Cloudflare account, no credit card, nothing to sign up for.
+      </div>
+
+      <h2>The short version</h2>
+<pre><code>git clone https://github.com/Formicaria/SOVRGNnet.cc.git sovrgnnet
+cd sovrgnnet
+./install.sh</code></pre>
+      <p>
+        If <code>git</code> isn't installed, <code>sudo apt install git</code>
+        first. If Docker isn't installed, the script notices and offers to do it.
+      </p>
+
+      <h2>The one question it asks</h2>
+      <p>
+        Everything else is generated for you. This is the only decision that's
+        actually yours:
+      </p>
+<pre><code>How should people reach your SOVRGNnet?
+
+  1  Just me, on this network
+  2  Friends over the internet — no account, no domain
+  3  My own domain, through Cloudflare
+  4  My own domain, my own certificates</code></pre>
+
+      <h3>1 — Just this network</h3>
+      <p>
+        Nothing leaves your house. You get an address like
+        <code>http://192.168.1.50:3000</code> that anyone on your wifi can
+        open. Good for trying it, good for a household.
+      </p>
+
+      <h3>2 — Friends over the internet, no account needed</h3>
+      <p>
+        You get a real <code>https://</code> address in about a minute, with no
+        signup anywhere and nothing touched on your router. It runs over a
+        Cloudflare Quick Tunnel — an outbound connection from your machine, so
+        there's no port forwarding and your home IP stays private.
+      </p>
+      <p>
+        The catch, stated plainly: <strong>the address is random and changes
+        every time you restart.</strong> That's the price of needing no account.
+        It suits a weekend, a group of friends, or trying the thing out with
+        real people. For something permanent, option 3.
+      </p>
+      <p class="muted">
+        Run <code>sovrgnnet url</code> any time to see the current address.
+      </p>
+
+      <h3>3 — Your own domain, through Cloudflare</h3>
+      <p>
+        A permanent address like <code>chat.yourname.com</code>. Needs a free
+        Cloudflare account and a domain you own. In the Cloudflare dashboard:
+        <em>Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared</em>,
+        point a public hostname at <code>http://app:3000</code>, then paste the
+        token the dashboard gives you when the installer asks.
+      </p>
+      <p class="muted">
+        Full production setup — including Matrix federation delegation — is in
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/DEPLOYMENT.md">DEPLOYMENT.md</a>.
+      </p>
+
+      <h3>4 — Your own domain, your own certificates</h3>
+      <p>
+        For people already running a reverse proxy. Put <code>cert.pem</code>
+        and <code>key.pem</code> in <code>./ssl/</code> and uncomment the TLS
+        block at the bottom of <code>nginx.conf</code>.
+      </p>
+
+      <h2>Without Docker: the LXC install</h2>
+      <p>
+        There's a second installer that uses no Docker at all — PostgreSQL,
+        Dendrite, Kubo, and the app as ordinary systemd services. On Proxmox
+        this is the lighter option: an LXC container shares the host kernel, so
+        you skip both the VM overhead and the Docker layer.
+      </p>
+<pre><code><span class="c"># inside a fresh Debian or Ubuntu container, as root</span>
+apt update &amp;&amp; apt install -y git
+git clone https://github.com/Formicaria/SOVRGNnet.cc.git /opt/sovrgnnet
+/opt/sovrgnnet/scripts/install-lxc.sh</code></pre>
+      <p>
+        Same question, same result. Afterwards <code>sovrgnnet</code> is on your
+        PATH and behaves identically to the Docker install — it detects which
+        one you have and translates.
+      </p>
+      <div class="warning">
+        <strong>Give the container 4 GB of memory</strong>
+        Building the frontend is the peak, and 1 GB won't survive it. Creating
+        the container and the rest of the details are in
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/LXC.md">LXC.md</a>.
+      </div>
+
+      <h2>Your first account</h2>
+      <p>
+        Open the address the installer printed and sign up with an email and
+        password. The email is just a username — nothing is sent anywhere and
+        no outside service is involved. <strong>The first account becomes the
+        admin.</strong>
+      </p>
+      <p>Then:</p>
+      <ol>
+        <li>Click <strong>+</strong> on the left to create a server.</li>
+        <li>Click the invite icon at the top to get a shareable link.</li>
+        <li>Send it to someone. They sign up and land in your server.</li>
+      </ol>
+
+      <h2>What the installer did</h2>
+      <p>
+        Worth knowing, even though you didn't have to do any of it:
+      </p>
+      <ul>
+        <li>Generated a session secret, a database password, and the shared
+            secret the app uses to create Matrix accounts — written to
+            <code>.env</code> with permissions <code>600</code>.</li>
+        <li>Started PostgreSQL, a Dendrite Matrix homeserver, and an IPFS node,
+            all bound to loopback where they should be.</li>
+        <li>Built the app and started it. <strong>It creates its own database
+            tables on first boot</strong> — there's no migration step to run,
+            now or after an update.</li>
+        <li>Left federation turned off, so your homeserver talks to nobody until
+            you decide otherwise.</li>
+      </ul>
+
+      <div class="note">
+        <strong>Re-running is safe</strong>
+        <code>./install.sh</code> keeps the secrets it already generated and
+        backs up your previous settings. Use it to change how people reach you
+        without disturbing any accounts or messages.
+      </div>
+
+      <h2>One setting to get right the first time</h2>
+      <p>
+        <code>MATRIX_SERVER_NAME</code> is written into every Matrix user and
+        room ID the moment it's created. <strong>Changing it later orphans all
+        existing chat history</strong> — there's no migration that fixes it.
+      </p>
+      <p class="muted">
+        The installer picks <code>sovrgn.local</code> for a private instance, or
+        <code>matrix.yourdomain.com</code> if you gave it a domain. If you think
+        you'll want a domain eventually, it's worth deciding before your first
+        login rather than after your first hundred messages.
+      </p>
+
+      <h2>When it doesn't work</h2>
+      <table>
+        <tr><th>What you see</th><th>What to do</th></tr>
+        <tr>
+          <td>The address doesn't load</td>
+          <td><code>sovrgnnet status</code>. Just started? Give it a minute.
+              Otherwise <code>sovrgnnet logs</code>.</td>
+        </tr>
+        <tr>
+          <td><code>permission denied</code> talking to Docker</td>
+          <td>Your user isn't in the docker group yet. Log out and back in.</td>
+        </tr>
+        <tr>
+          <td>Friends can't connect (option 2)</td>
+          <td>The address changed on restart. <code>sovrgnnet url</code>.</td>
+        </tr>
+        <tr>
+          <td>Port already in use</td>
+          <td>Something else on that machine holds 3000 or 80. Stop it, or use
+              a different machine.</td>
+        </tr>
+        <tr>
+          <td>Killed during the build</td>
+          <td>Out of memory. Give it 4 GB, or add swap.</td>
+        </tr>
+      </table>
+      <p class="muted">
+        Still stuck? <a href="https://github.com/Formicaria/SOVRGNnet.cc/issues">Open an issue</a>
+        with the output of <code>sovrgnnet status</code>. A failing install is a
+        bug in the installer, not something you did wrong.
+      </p>
+
+      <div class="next-prev">
+        <a href="/docs/"><span>Back</span> ← Documentation</a>
+        <a href="/docs/operating.html"><span>Next</span> Running it →</a>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap foot">
+      <span class="logo">SOVRGN<b>net</b></span>
+      <span>MIT © 2026 · <a href="https://formicaria.us">Formicaria</a></span>
+      <div class="links">
+        <a href="/docs/">Docs</a>
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
+        <a href="/legal.html">Legal</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

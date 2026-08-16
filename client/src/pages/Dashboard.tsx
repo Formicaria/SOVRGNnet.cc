@@ -15,11 +15,68 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+<<<<<<< HEAD
 import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy } from "lucide-react";
+=======
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy, Pencil, SmilePlus, X, Globe, Settings } from "lucide-react";
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import MemberList from "@/components/MemberList";
+import AddServerDialog from "@/components/AddServerDialog";
+import ServerSettings from "@/components/ServerSettings";
+import { useConnections } from "@/contexts/ConnectionsContext";
 
+/** Reactions people actually reach for, without shipping an emoji picker. */
+const QUICK_REACTIONS = ["👍", "😂", "🔥", "❤️", "👀", "🎉"] as const;
+
+type ReactionMap = Record<string, number[]>;
+
+function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map(w => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+type TimelineItem =
+  | {
+      kind: "message";
+      id: string;
+      dbId: number;
+      senderId: number;
+      senderName: string | null;
+      createdAt: Date;
+      content: string;
+      editedAt: Date | null;
+      reactions: ReactionMap;
+    }
+  | {
+      kind: "file";
+      id: string;
+      senderName: string | null;
+      createdAt: Date;
+      filename: string;
+      ipfsHash: string;
+      fileSize: number;
+      mimeType: string | null;
+    };
+
+<<<<<<< HEAD
 function initials(name: string): string {
   return name
     .split(/\s+/)
@@ -175,6 +232,171 @@ export default function Dashboard() {
     }
   };
 
+=======
+export default function Dashboard() {
+  const { user, loading, logout } = useAuth();
+  const { connections, current, multiplexes } = useConnections();
+  const [addServerOpen, setAddServerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [, setLocation] = useLocation();
+
+  const [selectedServerId, setSelectedServerId] = useState<number | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null);
+  const [messageInput, setMessageInput] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [discoverOpen, setDiscoverOpen] = useState(false);
+  const [newServerName, setNewServerName] = useState("");
+  const [newChannelName, setNewChannelName] = useState("");
+  const [serverDialogOpen, setServerDialogOpen] = useState(false);
+  const [channelDialogOpen, setChannelDialogOpen] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const utils = trpc.useUtils();
+
+  const serversQuery = trpc.servers.list.useQuery(undefined, { enabled: !!user });
+  const publicServersQuery = trpc.servers.listPublic.useQuery(undefined, {
+    enabled: !!user && discoverOpen,
+  });
+  const channelsQuery = trpc.channels.listByServer.useQuery(
+    { serverId: selectedServerId! },
+    { enabled: selectedServerId != null }
+  );
+  const messagesQuery = trpc.messages.listByChannel.useQuery(
+    { channelId: selectedChannelId!, limit: 50 },
+    { enabled: selectedChannelId != null, refetchInterval: 3000 }
+  );
+  const filesQuery = trpc.fileShares.listByChannel.useQuery(
+    { channelId: selectedChannelId! },
+    { enabled: selectedChannelId != null, refetchInterval: 5000 }
+  );
+
+  const createServer = trpc.servers.create.useMutation({
+    onSuccess: async res => {
+      await utils.servers.list.invalidate();
+      setSelectedServerId(res.server.id);
+      setSelectedChannelId(res.defaultChannel.id);
+      setServerDialogOpen(false);
+      setNewServerName("");
+    },
+    onError: e => setError(e.message),
+  });
+  const joinServer = trpc.servers.join.useMutation({
+    onSuccess: async () => {
+      await utils.servers.list.invalidate();
+      setDiscoverOpen(false);
+    },
+    onError: e => setError(e.message),
+  });
+  const createChannel = trpc.channels.create.useMutation({
+    onSuccess: async chan => {
+      await utils.channels.listByServer.invalidate({ serverId: selectedServerId! });
+      setSelectedChannelId(chan.id);
+      setChannelDialogOpen(false);
+      setNewChannelName("");
+    },
+    onError: e => setError(e.message),
+  });
+  const sendMessage = trpc.messages.send.useMutation({
+    onSuccess: async () => {
+      setMessageInput("");
+      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+    },
+    onError: e => setError(e.message),
+  });
+  const deleteMessage = trpc.messages.delete.useMutation({
+    onSuccess: async () => {
+      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+    },
+    onError: e => setError(e.message),
+  });
+  const editMessage = trpc.messages.edit.useMutation({
+    onSuccess: async () => {
+      setEditingId(null);
+      setEditDraft("");
+      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+    },
+    onError: e => setError(e.message),
+  });
+  const reactToMessage = trpc.messages.react.useMutation({
+    onSuccess: async () => {
+      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+    },
+    onError: e => setError(e.message),
+  });
+  const setTyping = trpc.channels.setTyping.useMutation();
+  const typingQuery = trpc.channels.whoIsTyping.useQuery(
+    { channelId: selectedChannelId! },
+    { enabled: selectedChannelId != null, refetchInterval: 3000 }
+  );
+  const myRoleQuery = trpc.serverMembers.myRole.useQuery(
+    { serverId: selectedServerId! },
+    { enabled: selectedServerId != null }
+  );
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const typingSentAt = useRef(0);
+
+  // Announce typing at most once every four seconds — the server keeps the
+  // flag alive for six, so this is enough to look continuous without
+  // hammering the API on every keystroke.
+  const announceTyping = () => {
+    if (selectedChannelId == null) return;
+    const now = Date.now();
+    if (now - typingSentAt.current < 4000) return;
+    typingSentAt.current = now;
+    setTyping.mutate({ channelId: selectedChannelId, typing: true });
+  };
+  const createInvite = trpc.servers.createInvite.useMutation({
+    // Prefer the server's own idea of its address — behind a tunnel it knows
+    // better than the browser does — but fall back to the current origin.
+    onSuccess: res =>
+      setInviteLink(res.url ?? `${window.location.origin}/invite/${res.code}`),
+    onError: e => setError(e.message),
+  });
+  const leaveServer = trpc.servers.leave.useMutation({
+    onSuccess: async () => {
+      setSelectedServerId(null);
+      setSelectedChannelId(null);
+      await utils.servers.list.invalidate();
+    },
+    onError: e => setError(e.message),
+  });
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const uploadFile = async (file: File) => {
+    if (selectedChannelId == null) return;
+    try {
+      setIsUploading(true);
+      setError(null);
+      const res = await fetch(
+        `/api/upload?channelId=${selectedChannelId}&filename=${encodeURIComponent(file.name)}`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file,
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error ?? `Upload failed (${res.status})`);
+      }
+      await utils.fileShares.listByChannel.invalidate({ channelId: selectedChannelId });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
   const servers = serversQuery.data ?? [];
   const channels = channelsQuery.data ?? [];
   const messages = messagesQuery.data ?? [];
@@ -190,6 +412,11 @@ export default function Dashboard() {
         senderName: m.senderName,
         createdAt: new Date(m.createdAt),
         content: m.content,
+<<<<<<< HEAD
+=======
+        editedAt: m.editedAt ? new Date(m.editedAt) : null,
+        reactions: (m.reactions as ReactionMap | null) ?? {},
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
       })),
       ...files.map(f => ({
         kind: "file" as const,
@@ -243,6 +470,7 @@ export default function Dashboard() {
   const handleSend = () => {
     const content = messageInput.trim();
     if (!content || selectedChannelId == null || sendMessage.isPending) return;
+<<<<<<< HEAD
     sendMessage.mutate({ channelId: selectedChannelId, content });
   };
 
@@ -271,6 +499,88 @@ export default function Dashboard() {
           </Tooltip>
         ))}
 
+=======
+    typingSentAt.current = 0;
+    setTyping.mutate({ channelId: selectedChannelId, typing: false });
+    sendMessage.mutate({ channelId: selectedChannelId, content });
+  };
+
+  const myRole = myRoleQuery.data ?? null;
+  const canModerate = myRole === "owner" || myRole === "admin" || myRole === "moderator";
+  const canManageServer = myRole === "owner" || myRole === "admin";
+  const typingNames = (typingQuery.data ?? []).map(t => t.name);
+  const typingLabel =
+    typingNames.length === 0
+      ? null
+      : typingNames.length === 1
+        ? `${typingNames[0]} is typing…`
+        : typingNames.length === 2
+          ? `${typingNames[0]} and ${typingNames[1]} are typing…`
+          : "Several people are typing…";
+
+  return (
+    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
+      {/* Server rail. The strip at the top is *hosts* — different machines
+          people run — and below it, the communities on the current host. */}
+      <aside className="w-[72px] bg-slate-900 flex flex-col items-center py-3 gap-2 border-r border-slate-800">
+        {connections.length > 1 && (
+          <>
+            {connections.map(connection => {
+              const active = connection.id === current?.id;
+              return (
+                <Tooltip key={connection.id}>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => {
+                        if (active) return;
+                        // In a browser, another server is another origin with
+                        // its own session — switching means going there.
+                        if (!multiplexes) {
+                          window.location.href = `${connection.secure ? "https" : "http"}://${connection.host}`;
+                        }
+                      }}
+                      className={`w-9 h-9 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all ${
+                        active
+                          ? "bg-slate-700 text-white ring-2 ring-purple-500"
+                          : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+                      }`}
+                    >
+                      {initials(connection.name)}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <span className="font-medium">{connection.name}</span>
+                    <span className="block text-[11px] opacity-70">{connection.host}</span>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+            <div className="w-8 h-px bg-slate-700 my-1" />
+          </>
+        )}
+
+        {servers.map(server => (
+          <Tooltip key={server.id}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => {
+                  setSelectedServerId(server.id);
+                  setSelectedChannelId(null);
+                }}
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-bold transition-all ${
+                  server.id === selectedServerId
+                    ? "bg-purple-600 rounded-xl"
+                    : "bg-slate-800 hover:bg-slate-700 hover:rounded-xl"
+                }`}
+              >
+                {initials(server.name)}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{server.name}</TooltipContent>
+          </Tooltip>
+        ))}
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
         <Dialog open={serverDialogOpen} onOpenChange={setServerDialogOpen}>
           <DialogTrigger asChild>
             <button className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-green-700 hover:rounded-xl flex items-center justify-center transition-all">
@@ -355,6 +665,40 @@ export default function Dashboard() {
           </DialogContent>
         </Dialog>
 
+<<<<<<< HEAD
+=======
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setAddServerOpen(true)}
+              className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 hover:rounded-xl flex items-center justify-center transition-all"
+            >
+              <Globe className="w-5 h-5 text-sky-400" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">Add another server</TooltipContent>
+        </Tooltip>
+        <AddServerDialog open={addServerOpen} onOpenChange={setAddServerOpen} />
+
+        {/* Instance administration, for whoever runs this server. */}
+        {user.role === "admin" && (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 hover:rounded-xl flex items-center justify-center transition-all"
+                >
+                  <Settings className="w-5 h-5 text-slate-400" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Server settings</TooltipContent>
+            </Tooltip>
+            <ServerSettings open={settingsOpen} onOpenChange={setSettingsOpen} />
+          </>
+        )}
+
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
         <div className="mt-auto">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -379,7 +723,11 @@ export default function Dashboard() {
           <span className="font-semibold truncate flex-1">
             {selectedServer?.name ?? "SOVRGNnet"}
           </span>
+<<<<<<< HEAD
           {selectedServer && selectedServer.ownerId === user.id && (
+=======
+          {selectedServer && canManageServer && (
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
             <Dialog
               open={inviteOpen}
               onOpenChange={open => {
@@ -405,19 +753,31 @@ export default function Dashboard() {
                     Anyone with this link can join {selectedServer.name}.
                   </DialogDescription>
                 </DialogHeader>
+<<<<<<< HEAD
                 {inviteCode ? (
                   <div className="flex gap-2">
                     <Input
                       readOnly
                       value={`${window.location.origin}/invite/${inviteCode}`}
+=======
+                {inviteLink ? (
+                  <div className="flex gap-2">
+                    <Input
+                      readOnly
+                      value={inviteLink}
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
                       className="bg-slate-800 border-slate-700 font-mono text-sm"
                     />
                     <Button
                       size="icon"
                       onClick={async () => {
+<<<<<<< HEAD
                         await navigator.clipboard.writeText(
                           `${window.location.origin}/invite/${inviteCode}`
                         );
+=======
+                        await navigator.clipboard.writeText(inviteLink);
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
                         setInviteCopied(true);
                       }}
                     >
@@ -461,7 +821,11 @@ export default function Dashboard() {
               <span className="truncate">{channel.name}</span>
             </button>
           ))}
+<<<<<<< HEAD
           {selectedServer && selectedServer.ownerId === user.id && (
+=======
+          {selectedServer && canManageServer && (
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
             <Dialog open={channelDialogOpen} onOpenChange={setChannelDialogOpen}>
               <DialogTrigger asChild>
                 <button className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors">
@@ -579,6 +943,7 @@ export default function Dashboard() {
                       minute: "2-digit",
                     })}
                   </span>
+<<<<<<< HEAD
                   {item.kind === "message" &&
                     (item.senderId === user.id ||
                       selectedServer?.ownerId === user.id) && (
@@ -595,6 +960,144 @@ export default function Dashboard() {
                   <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
                     {item.content}
                   </p>
+=======
+                  {item.kind === "message" && item.editedAt && (
+                    <span className="text-[10px] text-slate-600" title="Edited">
+                      (edited)
+                    </span>
+                  )}
+                  {item.kind === "message" && (
+                    <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="text-slate-600 hover:text-purple-400" title="Add reaction">
+                            <SmilePlus className="w-3.5 h-3.5" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="start"
+                          className="bg-slate-900 border-slate-700 flex gap-1 p-1.5 min-w-0"
+                        >
+                          {QUICK_REACTIONS.map(emoji => (
+                            <button
+                              key={emoji}
+                              className="text-base leading-none px-1.5 py-1 rounded hover:bg-slate-800 transition-colors"
+                              onClick={() =>
+                                reactToMessage.mutate({ messageId: item.dbId, emoji })
+                              }
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      {item.senderId === user.id && (
+                        <button
+                          className="text-slate-600 hover:text-sky-400"
+                          title="Edit message"
+                          onClick={() => {
+                            setEditingId(item.dbId);
+                            setEditDraft(item.content);
+                          }}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      {(item.senderId === user.id || canModerate) && (
+                        <button
+                          className="text-slate-600 hover:text-red-400"
+                          title="Delete message"
+                          onClick={() => deleteMessage.mutate({ messageId: item.dbId })}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {item.kind === "message" ? (
+                  editingId === item.dbId ? (
+                    <div className="mt-1 flex gap-2">
+                      <Input
+                        autoFocus
+                        value={editDraft}
+                        onChange={e => setEditDraft(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            if (editDraft.trim()) {
+                              editMessage.mutate({
+                                messageId: item.dbId,
+                                content: editDraft.trim(),
+                              });
+                            }
+                          }
+                          if (e.key === "Escape") {
+                            setEditingId(null);
+                            setEditDraft("");
+                          }
+                        }}
+                        className="bg-slate-800 border-slate-700 h-8 text-sm"
+                      />
+                      <Button
+                        size="icon"
+                        className="h-8 w-8 shrink-0"
+                        disabled={!editDraft.trim() || editMessage.isPending}
+                        onClick={() =>
+                          editMessage.mutate({
+                            messageId: item.dbId,
+                            content: editDraft.trim(),
+                          })
+                        }
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8 shrink-0"
+                        onClick={() => {
+                          setEditingId(null);
+                          setEditDraft("");
+                        }}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm text-slate-200 whitespace-pre-wrap break-words">
+                        {item.content}
+                      </p>
+                      {Object.keys(item.reactions).length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {Object.entries(item.reactions).map(([emoji, userIds]) => {
+                            const mine = userIds.includes(user.id);
+                            return (
+                              <button
+                                key={emoji}
+                                onClick={() =>
+                                  reactToMessage.mutate({ messageId: item.dbId, emoji })
+                                }
+                                className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs transition-colors ${
+                                  mine
+                                    ? "border-purple-600 bg-purple-950/60 text-purple-200"
+                                    : "border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-600"
+                                }`}
+                                title={mine ? "Click to remove" : "Click to add"}
+                              >
+                                <span className="leading-none">{emoji}</span>
+                                <span className="leading-none">{userIds.length}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
                 ) : item.mimeType?.startsWith("image/") ? (
                   <a href={`/api/files/${item.ipfsHash}`} target="_blank" rel="noreferrer">
                     <img
@@ -628,6 +1131,12 @@ export default function Dashboard() {
 
         {selectedChannel && (
           <div className="p-4 pt-0">
+<<<<<<< HEAD
+=======
+            <div className="h-5 px-1 text-xs text-slate-500 italic">
+              {typingLabel}
+            </div>
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
             <div className="flex gap-2 rounded-lg bg-slate-900 border border-slate-800 p-2">
               <input
                 ref={fileInputRef}
@@ -654,7 +1163,14 @@ export default function Dashboard() {
               </Button>
               <Input
                 value={messageInput}
+<<<<<<< HEAD
                 onChange={e => setMessageInput(e.target.value)}
+=======
+                onChange={e => {
+                  setMessageInput(e.target.value);
+                  if (e.target.value) announceTyping();
+                }}
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
                 onKeyDown={e => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -679,6 +1195,17 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+<<<<<<< HEAD
+=======
+
+      {selectedServerId != null && (
+        <MemberList
+          serverId={selectedServerId}
+          currentUserId={user.id}
+          onError={setError}
+        />
+      )}
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     </div>
   );
 }

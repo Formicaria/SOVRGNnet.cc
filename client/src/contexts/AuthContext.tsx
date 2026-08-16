@@ -37,7 +37,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const register = async (email: string, password: string, name?: string) => {
+<<<<<<< HEAD
     const user = await registerMutation.mutateAsync({ email, password, name });
+=======
+    // An invite-only instance needs the code at registration, not just at the
+    // point of joining a server. The invite page stashes it here before
+    // sending an unauthenticated visitor off to sign up.
+    const inviteCode = sessionStorage.getItem("pending_invite") ?? undefined;
+
+    const user = await registerMutation.mutateAsync({
+      email,
+      password,
+      name,
+      inviteCode,
+    });
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
     utils.auth.me.setData(undefined, user);
   };
 

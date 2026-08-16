@@ -10,7 +10,11 @@ Internet ──▶ Cloudflare edge (DNS, TLS, proxy)
                    │
      ┌─────────────┼──────────────┐
      ▼             ▼              ▼
+<<<<<<< HEAD
    nginx ──▶ app (:3000)    Conduit (:8008)
+=======
+   nginx ──▶ app (:3000)    Dendrite (:8008)
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
                    │
              Postgres · IPFS
 ```
@@ -57,7 +61,11 @@ Cloudflare creates the DNS records automatically. TLS terminates at Cloudflare's
 
 ## 3. Matrix federation (well-known delegation)
 
+<<<<<<< HEAD
 So `@user:sovrgnnet.cc` resolves while Conduit lives on a subdomain, the apex must serve two well-known files. These ship as static files in `site/.well-known/matrix/` and deploy automatically with the Pages site:
+=======
+So `@user:sovrgnnet.cc` resolves while Dendrite lives on a subdomain, the apex must serve two well-known files. These ship as static files in `site/.well-known/matrix/` and deploy automatically with the Pages site:
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
 `https://sovrgnnet.cc/.well-known/matrix/server`
 ```json
@@ -69,13 +77,18 @@ So `@user:sovrgnnet.cc` resolves while Conduit lives on a subdomain, the apex mu
 { "m.homeserver": { "base_url": "https://matrix.sovrgnnet.cc" } }
 ```
 
+<<<<<<< HEAD
 Federation works through Cloudflare's proxy on 443. Verify with the [Matrix federation tester](https://federationtester.matrix.org). Keep `CONDUIT_ALLOW_REGISTRATION=false` in production — accounts are provisioned by the app.
+=======
+Federation works through Cloudflare's proxy on 443. Verify with the [Matrix federation tester](https://federationtester.matrix.org). Public registration on the homeserver is disabled outright and should stay that way — accounts are provisioned by the app through shared-secret registration, so nobody who finds the homeserver directly can sign up on it.
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
 **Cloudflare caveats to know:** free-tier proxied uploads cap at 100 MB per request (plan file uploads accordingly, or chunk); WebSockets are supported and pass through fine; IPFS swarm port 4001 cannot go through the tunnel — either skip public IPFS peering (files still serve via the app) or port-forward 4001 directly if you want DHT participation.
 
 ## 4. Launch
 
 ```bash
+<<<<<<< HEAD
 docker compose up -d --build
 docker compose ps            # all healthy
 docker compose logs -f app
@@ -90,6 +103,66 @@ Nightly cron: `pg_dump` of Postgres, tar of the Conduit volume, IPFS pinset expo
 ## 6. Operations checklist
 
 Uptime checks on `https://sovrgnnet.cc` and `https://matrix.sovrgnnet.cc/_matrix/client/versions`; log rotation; periodic `docker compose pull && docker compose up -d` for base images. Nothing listens on the WAN — the tunnel is outbound-only; keep 5432/8008 unexposed even on the LAN unless needed.
+=======
+./install.sh                 # choose 3 — "my own domain, through Cloudflare"
+```
+
+It finds an existing tunnel token in `.env` if one is there, keeps every
+secret already generated, and starts the stack with the `tunnel` profile.
+Equivalent by hand:
+
+```bash
+docker compose --profile tunnel up -d --build
+./sovrgnnet status
+./sovrgnnet logs app
+```
+
+**No migration step.** The app waits for Postgres and applies pending
+migrations itself on every boot. `pnpm db:push` is a development command for
+*generating* new migration SQL after a schema change — it was never able to
+run inside the production image, which has no `drizzle-kit`.
+
+Two settings deserve a moment's thought before first launch:
+
+- `MATRIX_SERVER_NAME` is written into every Matrix user and room ID at
+  creation time. Changing it later orphans all existing history. For
+  sovrgnnet.cc that's `matrix.sovrgnnet.cc`.
+- `MATRIX_ALLOW_FEDERATION` defaults to `false`. Turn it on deliberately, once
+  the well-known delegation above is verified — federation means other
+  homeservers can reach yours.
+
+## 5. Backups
+
+`./sovrgnnet backup` writes a single archive containing a `pg_dump` of both
+databases — the app's and the homeserver's — the homeserver's signing key, the
+IPFS blockstore, and your `.env`. The signing key matters more than its size
+suggests: restore everything else without it and you are a different server to
+everyone you have federated with. Nightly via cron:
+
+```
+0 3 * * * cd /root/sovrgnnet && ./sovrgnnet backup >> logs/backup.log 2>&1
+```
+
+Keep an off-VM copy — with three Proxmox hosts, replicating to a second node
+(or Proxmox Backup Server) is the natural move. The archive contains your
+secrets; treat it like a password file. Test `./scripts/restore.sh` before you
+need it, not after.
+
+## 6. Operations checklist
+
+Uptime checks on `https://sovrgnnet.cc` and
+`https://matrix.sovrgnnet.cc/_matrix/client/versions`. Log rotation is
+configured in compose (10 MB × 5 per service). Periodic
+`docker compose pull && ./sovrgnnet start` for base images; `./sovrgnnet
+update` for app changes.
+
+Nothing listens on the WAN — the tunnel is outbound-only. Postgres is not
+published at all; Dendrite (8008) and the IPFS API (5001) bind to loopback
+only, which matters: 5001 is an unauthenticated admin API, and anyone who
+reaches it owns the node. Public registration on the homeserver is disabled
+entirely, and accounts are created by the app using `MATRIX_SHARED_SECRET`, so
+it isn't an open signup target even once it's publicly routable.
+>>>>>>> 59fe78b92b13dd24738ba6c6ec20a07003f32a03
 
 ## The desktop app (Tauri)
 

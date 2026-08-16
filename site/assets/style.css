@@ -1,0 +1,216 @@
+/* SOVRGNnet — shared styles for sovrgnnet.cc
+   Zero build. One stylesheet, every page. */
+
+:root {
+  --bg: #0a0614;
+  --bg-2: #120b22;
+  --panel: #170f2b;
+  --border: #2c1f4d;
+  --text: #e8e3f5;
+  --muted: #9c92b8;
+  --accent: #a855f7;
+  --accent-2: #ec4899;
+  --warn: #fbbf24;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
+.narrow { max-width: 780px; }
+
+/* ------------------------------------------------------------------ header */
+
+header {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(10, 6, 20, 0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+nav { display: flex; align-items: center; gap: 24px; height: 64px; }
+.logo {
+  font-family: var(--mono); font-weight: 700; font-size: 1.1rem;
+  letter-spacing: 0.06em; color: var(--text);
+}
+.logo b { color: var(--accent); }
+a.logo:hover { text-decoration: none; }
+nav .links { margin-left: auto; display: flex; gap: 20px; font-size: 0.92rem; }
+nav .links a { color: var(--muted); }
+nav .links a:hover { color: var(--text); text-decoration: none; }
+nav .links a[aria-current="page"] { color: var(--text); }
+
+@media (max-width: 640px) {
+  nav { height: auto; padding: 12px 0; flex-wrap: wrap; gap: 12px; }
+  nav .links { margin-left: 0; width: 100%; gap: 16px; flex-wrap: wrap; }
+}
+
+/* -------------------------------------------------------------------- hero */
+
+.hero { padding: 96px 0 72px; text-align: center; position: relative; overflow: hidden; }
+.hero::before {
+  content: ""; position: absolute; inset: -40% -20% auto;
+  height: 130%; pointer-events: none;
+  background:
+    radial-gradient(600px 340px at 30% 20%, rgba(168, 85, 247, 0.16), transparent 70%),
+    radial-gradient(520px 300px at 72% 12%, rgba(236, 72, 153, 0.10), transparent 70%);
+}
+.hero > * { position: relative; }
+.tag {
+  display: inline-block; font-family: var(--mono); font-size: 0.75rem;
+  letter-spacing: 0.14em; color: var(--accent);
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 6px 14px; margin-bottom: 26px; background: var(--bg-2);
+}
+h1 {
+  font-size: clamp(2.3rem, 6vw, 3.8rem); line-height: 1.08;
+  letter-spacing: -0.02em; font-weight: 800;
+}
+h1 .grad {
+  background: linear-gradient(100deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.sub { margin: 22px auto 0; max-width: 640px; color: var(--muted); font-size: 1.12rem; }
+.cta { margin-top: 38px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-block; padding: 12px 26px; border-radius: 10px;
+  font-weight: 600; font-size: 0.98rem; transition: transform 0.15s, box-shadow 0.15s;
+}
+.btn:hover { text-decoration: none; transform: translateY(-1px); }
+.btn-primary {
+  background: linear-gradient(100deg, var(--accent), var(--accent-2));
+  color: white; box-shadow: 0 8px 28px rgba(168, 85, 247, 0.35);
+}
+.btn-ghost { border: 1px solid var(--border); color: var(--text); background: var(--bg-2); }
+.status-note { margin-top: 18px; font-size: 0.82rem; color: var(--muted); font-family: var(--mono); }
+
+/* ---------------------------------------------------------------- sections */
+
+section { padding: 72px 0; }
+section h2 { font-size: 1.7rem; letter-spacing: -0.01em; margin-bottom: 10px; }
+section .lead { color: var(--muted); max-width: 640px; margin-bottom: 40px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+.card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 26px;
+}
+.card .icon { font-size: 1.5rem; margin-bottom: 14px; }
+.card h3 { font-size: 1.05rem; margin-bottom: 8px; }
+.card p { color: var(--muted); font-size: 0.94rem; }
+.card code { font-family: var(--mono); font-size: 0.85em; color: var(--accent); }
+a.card { display: block; color: inherit; transition: border-color 0.15s, transform 0.15s; }
+a.card:hover { text-decoration: none; border-color: var(--accent); transform: translateY(-2px); }
+a.card h3 { color: var(--text); }
+
+.stack { border-top: 1px solid var(--border); background: var(--bg-2); }
+.stack-row { display: flex; flex-wrap: wrap; gap: 12px; font-family: var(--mono); font-size: 0.85rem; }
+.chip {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 14px; color: var(--muted); background: var(--panel);
+}
+
+/* -------------------------------------------------------------------- docs */
+
+.doc { padding: 56px 0 88px; }
+.doc h1 {
+  font-size: clamp(1.9rem, 4vw, 2.6rem); margin-bottom: 12px;
+  letter-spacing: -0.02em;
+}
+.doc .subtitle { color: var(--muted); font-size: 1.05rem; margin-bottom: 44px; }
+.doc h2 {
+  font-size: 1.35rem; margin: 52px 0 14px; letter-spacing: -0.01em;
+  padding-top: 12px; border-top: 1px solid var(--border);
+}
+.doc h3 { font-size: 1.05rem; margin: 32px 0 10px; }
+.doc p { margin-bottom: 16px; color: var(--text); }
+.doc p.muted, .doc .muted { color: var(--muted); }
+.doc ul, .doc ol { margin: 0 0 18px 22px; color: var(--text); }
+.doc li { margin-bottom: 8px; }
+.doc li::marker { color: var(--accent); }
+
+code {
+  font-family: var(--mono); font-size: 0.88em;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 1px 6px; color: var(--text);
+}
+pre {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px 18px; overflow-x: auto;
+  margin-bottom: 20px; font-size: 0.88rem; line-height: 1.6;
+}
+pre code { background: none; border: none; padding: 0; font-size: 1em; }
+pre .c { color: var(--muted); }
+
+table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 0.92rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; font-size: 0.82rem;
+     text-transform: uppercase; letter-spacing: 0.06em; }
+td code { font-size: 0.86em; }
+
+.note, .warning {
+  border-radius: 10px; padding: 16px 18px; margin-bottom: 22px;
+  border: 1px solid var(--border); background: var(--panel); font-size: 0.94rem;
+}
+.note { border-left: 3px solid var(--accent); }
+.warning { border-left: 3px solid var(--warn); }
+.note strong, .warning strong { display: block; margin-bottom: 4px; }
+.warning strong { color: var(--warn); }
+
+/* Docs index sidebar-ish nav */
+.doc-nav {
+  display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 40px;
+  font-size: 0.88rem;
+}
+.doc-nav a {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 14px; color: var(--muted); background: var(--bg-2);
+}
+.doc-nav a:hover { color: var(--text); border-color: var(--accent); text-decoration: none; }
+.doc-nav a[aria-current="page"] { color: var(--text); border-color: var(--accent); }
+
+.next-prev {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--border);
+}
+.next-prev a {
+  flex: 1 1 220px; border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px 18px; background: var(--panel);
+}
+.next-prev a:hover { border-color: var(--accent); text-decoration: none; }
+.next-prev span { display: block; font-size: 0.76rem; color: var(--muted);
+                  text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* --------------------------------------------------------------- utilities
+   Small helpers so no page needs an inline style attribute — the site ships a
+   strict Content-Security-Policy without 'unsafe-inline', and inline styles
+   would simply be dropped. */
+
+.center-block { text-align: center; padding: 60px 0; }
+.small-muted { color: var(--muted); font-size: 0.94rem; }
+.mt-lg { margin-top: 28px; }
+.lead-wide { max-width: none; }
+.fine-print { margin-top: 40px; font-size: 0.88rem; }
+
+/* ------------------------------------------------------------------ footer */
+
+footer {
+  border-top: 1px solid var(--border); padding: 36px 0 48px;
+  color: var(--muted); font-size: 0.88rem;
+}
+.foot { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+.foot .links { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
+
+@media (max-width: 640px) {
+  .foot .links { margin-left: 0; width: 100%; }
+  section { padding: 56px 0; }
+}
