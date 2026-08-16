@@ -114,7 +114,11 @@ Done: the token format, signing, and verification in `shared/identity.ts` — sh
 
 **Per-server profiles** landed alongside: one identity, but "Zach" in one community and "chronus" in another, resolved in a single place and covering messages and member lists.
 
-**Remaining:** the HTTP service — registration, sign-in, token endpoint, JWKS route, email delivery — and `auth.ssoLogin` on the server side. Until both exist, every account is local and nothing here affects a running instance.
+Also done: the server side. `JwksCache` fetches signing keys and — the property the whole design exists for — **keeps serving cached keys when the provider is unreachable**, indefinitely, rather than failing closed. Failing closed would mean one failed HTTP request logging out a network of unrelated servers; a signature check against a key that rotated last week is a much smaller problem. An unfamiliar key id triggers one refresh and retry, so ordinary rotation needs no operator. 23 tests, including the outage path and both halves of rotation.
+
+`auth.ssoLogin` verifies, then links. The linking rule is the subtle part and has its own tested function: matching an SSO identity to an existing local account **by email is an account takeover** unless the provider verified the address — otherwise anyone could register at sovrgnnet.cc with your email and inherit your account on every server you belong to. An unverified email refuses and asks the person to sign in locally first. The join policy applies to SSO exactly as to local sign-up, so a closed server stays closed regardless of where an identity came from.
+
+**Remaining:** the HTTP service itself — registration, sign-in, token endpoint, JWKS route, email delivery. Until it exists, `INSTANCE_ALLOW_SSO` has nothing to point at and every account is local.
 
 ## Phase 8 — Client-side Matrix
 
