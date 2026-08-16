@@ -51,6 +51,17 @@ interface Props {
   /** A request from another device, surfaced by the session. */
   incoming: VerificationRequest | null;
   onIncomingHandled: () => void;
+  /**
+   * Opened by the app rather than by the user, because nothing is set up yet.
+   *
+   * Changes the framing and adds a way out. Every channel on this instance is
+   * encrypted, so a person who never opens this panel is a person whose
+   * history dies with their browser profile — which makes the prompt part of
+   * the feature rather than a nag. It is still skippable: a modal that can't
+   * be dismissed is a modal people learn to fear, and the badge keeps saying
+   * so afterwards.
+   */
+  firstRun?: boolean;
 }
 
 type Busy = null | "setup" | "recover" | "verify";
@@ -62,6 +73,7 @@ export function EncryptionPanel({
   revision,
   incoming,
   onIncomingHandled,
+  firstRun = false,
 }: Props) {
   const [verdict, setVerdict] = useState<ReadinessVerdict | null>(null);
   const [devices, setDevices] = useState<DeviceEntry[]>([]);
@@ -238,6 +250,16 @@ export function EncryptionPanel({
           </div>
         ) : (
           <div className="space-y-4">
+            {firstRun && verdict?.level === "unset" && (
+              <p className="text-sm text-slate-300">
+                Every channel here is end-to-end encrypted, so your messages are
+                readable only on your own devices — not by whoever runs this
+                instance. That also means nobody can recover them for you.
+                Setting up now gives you a recovery key and backs up your
+                message keys, so a new device can read your history.
+              </p>
+            )}
+
             {verdict && (
               <div
                 className={`rounded-md border p-3 ${
@@ -256,16 +278,27 @@ export function EncryptionPanel({
             )}
 
             {verdict?.level === "unset" && (
-              <Button
-                onClick={setUp}
-                disabled={busy !== null}
-                className="w-full"
-              >
-                {busy === "setup" && (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+              <div className="flex gap-2">
+                <Button
+                  onClick={setUp}
+                  disabled={busy !== null}
+                  className="flex-1"
+                >
+                  {busy === "setup" && (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  )}
+                  Set up encryption
+                </Button>
+                {firstRun && (
+                  // Skippable on purpose. A dialog with no way out is one
+                  // people click through without reading, which produces a
+                  // recovery key nobody saved and a worse outcome than asking
+                  // again later.
+                  <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                    Not now
+                  </Button>
                 )}
-                Set up encryption
-              </Button>
+              </div>
             )}
 
             {verdict && verdict.level !== "ready" && (

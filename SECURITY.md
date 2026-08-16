@@ -9,28 +9,31 @@ and credit in the changelog if you'd like it.
 
 ## What this software does and doesn't protect
 
-**A channel is plaintext unless somebody turned encryption on.** In a plaintext
-channel — the default — messages are stored readable on the instance, and
-whoever operates it can read everything. For a server you run yourself that's
-usually you, which is the point. If you're on someone else's instance, they can
-read your messages; if you run one for others, they deserve to know you can
-read theirs.
+**Channels are end-to-end encrypted by default.** Every channel created on an
+instance that can support it is Megolm-encrypted from the moment it exists,
+with no switch to find. Keys live on members' devices, the instance stores
+ciphertext, and file contents are encrypted in the browser before upload.
+Against an operator who reads the database, or whose backups leak, or who is
+handed a subpoena, that works.
 
-**An administrator can encrypt a channel, permanently.** From then on it's
-Megolm: keys live on members' devices and the instance stores ciphertext it has
-no key for. Against an operator who reads the database, or whose backups leak,
-or who is handed a subpoena, that works.
+**"Can support it" is about the deployment, not the software.** It needs a
+homeserver clients can actually reach and a wired appservice — without both,
+there is nowhere for your keys to live except the server, so the `e2ee`
+capability is false and channels are plaintext. The default LXC install is like
+this. On such an instance, and in any channel created before this became the
+default, messages are readable by whoever operates the server.
 
-Three things it does not do, said here rather than discovered later:
+Three things encryption here does not do, said now rather than discovered later:
 
-- **Metadata stays readable** in every channel — membership, timing, who spoke.
+- **Metadata stays readable** in every channel: membership, timing, who spoke,
+  filenames, file sizes, reactions. With contents encrypted everywhere, this is
+  the whole of what an operator sees — and it is not a little.
 - **The instance can still mint a Matrix device on your account**, because
   passwords here are derived from the app secret. It receives no room keys
   until one of your own devices verifies it, so the defence is real — and it
   ends with a person reading a dialog and deciding.
-- **It needs a reachable homeserver and a wired appservice.** Without both the
-  `e2ee` capability is false and the option isn't offered, because there'd be
-  nowhere for your keys to live except the server.
+- **Lose every device without a recovery key and the messages are gone.** The
+  app asks you to set one up the first time it can, and you can decline.
 
 Nothing in this project should be described as private in the way Signal is
 private.
@@ -52,7 +55,8 @@ support branches.
 | Brute force | 10 login attempts per IP+email per 15 minutes |
 | Matrix tokens | Device-scoped, minted per client, memory-only in the browser and never persisted |
 | Matrix sessions | Device-scoped and named; listable and individually revocable |
-| Encrypted channels | Megolm; keys on devices, ciphertext on the instance, index stores them content-blind |
+| Encrypted channels | Megolm, on by default; keys on devices, ciphertext on the instance, index stores them content-blind |
+| Attachments | AES-CTR in the browser before upload; key travels in the encrypted event, hash checked before decryption |
 | Room keys | Shared only with cross-signed devices — an unverified device receives none |
 | Key recovery | Recovery key + server-side key backup, both encrypted to a key the instance never sees |
 | Desktop credentials | OS keychain, not browser storage |
@@ -66,8 +70,8 @@ support branches.
 
 Stated plainly rather than omitted:
 
-- **Encryption is off by default and per channel**, and metadata is never
-  encrypted
+- **Metadata is never encrypted** — membership, timing, filenames, reactions —
+  and channels on an instance that can't offer e2ee are plaintext throughout
 - **Sessions are stateless and last a year.** Logging out clears the cookie but
   does not invalidate the token; rotating `JWT_SECRET` is the only way to
   revoke, and it revokes everyone

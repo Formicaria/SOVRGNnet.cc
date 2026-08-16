@@ -15,11 +15,14 @@ import {
 } from "@/lib/bridge";
 import AddServer from "@/components/AddServer";
 import FirstRun from "@/components/FirstRun";
+import HostPanel from "@/components/HostPanel";
 import InstancePanel from "@/components/InstancePanel";
 import Rail from "@/components/Rail";
 import SignIn from "@/components/SignIn";
 import UpdatePrompt from "@/components/UpdatePrompt";
 import { appVersion, credentials } from "@/lib/bridge";
+import { hostAvailable, hostStart, onHostState } from "@/lib/hosting";
+import type { HostState } from "@shared/hosting";
 
 const IDENTITY_URL = "https://sovrgnnet.cc";
 
@@ -56,6 +59,9 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [version, setVersion] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [hostOpen, setHostOpen] = useState(false);
+  const [canHost, setCanHost] = useState(false);
+  const [host, setHost] = useState<HostState>({ status: "absent" });
 
   // Held in a ref as well as state so the deep-link handler — which is
   // registered once — always sees the current list rather than a stale
@@ -125,6 +131,20 @@ export default function App() {
     [manager, reload, open]
   );
 
+  /** The hosted server is a connection like any other once it answers. */
+  const adoptHostedServer = useCallback(
+    async (url: string) => {
+      try {
+        const connection = await manager.connect(url);
+        await reload();
+        await open(connection);
+      } catch {
+        // It answered a moment ago; a race here resolves on the next refresh.
+      }
+    },
+    [manager, reload, open]
+  );
+
   useEffect(() => {
     void (async () => {
       await startListeningForDeepLinks();
@@ -134,8 +154,33 @@ export default function App() {
       const list = await reload();
       if (list.length > 0) await open(list[0]);
       setReady(true);
+
+      // A machine that hosts starts its server with the app, without being
+      // asked each time — that's what "your server" means. A machine that
+      // doesn't host notices nothing.
+      try {
+        const availability = await hostAvailable();
+        setCanHost(availability.bundled);
+        if (availability.bundled && availability.installed) {
+          const started = await hostStart();
+          setHost(started);
+          if (started.status === "running" || started.status === "degraded") {
+            await adoptHostedServer(started.url);
+          }
+        }
+      } catch {
+        setCanHost(false);
+      }
     })();
-  }, [reload, open]);
+  }, [reload, open, adoptHostedServer]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void onHostState(setHost).then(fn => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, []);
 
   // Refresh names and reachability on launch, quietly. A server that's off
   // stays in the list — a friend's machine being asleep isn't a reason to
@@ -192,6 +237,8 @@ export default function App() {
           <FirstRun
             onAddServer={() => setAddOpen(true)}
             onSignIn={() => setSigningIn(true)}
+            canHost={canHost}
+            onHost={() => setHostOpen(true)}
           />
         )}
 
@@ -233,6 +280,21 @@ export default function App() {
         connection={active}
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
+      />
+
+      <HostPanel
+        open={hostOpen}
+        state={host}
+        onClose={() => setHostOpen(false)}
+        onStarted={async url => {
+          setHostOpen(false);
+          setNotice("Your server is running.");
+          await adoptHostedServer(url);
+        }}
+        onStopped={() => {
+          setHost({ status: "stopped", components: [] });
+          setNotice("Your server is stopped. It starts again with the app.");
+        }}
       />
 
       {version && <UpdatePrompt currentVersion={version} />}

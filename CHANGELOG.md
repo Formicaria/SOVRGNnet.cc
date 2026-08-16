@@ -1,15 +1,58 @@
 # Changelog
 
-## Unreleased
+## v0.6.0 — 2026-08-16
 
-**End-to-end encryption (ADR 0008 stage 4, ADR 0011).** An administrator can
-encrypt a channel. From then on messages are Megolm ciphertext: keys live on
-members' devices, the homeserver stores what it cannot read, and the instance's
-own index — which has held `m.room.encrypted` content-blind since v0.5 — keeps
-the ordering and none of the content. ADR 0008 said `e2ee` flips only when all
-of it works including recovery, so all of it is here: cross-signing, emoji
-device verification, a recovery key, server-side key backup, and restoring a
-new device from that key.
+**End-to-end encryption, on by default (ADR 0008 stage 4, ADR 0011).** Every
+channel created on an instance that can support it is Megolm-encrypted from the
+moment it exists — no switch, no per-channel choice, nothing to know to turn
+on. Keys live on members' devices, the homeserver stores what it cannot read,
+and the instance's own index — which has held `m.room.encrypted` content-blind
+since v0.5 — keeps the ordering and none of the content. ADR 0008 said `e2ee`
+flips only when all of it works including recovery, so all of it is here:
+cross-signing, emoji device verification, a recovery key, server-side key
+backup, and restoring a new device from that key.
+
+*The default is conditional on the deployment, and only on the deployment.* An
+instance needs a homeserver its clients can reach and a wired appservice;
+without both there is nowhere for a member's keys to live except the server,
+which is the arrangement encryption exists to end. Those instances get
+plaintext channels and an `e2ee` capability that says so. The LXC install is
+one of them.
+
+*Files are encrypted too, or the lock icon would be a lie.* Attachment bytes
+are AES-CTR encrypted in the browser before upload, per Matrix's `EncryptedFile`
+format, with the key carried inside the Megolm-encrypted event — so the
+instance pins ciphertext it has no key for. The hash is checked before
+decryption, because AES-CTR is unauthenticated and a flipped ciphertext bit is
+a flipped plaintext bit with nothing to complain. Filenames, sizes and MIME
+types stay in the index in the clear; that is how the file list works, it is
+metadata the threat model already concedes, and it is now written down.
+
+*Recovery is offered on the first session that could set it up*, skippable
+once, with the amber badge persisting until it's done. Encryption everywhere
+without recovery everywhere would be a data-loss default: clear your browser,
+lose your history.
+
+*The harness now encrypts something.* Until this release nothing in the
+repository had ever performed encryption — unit tests covered the judgement
+around it and the journey drove HTTP, and neither can tell you whether a room
+key reaches the other device. `scripts/e2e-crypto.ts` imports the shipped
+client module and runs it in Node against the harness's Dendrite with two
+device-scoped sessions: the crypto stack starts, a message becomes ciphertext,
+**the index holds no plaintext anywhere**, a second device decrypts it to the
+same string, stored file bytes are ciphertext, and a tampered file is refused.
+The only difference from the browser is that Node has no IndexedDB. SAS and key
+backup still aren't covered — they need an interactive exchange — and that's
+said in the ADR rather than left to be assumed.
+
+*Two ordering bugs found while making the harness assert this.* The API's
+encryption refusal ran before its membership check, so a stranger learned a
+channel was encrypted before being told they weren't a member — and any test
+asserting "non-members can't post" passed on the wrong check. And
+`messages.edit` had no encryption guard at all: editing through the API would
+have posted plaintext into an encrypted room *and* written the new text into a
+row the index is supposed to hold content-blind, leaking what the original
+message never did.
 
 *What it doesn't do ships in the same commit as what it does.* Metadata is
 readable in every channel. The instance can still mint a Matrix device for any
@@ -41,11 +84,11 @@ completing the stage and *then* being rejected is the success case. Only 401
 and 403 are failures.
 
 That last part is an assumption about a homeserver, so the e2e harness checks
-it against a real one: unauthenticated upload, 401 with a password stage, the
-instance satisfies it, re-submit with the session id and a generated Ed25519
-master key, read the key back from `/keys/query`. A 401 on the re-submission
-fails the run and says the design doesn't hold there. It needs no Olm — a
-master cross-signing key is a public key and carries no signature of its own.
+it against a real one — and reports that **Dendrite doesn't gate the endpoint
+at all**. It answers 400, not 401, so the client's first attempt succeeds and
+the whole path is dead code there. It stays for Synapse, which does gate it,
+and the harness prints that it proved nothing rather than a tick that suggests
+otherwise. Verifying it properly needs a Synapse in the harness.
 
 *Sending into an encrypted room has no fallback, and that inverts a rule.*
 Every other client-side send falls back to the instance API so a message isn't
@@ -67,6 +110,41 @@ can act on.
 
 Also corrected: `SECURITY.md` still claimed Matrix tokens are never sent to a
 browser. That stopped being true when stage 3 shipped.
+
+**The desktop app can host (ADR 0005, finally real).** On Linux and Windows,
+"Run a server on this computer" sets up a complete instance — PostgreSQL, a
+Dendrite built from the same tag Docker pins, Kubo, and the app on a bundled
+Node runtime — under your own user account, no terminal, nothing needing an
+administrator. The supervisor lives in the shell
+(`desktop/src-tauri/src/hosting.rs`) and decides nothing: ports, states, and
+install-step wording stay in `shared/hosting.ts`, where they were already
+tested. Secrets are generated in the frontend and live in the OS keychain.
+The server runs while the app runs, stops cleanly on quit (Postgres through
+`pg_ctl`), and joins the rail as an ordinary connection — so its settings are
+its own interface, same as any server across the world. v1 limits, stated:
+loopback homeserver (so `e2ee` is honestly false on a hosted-here instance),
+macOS installs are client-only, and the components ship only in release
+builds — a dev build says it can't host rather than failing three steps in.
+`server/hostingShell.test.ts` holds the Rust, the bundle script, the CI
+wiring, and the policy to the same names, steps, and versions, and CI now
+cargo-checks the shell on both shipping platforms on every push.
+
+**Federation has its proof (ADR 0010's criterion, runnable).**
+`scripts/e2e-federation.sh` stands up two complete instances that share
+exactly one thing — a network between their homeservers, over a real TLS
+federation transport — then proves a federated invite crosses, messages cross
+both ways, both indexes attribute both senders (one by local account, one as
+`userId NULL` plus a bare Matrix id), a moderator's redaction of a federated
+sender clears both indexes, and neither side's conformance or `/metrics`
+regresses. One splice is stated where it happens: B's channel row is INSERTed
+directly, because no attach-a-remote-room surface exists yet. The 0.7 checkbox
+ticks on the harness's first green run on a real Docker host.
+
+**The site has a download page.** Per-platform buttons that say what each
+installer does — including which ones can host — plus the server installs for
+machines that stay on without you. `check-site.sh` now also fails if a
+download link points at a release other than the version everything else
+claims, which is the same guard the status line already had.
 
 ## v0.5.1 — 2026-08-16
 

@@ -283,3 +283,68 @@ describe("the journey proves the cross-signing auth path, not just runs it", () 
     expect(code).toMatch(/master_keys/);
   });
 });
+
+/**
+ * The crypto stage is the only thing anywhere that encrypts a real message.
+ *
+ * Everything else — unit tests, the journey, conformance — tests the judgement
+ * around encryption without ever performing any. If this stage stops running
+ * the shipped module, or stops asserting that the instance holds no plaintext,
+ * the suite goes green over a product that might not encrypt at all.
+ */
+describe("the crypto stage exercises the shipped code, not a copy of it", () => {
+  const crypto = readFileSync(join(ROOT, "scripts", "e2e-crypto.ts"), "utf8");
+  const code = withoutComments(crypto);
+
+  it("is wired into the harness", () => {
+    expect(harness).toMatch(/e2e-crypto\.ts/);
+    // A stage whose failure doesn't fail the run is decoration.
+    expect(harness).toMatch(/e2e-crypto\.ts[\s\S]{0,80}\|\|\s*die/);
+  });
+
+  it("imports the module the browser runs", () => {
+    // Not a reimplementation. A parallel copy could pass while the shipped
+    // path is broken, which is the failure mode this whole stage exists for.
+    expect(code).toMatch(/from "@\/lib\/matrixCrypto"/);
+    expect(code).toMatch(/startCryptoSession/);
+  });
+
+  it("differs from the browser only in the crypto store", () => {
+    expect(code).toMatch(/persistCryptoStore:\s*false/);
+  });
+
+  it("proves the instance holds no plaintext", () => {
+    // The sharpest assertion available: if the index ever held the plaintext
+    // of an encrypted message, every claim in the threat model is false.
+    expect(code).toMatch(/row\.content === ""/);
+    expect(code).toMatch(/includes\(secret\)/);
+  });
+
+  it("proves a second device decrypts, not just that sending worked", () => {
+    expect(code).toMatch(/bob\.session\.lookup/);
+    expect(code).toMatch(/decrypted!?\.body === secret/);
+  });
+
+  it("proves stored file bytes are ciphertext", () => {
+    expect(code).toMatch(/storedBytes/);
+    expect(code).toMatch(/attachment bytes/);
+  });
+
+  it("proves a tampered file is refused", () => {
+    expect(code).toMatch(/tampered\[5\] \^= 0x01/);
+    expect(code).toMatch(/refused/);
+  });
+
+  it("cannot hang the harness", () => {
+    // The SDK retries a dead homeserver forever. A stage that stalls preflight
+    // rather than failing it is a stage people stop running.
+    expect(code).toMatch(/WATCHDOG_MS/);
+    expect(code).toMatch(/process\.exit\(1\)/);
+  });
+
+  it("says what it does not prove", () => {
+    // SAS and key backup need an interactive exchange this can't drive. Left
+    // implied, they read as covered.
+    expect(crypto).toMatch(/does not prove/);
+  });
+});

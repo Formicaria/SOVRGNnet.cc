@@ -339,60 +339,122 @@ async function runJourney(): Promise<void> {
   const channel = channels[0];
   ok(`Default channel exists (#${channel.id} ${channel.name})`);
 
-  // -- messages -------------------------------------------------------------
-
-  console.log("\n  Messages");
-
-  const text = `hello from e2e ${stamp}`;
-  const sent = await owner.mutate<{ id: number }>("messages.send", {
-    channelId: channel.id,
-    content: text,
-  });
-  assert(sent?.id, `sending returned no message: ${JSON.stringify(sent)}`);
-  ok("Message sent through the real homeserver");
-
-  const listed = await owner.query<Array<{ id: number; content: string }>>(
-    "messages.listByChannel",
-    { channelId: channel.id }
-  );
-  assert(
-    listed.some(m => m.content === text),
-    "the message just sent didn't come back"
-  );
-  ok("Message reads back");
-
-  const edited = `${text} (edited)`;
-  await owner.mutate("messages.edit", { messageId: sent.id, content: edited });
-  const afterEdit = await owner.query<Array<{ id: number; content: string }>>(
-    "messages.listByChannel",
-    { channelId: channel.id }
-  );
-  assert(
-    afterEdit.some(m => m.id === sent.id && m.content === edited),
-    "the edit didn't take"
-  );
-  ok("Message edited");
-
-  // -- client-authored events (ADR 0008 stage 3 + ADR 0009) ------------------
-  // The full loop nothing else exercises: the client obtains its own Matrix
-  // session, sends an event straight to the homeserver — the instance never
-  // sees the request — and the appservice push writes it into the index.
-
-  console.log("\n  Client-authored events");
-
-  // clientMatrix comes from a reachability probe, and the boot-time probe can
-  // legitimately land while Dendrite is still starting. A cached negative
-  // expires within seconds; wait for the truth to settle instead of racing it.
-  let capabilities: { clientMatrix?: boolean; eventIngest?: boolean } = {};
+  // -- capabilities ----------------------------------------------------------
+  //
+  // Read before anything depends on them, because on a capable instance the
+  // *default* is encryption and that changes what the rest of this journey may
+  // legitimately expect. clientMatrix comes from a reachability probe, and the
+  // boot-time probe can land while Dendrite is still starting; a cached
+  // negative expires within seconds, so wait for the truth to settle rather
+  // than racing it.
+  let capabilities: {
+    clientMatrix?: boolean;
+    eventIngest?: boolean;
+    e2ee?: boolean;
+  } = {};
   for (let attempt = 0; attempt < 30; attempt++) {
     const instance = (await (await fetch(`${BASE}/api/instance`)).json()) as {
-      capabilities?: { clientMatrix?: boolean; eventIngest?: boolean };
+      capabilities?: typeof capabilities;
     };
     capabilities = instance.capabilities ?? {};
     if (capabilities.clientMatrix === true && capabilities.eventIngest === true)
       break;
     await new Promise(resolve => setTimeout(resolve, 500));
   }
+  const encryptedByDefault = capabilities.e2ee === true;
+
+  // -- messages -------------------------------------------------------------
+
+  console.log("\n  Messages");
+
+  const channelState = await owner.query<{ encrypted: boolean }>(
+    "channels.getById",
+    { channelId: channel.id }
+  );
+  assertEqual(
+    channelState.encrypted,
+    encryptedByDefault,
+    encryptedByDefault
+      ? "a capable instance must create channels encrypted"
+      : "an instance that can't offer e2ee must not mark channels encrypted"
+  );
+  ok(
+    encryptedByDefault
+      ? "Default channel was created encrypted, without being asked"
+      : "Default channel is plaintext — this instance can't offer encryption"
+  );
+
+  const text = `hello from e2e ${stamp}`;
+  // Whichever message the owner ends up with, for the restore check to look
+  // for later. The two paths produce it differently.
+  let ownerMessage = text;
+
+  if (encryptedByDefault) {
+    // The API composes plaintext server-side, so on an encrypted channel it
+    // has nothing to offer but the thing that would undermine the encryption
+    // for everyone in it. Refusing is the security property, so it is what
+    // gets asserted.
+    const refusedSend = await owner.expectDenied(
+      "messages.send",
+      { channelId: channel.id, content: text },
+      "Sending plaintext through the API into an encrypted channel"
+    );
+    // Asserting on the reason, not just the refusal. A denial for some other
+    // cause would pass a bare expectDenied and prove nothing about encryption.
+    assert(
+      /encrypted/i.test(refusedSend),
+      `refused, but not for being encrypted: ${refusedSend}`
+    );
+    detail(refusedSend.slice(0, 90));
+    ok("The API refuses to send plaintext into an encrypted channel");
+  } else {
+    const sent = await owner.mutate<{ id: number }>("messages.send", {
+      channelId: channel.id,
+      content: text,
+    });
+    assert(sent?.id, `sending returned no message: ${JSON.stringify(sent)}`);
+    ok("Message sent through the real homeserver");
+
+    const listed = await owner.query<Array<{ id: number; content: string }>>(
+      "messages.listByChannel",
+      { channelId: channel.id }
+    );
+    assert(
+      listed.some(m => m.content === text),
+      "the message just sent didn't come back"
+    );
+    ok("Message reads back");
+
+    const edited = `${text} (edited)`;
+    await owner.mutate("messages.edit", {
+      messageId: sent.id,
+      content: edited,
+    });
+    const afterEdit = await owner.query<Array<{ id: number; content: string }>>(
+      "messages.listByChannel",
+      { channelId: channel.id }
+    );
+    assert(
+      afterEdit.some(m => m.id === sent.id && m.content === edited),
+      "the edit didn't take"
+    );
+    ok("Message edited");
+    ownerMessage = edited;
+  }
+
+  // -- client-authored events (ADR 0008 stage 3 + ADR 0009) ------------------
+  // The full loop nothing else exercises: the client obtains its own Matrix
+  // session, sends an event straight to the homeserver — the instance never
+  // sees the request — and the appservice push writes it into the index.
+  //
+  // On an encrypted instance these events are plaintext `m.room.message` in a
+  // room whose members' clients would send Megolm. That is deliberate and it
+  // is the harness's limitation, not the product's: driving real Olm needs a
+  // browser, and this runs in Node. What it does verify — that an event the
+  // instance never saw reaches the index, and survives a restore — is
+  // orthogonal to whether the payload was encrypted.
+
+  console.log("\n  Client-authored events");
   assert(
     capabilities.clientMatrix === true,
     `clientMatrix should be true in the harness: ${JSON.stringify(capabilities)}`
@@ -455,6 +517,39 @@ async function runJourney(): Promise<void> {
   );
   ok("Ingest recorded it — the database is an index of Matrix, demonstrated");
 
+  if (encryptedByDefault) {
+    // On this path the API never sent anything, so this is the owner's only
+    // message and the one the restore check has to find.
+    ownerMessage = direct;
+  }
+
+  if (encryptedByDefault) {
+    // Now there is a real message in an encrypted channel, owned by the
+    // caller, so the edit refusal can be asserted against a row that exists.
+    // Doing it earlier against a made-up id would have been refused as
+    // "message not found" and proved nothing.
+    const rows = await owner.query<Array<{ id: number; content: string }>>(
+      "messages.listByChannel",
+      { channelId: channel.id }
+    );
+    const mine = rows.find(m => m.content === direct);
+    assert(mine, "the client-authored message isn't in the index to edit");
+
+    const refusedEdit = await owner.expectDenied(
+      "messages.edit",
+      { messageId: mine.id, content: `${direct} (edited)` },
+      "Editing through the API in an encrypted channel"
+    );
+    assert(
+      /encrypted/i.test(refusedEdit),
+      `refused, but not for being encrypted: ${refusedEdit}`
+    );
+    detail(refusedEdit.slice(0, 90));
+    // The sharper of the two refusals: an edit would have written the new text
+    // into a row the instance is supposed to hold content-blind.
+    ok("The API refuses to edit in an encrypted channel");
+  }
+
   // -- cross-signing through the instance (ADR 0011, decision 2) -------------
   //
   // The load-bearing assumption of stage 4's cross-signing flow, checked
@@ -499,8 +594,17 @@ async function runJourney(): Promise<void> {
     // unnecessary — the SDK's first attempt simply succeeds. Worth saying out
     // loud rather than passing silently, because it means this run proved
     // less than it looks like it did.
+    // Dendrite is this case. It doesn't gate the endpoint, so the client's
+    // first attempt succeeds and the proxy path never runs. Said plainly
+    // rather than ticked, because this run has *not* tested ADR 0011's
+    // assumption — it has established that this homeserver never asks.
     detail(
-      `homeserver answered ${unauthenticated.status}, not 401 — no UIA required here`
+      `homeserver answered ${unauthenticated.status}, not 401 — this homeserver ` +
+        `doesn't gate device-signing upload`
+    );
+    detail(
+      "ADR 0011's session-vs-request assumption is untested here; it needs a " +
+        "homeserver that requires UIA, such as Synapse"
     );
     ok("Device-signing upload needs no interactive auth on this homeserver");
   } else {
@@ -644,17 +748,65 @@ async function runJourney(): Promise<void> {
     { channelId: channel.id, content: "should not work" },
     "Posting to a community the user hasn't joined"
   );
+  // Refused for *membership*, not for encryption. The two checks sit in the
+  // same procedure and the encryption one used to run first, which would have
+  // made this assertion pass without membership ever being consulted — and a
+  // stranger would have learned the channel is encrypted, which is more than
+  // they should know about a channel they can't see.
+  assert(
+    /member/i.test(beforeJoin),
+    `refused, but not for membership: ${beforeJoin}`
+  );
   detail(beforeJoin.slice(0, 90));
-  ok("Non-members can't post");
+  ok("Non-members can't post, and are told why that is");
 
   await guest.mutate("servers.joinByInvite", { code: invite.code });
   ok("Joined by invite");
 
-  await guest.mutate("messages.send", {
-    channelId: channel.id,
-    content: `guest ${stamp}`,
-  });
-  ok("Members can post");
+  const guestMessage = `guest ${stamp}`;
+  if (encryptedByDefault) {
+    // A second author, over their own session, so the restore check below
+    // proves two different people's messages survived rather than one.
+    const guestSession = await guest.mutate<{
+      accessToken: string;
+      deviceId: string;
+    }>("matrix.clientSession", { displayName: "e2e journey guest" });
+    const put = await fetch(
+      `${homeserver}/_matrix/client/v3/rooms/${encodeURIComponent(
+        channelInfo.matrixRoomId
+      )}/send/m.room.message/e2e_guest_${Date.now()}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${guestSession.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ msgtype: "m.text", body: guestMessage }),
+      }
+    );
+    assert(put.ok, `guest direct send failed: HTTP ${put.status}`);
+
+    let seen = false;
+    for (let attempt = 0; attempt < 20 && !seen; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const rows = await guest.query<Array<{ content: string }>>(
+        "messages.listByChannel",
+        { channelId: channel.id }
+      );
+      seen = rows.some(m => m.content === guestMessage);
+    }
+    assert(
+      seen,
+      "the guest's directly-authored message never reached the index"
+    );
+    ok("Members can post, over their own Matrix session");
+  } else {
+    await guest.mutate("messages.send", {
+      channelId: channel.id,
+      content: guestMessage,
+    });
+    ok("Members can post");
+  }
 
   // -- permissions ----------------------------------------------------------
 
@@ -716,8 +868,8 @@ async function runJourney(): Promise<void> {
         communityId: community.id,
         communityName: community.name,
         channelId: channel.id,
-        messageText: edited,
-        guestMessage: `guest ${stamp}`,
+        messageText: ownerMessage,
+        guestMessage,
         cid: String(cid),
         fileBytes: payload.length,
       },

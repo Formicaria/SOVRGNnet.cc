@@ -15,6 +15,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod hosting;
+
 use tauri::{Emitter, Manager};
 
 /// Service name under which per-server credentials are filed in the keychain.
@@ -204,6 +206,9 @@ fn forward_deep_link(app: &tauri::AppHandle, urls: Vec<String>) {
 
 fn main() {
     tauri::Builder::default()
+        .manage(hosting::HostProcesses(std::sync::Mutex::new(
+            std::collections::HashMap::new(),
+        )))
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // A second launch — usually someone clicking an invite while the
@@ -242,8 +247,22 @@ fn main() {
             show_server,
             close_server,
             open_external,
-            app_version
+            app_version,
+            hosting::host_available,
+            hosting::host_install,
+            hosting::host_start,
+            hosting::host_stop,
+            hosting::host_state
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running SOVRGNnet");
+        .build(tauri::generate_context!())
+        .expect("error while running SOVRGNnet")
+        .run(|app_handle, event| {
+            // The hosted server's processes are children of this one. Quitting
+            // the app must stop them — Postgres through pg_ctl so it
+            // checkpoints — or "my server" becomes four orphans holding ports.
+            if let tauri::RunEvent::Exit = event {
+                let processes = app_handle.state::<hosting::HostProcesses>();
+                hosting::stop_all(app_handle, &processes);
+            }
+        });
 }

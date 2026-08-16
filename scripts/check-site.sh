@@ -131,7 +131,9 @@ fi
 APP_VERSION="$(node -e "process.stdout.write(require('../package.json').version)" 2>/dev/null || echo)"
 if [ -n "$APP_VERSION" ]; then
   # The status line has claimed a version two releases behind more than once.
-  advertised=$(grep -rhoE 'v[0-9]+\.[0-9]+\.[0-9]+ alpha' . 2>/dev/null | sort -u || true)
+  # Both spellings are matched — "v0.6.0 alpha" and "v0.6.0 — alpha" — because
+  # the second evaded this check once by having an em-dash in it.
+  advertised=$(grep -rhoE 'v[0-9]+\.[0-9]+\.[0-9]+ (— )?alpha' . 2>/dev/null | sed 's/ — / /' | sort -u || true)
   if [ -z "$advertised" ]; then
     ok "no version claims to keep in sync"
   else
@@ -144,6 +146,22 @@ if [ -n "$APP_VERSION" ]; then
       fi
     done <<< "$advertised"
     [ "$stale" -eq 0 ] && ok "version claims match package.json ($APP_VERSION)"
+  fi
+
+  # Download buttons pin exact release assets, so a bump that forgets this
+  # page ships buttons pointing at the previous release — working links to
+  # the wrong software, which is worse than broken ones.
+  dl_versions=$(grep -rhoE 'releases/download/v[0-9]+\.[0-9]+\.[0-9]+' . 2>/dev/null | sed 's|.*/v||' | sort -u || true)
+  dl_stale=0
+  while IFS= read -r v; do
+    [ -n "$v" ] || continue
+    if [ "$v" != "$APP_VERSION" ]; then
+      problem "a download link points at v$v but package.json says $APP_VERSION"
+      dl_stale=$((dl_stale + 1))
+    fi
+  done <<< "$dl_versions"
+  if [ -n "$dl_versions" ] && [ "$dl_stale" -eq 0 ]; then
+    ok "download links point at v$APP_VERSION"
   fi
 fi
 

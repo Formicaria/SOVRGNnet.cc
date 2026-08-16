@@ -39,13 +39,14 @@
         <a href="#how">How it works</a>
         <a href="#architecture">Architecture</a>
         <a href="#install">Install</a>
+        <a href="/download.html">Download</a>
         <a href="/docs/">Documentation</a>
         <a href="/manifesto.html">Manifesto</a>
         <a href="/about.html">About</a>
       </nav>
 
-      <a class="btn btn-outline btn-sm header-cta" href="/docs/install.html">
-        <span class="prompt" aria-hidden="true">&gt;_</span> Install SOVRGN
+      <a class="btn btn-outline btn-sm header-cta" href="/download.html">
+        <span class="prompt" aria-hidden="true">&gt;_</span> Download
       </a>
 
       <details class="nav-toggle">
@@ -55,12 +56,13 @@
           <a href="#how">How it works</a>
           <a href="#architecture">Architecture</a>
           <a href="#install">Install</a>
-          <a href="/docs/">Documentation</a>
+          <a href="/download.html">Download</a>
+        <a href="/docs/">Documentation</a>
           <a href="/manifesto.html">Manifesto</a>
           <a href="/about.html">About</a>
           <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
-          <a class="btn btn-primary btn-sm" href="/docs/install.html">
-            <span class="prompt" aria-hidden="true">&gt;_</span> Install SOVRGN
+          <a class="btn btn-primary btn-sm" href="/download.html">
+            <span class="prompt" aria-hidden="true">&gt;_</span> Download
           </a>
         </nav>
       </details>
@@ -92,8 +94,8 @@
             </p>
 
             <div class="hero-cta">
-              <a class="btn btn-primary" href="/docs/install.html">
-                <span class="prompt" aria-hidden="true">&gt;_</span> Install SOVRGN
+              <a class="btn btn-primary" href="/download.html">
+                <span class="prompt" aria-hidden="true">&gt;_</span> Download
               </a>
               <a class="btn btn-ghost" href="https://github.com/Formicaria/SOVRGNnet.cc">
                 View on GitHub
@@ -108,8 +110,8 @@
 
             <p class="hero-status">
               <span class="dot dot-warn" aria-hidden="true"></span>
-              v0.5.1 alpha — messaging, files, invites, roles, and moderation
-              work; channels can now be end-to-end encrypted, off by default
+              v0.6.0 alpha — messaging, files, invites, roles, and moderation
+              work; channels are end-to-end encrypted by default
             </p>
           </div>
 
@@ -449,7 +451,9 @@ cd sovrgnnet
             <h3>One app, every instance</h3>
             <p>A native desktop client for Linux, macOS, and Windows. One window
                holds every instance you're in — your own and your friends' —
-               each signed in separately, credentials in the OS keychain.
+               each signed in separately, credentials in the OS keychain. On
+               Linux and Windows the same app can <em>host</em>: one click sets
+               up a complete server on your machine, no terminal involved.
                Everything also works in a browser.</p>
           </div>
           <div class="card">
@@ -650,14 +654,15 @@ cd sovrgnnet
           for.
         </p>
         <div class="note">
-          <strong>A channel is plaintext unless somebody turned encryption
-          on.</strong> That's the default, and in a plaintext channel messages
-          are readable by whoever administers the instance — which for most
-          operators is only themselves, on <em>their own</em> homeserver. An
-          administrator can permanently encrypt a channel: keys then live on
-          members' devices and the server holds ciphertext it cannot read.
-          Metadata is never encrypted, and none of this makes it Signal. If you
-          run an instance for other people, tell them where it stands.
+          <strong>Channels are end-to-end encrypted by default</strong> — every
+          channel created on an instance whose deployment can support it, with
+          no switch to find. Keys live on members' devices; the server holds
+          ciphertext it cannot read. Where the deployment can't support it — a
+          homeserver clients can't reach — channels are plaintext, readable by
+          whoever administers the instance, and the software says so instead
+          of pretending. Metadata is never encrypted anywhere, and none of
+          this makes it Signal. If you run an instance for other people, tell
+          them which kind they're on.
         </div>
         <p class="muted">
           Also missing today: voice and video, mobile apps, federation between

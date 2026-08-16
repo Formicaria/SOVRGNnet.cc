@@ -71,12 +71,12 @@ describe("evaluate", () => {
   });
 
   it("reports stopped when nothing is up", () => {
-    const all = make({ postgres: "stopped", conduit: "stopped", ipfs: "stopped", app: "stopped" });
+    const all = make({ postgres: "stopped", matrix: "stopped", ipfs: "stopped", app: "stopped" });
     expect(evaluate(all, URL).status).toBe("stopped");
   });
 
   it("reports starting while components are coming up", () => {
-    expect(evaluate(make({ app: "starting", conduit: "starting" }), URL).status).toBe(
+    expect(evaluate(make({ app: "starting", matrix: "starting" }), URL).status).toBe(
       "starting"
     );
   });
@@ -107,7 +107,7 @@ describe("evaluate", () => {
     });
 
     it("fails when the chat server is down", () => {
-      expect(evaluate(make({ conduit: "failed", app: "failed" }), URL).status).toBe("failed");
+      expect(evaluate(make({ matrix: "failed", app: "failed" }), URL).status).toBe("failed");
     });
 
     it("explains the failure in human terms, with the underlying error", () => {
@@ -121,7 +121,7 @@ describe("evaluate", () => {
     });
 
     it("still explains itself with no error attached", () => {
-      const state = evaluate(make({ conduit: "failed", app: "failed" }), URL);
+      const state = evaluate(make({ matrix: "failed", app: "failed" }), URL);
       if (state.status !== "failed") throw new Error("expected failed");
       expect(state.problem.length).toBeGreaterThan(10);
     });
@@ -138,7 +138,7 @@ describe("install progress", () => {
   it("gives every step a person-readable label", () => {
     for (const step of INSTALL_STEPS) {
       expect(step.label.length).toBeGreaterThan(4);
-      expect(step.label).not.toMatch(/postgres|conduit|kubo|ipfs/i);
+      expect(step.label).not.toMatch(/postgres|dendrite|kubo|ipfs/i);
     }
   });
 

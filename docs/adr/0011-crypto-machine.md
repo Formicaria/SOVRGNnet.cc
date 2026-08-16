@@ -87,17 +87,31 @@ instance's keyless request can complete the stage and then be rejected for
 having nothing to upload. That rejection is success. Only 401 and 403 mean the
 password was refused, and only those are treated as failure.
 
-**This is an assumption about a homeserver, so it is checked against one.** The
-whole design rests on a completed stage belonging to the session rather than to
-the request that carried it. The spec is written that way — it is why the SSO
-stage can be satisfied in a different window — but nothing in this repository
-would notice if Dendrite disagreed. So `scripts/e2e-journey.ts` runs the exact
+**This is an assumption about a homeserver, so it is checked against one — and
+on Dendrite the check does not fire.** `scripts/e2e-journey.ts` runs the exact
 sequence against the real homeserver: unauthenticated upload, assert a 401 with
 a password stage, have the instance satisfy it, re-submit with the session id
-and a freshly generated Ed25519 master key, and read the key back out of
-`/keys/query`. A 401 on the re-submission fails the run loudly and says that
-this decision does not hold on that homeserver. No Olm is needed for it: a
-master cross-signing key is a public key and carries no signature of its own.
+and a freshly generated Ed25519 master key, read the key back from
+`/keys/query`. A 401 on the re-submission fails the run loudly and says the
+decision does not hold there.
+
+Dendrite answers the first request `400`, not `401`. It does not gate
+`/keys/device_signing/upload` behind interactive auth at all, so the client's
+first attempt simply succeeds and none of the machinery above runs. Which
+means:
+
+- **On Dendrite this decision costs nothing and does nothing.** Cross-signing
+  setup works, and the UIA path is dead code that never executes.
+- **The path exists for Synapse**, which does gate the endpoint, and for any
+  homeserver that later starts to. The client reaches for the instance only on
+  a 401, so nothing has to be configured either way.
+- **It is therefore unexercised rather than verified.** The harness says so in
+  its output instead of printing a tick, because a green run that proved
+  nothing is worse than a run that admits it. Verifying it needs a Synapse in
+  the harness, which is a larger change than this one and has not been made.
+
+No Olm is needed for the probe either way: a master cross-signing key is a
+public key and carries no signature of its own.
 
 ## Decision 3 — keys are shared only with cross-signed devices
 
@@ -166,9 +180,27 @@ passphrase are somewhere the same attacker can read, or the user's head via a
 prompt on every page load. This is disclosed as T21 rather than solved with
 obfuscation.
 
-**Encryption is per channel, irreversible, and admin-gated.** Matrix has no way
-to un-encrypt a room, so neither does this. The action asks first, in a sentence
-that says what it costs.
+**Encryption is the default, not a choice.** Every channel created on a capable
+instance is encrypted; there is no toggle, because a lock that has to be found
+is a lock most conversations never get. Existing plaintext channels keep an
+admin-gated switch, since encrypting one cannot make its old messages ciphertext
+and the action is irreversible — Matrix has no way to un-encrypt a room, so
+neither does this.
+
+The cost, stated where it can't be missed: **the instance's own API can no
+longer write to any channel on a capable instance.** It holds no keys, so it
+refuses rather than sending plaintext. Composing happens in a client with its
+own session or it doesn't happen, and anything that posted through the API —
+bots, integrations, scripts — stops working there.
+
+**Attachments are encrypted client-side, or the default would be a lie.** With
+every channel encrypted, a file upload that put readable bytes on the
+instance's IPFS node would be a hole in every channel at once, under a lock
+icon. So bytes are AES-CTR encrypted in the browser before upload with the key
+inside the Megolm event, and the announcement moves from the server to the
+client, since only a client can compose an event carrying that key. Filenames,
+sizes and MIME types remain in the index in the clear — that is how the file
+list works, and it is part of the metadata concession rather than an oversight.
 
 **`e2ee` is derived, not declared.** Three things must hold: the build ships
 crypto, a homeserver actually answered at the advertised address, and the
@@ -205,6 +237,36 @@ committed to the opposite in writing — "`e2ee` flips only when all of it works
 including recovery" — and a capability that means "encrypted, but a lost laptop
 loses everything and an operator-minted device reads your messages" is the kind
 of half-claim this project keeps auditing itself for.
+
+## How this is verified
+
+Three layers, and it is worth being precise about which one covers what,
+because the interesting failures live in the gaps between them.
+
+**Unit tests** cover the judgement, not the cryptography: what the instance may
+claim, what a reader is told when a message won't open, what room state gets
+written, that attachments round-trip and refuse tampering. None of it needs a
+homeserver, and none of it proves a message was ever encrypted.
+
+**The e2e journey** covers the instance's behaviour over HTTP: channels are
+created encrypted without being asked, the API refuses to send or edit into
+them, and it refuses for the right reason. It drives HTTP from Node and cannot
+encrypt anything either.
+
+**The crypto stage** (`scripts/e2e-crypto.ts`) closes that gap. It imports
+`client/src/lib/matrixCrypto.ts` — the shipped module, not a reimplementation —
+and runs it in Node with two device-scoped sessions against the harness's real
+Dendrite. The only difference from the browser is `persistCryptoStore: false`,
+because Node has no IndexedDB. It asserts that the crypto stack starts, that a
+message becomes ciphertext, that **the index holds no plaintext anywhere**,
+that a second device receives the room key and decrypts to the same string,
+that stored file bytes are ciphertext, and that a tampered file is refused
+rather than rendered.
+
+Still unproven, and stated rather than implied: **SAS verification and key
+backup**, both of which need an interactive exchange between two live sessions;
+and **the browser path itself**, since Node exercises the same module but not
+the same runtime. A browser-driven run would close the second.
 
 ## References
 

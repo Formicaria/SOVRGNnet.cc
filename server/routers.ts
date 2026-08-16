@@ -34,6 +34,7 @@ import { isIpfsReachable } from "./ipfsService";
 import { directSync } from "./matrixPublic";
 import * as matrix from "./matrixService";
 import {
+  createChannelRoom,
   ensureMatrixCredentials,
   joinServerRooms,
   removeFromServerRooms,
@@ -300,8 +301,9 @@ export const appRouter = router({
         );
         await db.addServerMember(server.id, ctx.user.id, "owner");
 
-        // Every server starts with a #general channel.
-        const generalRoomId = await matrix.createChannelRoom(
+        // Every server starts with a #general channel, encrypted if this
+        // instance can support it at all.
+        const generalRoom = await createChannelRoom(
           creds.accessToken,
           spaceId,
           "general"
@@ -310,8 +312,9 @@ export const appRouter = router({
           server.id,
           "general",
           undefined,
-          generalRoomId,
-          "text"
+          generalRoom.roomId,
+          "text",
+          generalRoom.encrypted
         );
 
         return { server, defaultChannel: general };
@@ -464,7 +467,9 @@ export const appRouter = router({
         await requireServerRole(input.serverId, ctx.user.id, "admin");
 
         const creds = await ensureMatrixCredentials(ctx.user.id);
-        const roomId = await matrix.createChannelRoom(
+        // Encrypted unless the deployment can't support it. No option, by
+        // design — see `createChannelRoom`.
+        const room = await createChannelRoom(
           creds.accessToken,
           server.matrixRoomId,
           input.name,
@@ -474,8 +479,9 @@ export const appRouter = router({
           input.serverId,
           input.name,
           input.description,
-          roomId,
-          input.type
+          room.roomId,
+          input.type,
+          room.encrypted
         );
       }),
 
@@ -624,17 +630,30 @@ export const appRouter = router({
         if (!channel) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
         }
+        // Membership first, and the order is load-bearing. A stranger who gets
+        // "this channel is encrypted" has learned something about a channel
+        // they have no business knowing exists — and any test asserting that
+        // non-members are refused would pass on the encryption check without
+        // ever reaching the membership one.
+        await requireServerMembership(channel.serverId, ctx.user.id);
+
         if (channel.encrypted) {
-          // Sending plaintext into an encrypted room is technically legal and
-          // honestly indefensible: it would quietly undermine the encryption
-          // for everyone in it. Refused until this app can compose Megolm.
+          // The instance cannot compose Megolm — by construction, since it
+          // holds no keys — so this path has nothing to offer an encrypted
+          // channel but plaintext, which would quietly undermine the
+          // encryption for everyone in it.
+          //
+          // Now that encryption is the default, this refuses *most* sends on a
+          // capable instance, and that is the intended shape: composing
+          // happens in a client holding its own keys, or it doesn't happen.
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message:
-              "This channel is end-to-end encrypted. This app can't compose encrypted messages yet, so it won't send plaintext into it.",
+              "This channel is end-to-end encrypted, so it can only be written to " +
+              "by a client holding its own keys. This one isn't — reload, or use a " +
+              "client that can.",
           });
         }
-        await requireServerMembership(channel.serverId, ctx.user.id);
 
         const creds = await ensureMatrixCredentials(ctx.user.id);
         const eventId = await matrix.sendMessage(
@@ -679,6 +698,20 @@ export const appRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
         }
         await requireServerMembership(channel.serverId, ctx.user.id);
+
+        if (channel.encrypted) {
+          // Worse than the send path, and easier to miss. Editing through here
+          // would post a plaintext `m.new_content` into an encrypted room *and*
+          // write the new text into the index — turning a content-blind row
+          // into a readable one, for a message whose original the instance
+          // never could read. An edit that leaks what the message never did.
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "This channel is end-to-end encrypted, so edits have to come from a " +
+              "client holding its own keys.",
+          });
+        }
 
         const creds = await db.getMatrixCredentials(ctx.user.id);
         if (creds) {
@@ -726,6 +759,15 @@ export const appRouter = router({
 
         // Matrix has no "unreact" beyond redacting the annotation event, and
         // we don't track annotation ids yet — so only additions propagate.
+        //
+        // Deliberately not gated on `channel.encrypted`, unlike send and edit.
+        // `m.reaction` is an unencrypted relation even in an encrypted room —
+        // that is what the spec says and what every Matrix client does, because
+        // encrypting an annotation hides an emoji while leaving the fact of it,
+        // its author and its target in the clear anyway. So an operator can see
+        // who reacted to what with which emoji in an encrypted channel. That is
+        // metadata, it is already conceded in the threat model, and pretending
+        // otherwise by encrypting it would buy nothing.
         if (!wasReacted) {
           const creds = await db.getMatrixCredentials(ctx.user.id);
           if (creds) {

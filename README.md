@@ -23,9 +23,10 @@ Maintained by [Formicaria](https://formicaria.us) · reference instance at
 
 > **Status: v0.5.1 alpha.** Messaging, files, invites, roles, and moderation
 > work end-to-end. The desktop client connects to multiple independent
-> instances. Backups are portable and verified before restore. **Channels can
-> now be end-to-end encrypted**, off by default and with real limits — see
-> [SECURITY.md](SECURITY.md). Full history in [CHANGELOG.md](CHANGELOG.md).
+> instances. Backups are portable and verified before restore. **Channels are
+> end-to-end encrypted by default** where the deployment can support it, with
+> real limits — see [SECURITY.md](SECURITY.md). Full history in
+> [CHANGELOG.md](CHANGELOG.md).
 
 ## What "sovereign" means here, technically
 
@@ -139,26 +140,30 @@ Traffic to your instance is HTTPS. Between internal services it stays on
 loopback. Files are streamed with membership checks rather than from a public
 gateway.
 
-**A channel is plaintext unless somebody turned encryption on.** That's the
-default and it doesn't change silently. In a plaintext channel, messages are
-readable by whoever operates the instance — stated in the interface, not just
-here.
+**Channels are end-to-end encrypted by default**, with no switch to find. Every
+channel created on an instance that can support it is Megolm-encrypted from the
+moment it exists: keys live on members' devices, the homeserver and the
+instance's own index hold ciphertext, and file contents are encrypted in the
+browser before upload. The first time you sign in, the app offers you a
+recovery key and backs your message keys up encrypted, so a new device can read
+your history.
 
-An administrator can encrypt a channel, permanently. From then on it's Megolm:
-keys live on members' devices, the homeserver and the instance's own index hold
-ciphertext, and the operator cannot read it. Setting up encryption gives you a
-recovery key, backs your message keys up to the server encrypted, and lets your
-devices verify each other by comparing emoji.
+"Can support it" is about the deployment. It needs a homeserver clients can
+reach and a wired appservice; without both there's nowhere for your keys to
+live but the server, so the `e2ee` capability is false and channels are
+plaintext. The default LXC install is like that.
 
-Three things that are true and worth knowing before relying on it:
+Three things worth knowing before relying on it:
 
-- **Metadata isn't encrypted anywhere.** Who's in a channel, who spoke, when.
+- **Metadata isn't encrypted anywhere.** Who's in a channel, who spoke, when,
+  filenames, reactions. With contents encrypted, this is all an operator sees —
+  and it's still a lot.
 - **The operator can still mint a device on your account** — Matrix passwords
   here are derived from the app secret. It receives no keys until one of your
   devices signs it, so the defence is real, and it ends in you reading a dialog.
-- **Encryption needs a reachable homeserver.** On a loopback-only deployment
-  the `e2ee` capability is false and the option isn't offered, because there'd
-  be nowhere for your keys to live but the server.
+- **The instance's own API can't write to an encrypted channel.** It holds no
+  keys, so it refuses rather than sending plaintext. That's deliberate, and it
+  means bots and integrations posting through the API won't work there.
 
 [SECURITY.md](SECURITY.md) · [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) ·
 [ADR 0011](docs/adr/0011-crypto-machine.md)
@@ -183,10 +188,12 @@ deterministic, and upgrades are deliberate.
 
 Stated up front rather than discovered later:
 
-- **Encryption is off by default and per channel.** Plaintext channels are
-  readable by the operator, and metadata is readable in every channel.
+- **Metadata is readable in every channel**, encrypted ones included. Channels
+  on an instance that can't offer encryption are plaintext throughout.
 - **The instance can log in as any of its users.** Derived Matrix passwords;
   the mitigation under encryption is device verification, which needs you.
+- **Bots and integrations can't post through the API** on an instance with
+  encryption, because the API holds no keys.
 - **No session revocation.** Sessions are stateless and last a year.
 - **No voice or video.**
 - **No federation between instances** by default, and it's untested.

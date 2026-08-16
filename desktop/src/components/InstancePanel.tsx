@@ -185,8 +185,9 @@ export default function InstancePanel({
                   </p>
                 ) : (
                   <p className="panel-note">
-                    Encryption is per channel and off by default. Plaintext
-                    channels are readable by whoever runs this instance.
+                    Channels here are end-to-end encrypted by default. Who is in
+                    them, who spoke and when stays visible to whoever runs this
+                    instance.
                   </p>
                 )}
               </section>

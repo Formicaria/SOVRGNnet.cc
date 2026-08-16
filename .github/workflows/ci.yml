@@ -19,6 +19,7 @@ jobs:
     outputs:
       app: ${{ steps.filter.outputs.app }}
       desktop: ${{ steps.filter.outputs.desktop }}
+      rust: ${{ steps.filter.outputs.rust }}
       identity: ${{ steps.filter.outputs.identity }}
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +42,9 @@ jobs:
             desktop:
               - 'desktop/**'
               - 'shared/**'
+              - '.github/workflows/ci.yml'
+            rust:
+              - 'desktop/src-tauri/**'
               - '.github/workflows/ci.yml'
             identity:
               - 'identity/**'
@@ -121,6 +125,41 @@ jobs:
         working-directory: desktop
         run: pnpm check
 
+  # The shell's Rust, checked on push rather than discovered on tag day.
+  #
+  # This job exists because of v0.5.0: code that only compiles during a
+  # release fails during a release. The supervisor (hosting.rs) is real logic
+  # with platform-specific branches, so it's checked on both platforms that
+  # ship it — cargo check compiles everything and links nothing, which is
+  # the cheap end of the certainty it buys.
+  desktop-rust:
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux build dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev librsvg2-dev libgtk-3-dev \
+            libayatana-appindicator3-dev libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: cargo check
+        working-directory: desktop/src-tauri
+        run: cargo check --locked
+
   # The identity provider is its own service with its own dependencies. Its
   # crypto is tested in the root suite, since shared/identity.ts is what both
   # this service and every server rely on.
@@ -155,17 +194,18 @@ jobs:
   # request can still merge even though the app jobs were skipped — a skipped
   # required check never reports and would block the merge forever.
   ci:
-    needs: [app, desktop, identity, versions]
+    needs: [app, desktop, desktop-rust, identity, versions]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verify nothing failed
         run: |
-          echo "app:      ${{ needs.app.result }}"
-          echo "desktop:  ${{ needs.desktop.result }}"
-          echo "identity: ${{ needs.identity.result }}"
-          echo "versions: ${{ needs.versions.result }}"
-          for result in "${{ needs.app.result }}" "${{ needs.desktop.result }}" "${{ needs.identity.result }}" "${{ needs.versions.result }}"; do
+          echo "app:          ${{ needs.app.result }}"
+          echo "desktop:      ${{ needs.desktop.result }}"
+          echo "desktop-rust: ${{ needs.desktop-rust.result }}"
+          echo "identity:     ${{ needs.identity.result }}"
+          echo "versions:     ${{ needs.versions.result }}"
+          for result in "${{ needs.app.result }}" "${{ needs.desktop.result }}" "${{ needs.desktop-rust.result }}" "${{ needs.identity.result }}" "${{ needs.versions.result }}"; do
             case "$result" in
               success|skipped) ;;
               *) echo "::error::A required job did not pass."; exit 1 ;;

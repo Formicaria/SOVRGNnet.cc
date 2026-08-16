@@ -336,8 +336,8 @@ export default function ServerSettings({
               {data.encryption ? (
                 <p className="text-xs text-slate-400 flex items-start gap-1.5">
                   <ShieldCheck className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  Channels can be encrypted, permanently. The plaintext ones —
-                  the default — you can read.
+                  New channels are end-to-end encrypted — you can't read them.
+                  Channels from before encryption, and all metadata, you can.
                 </p>
               ) : (
                 <p className="text-xs text-amber-400/90 flex items-start gap-1.5">

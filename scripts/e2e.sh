@@ -328,6 +328,20 @@ info "Register, create, post, upload, invite, join, permissions."
 E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" pnpm exec tsx scripts/e2e-journey.ts \
   || die "The journey failed."
 
+# -------------------------------------------------------------------- crypto
+#
+# The journey drives HTTP and cannot encrypt anything. This runs the shipped
+# crypto module itself — two device-scoped sessions, real Olm, real Megolm,
+# against the Dendrite above — because nothing else in this repository proves
+# a message ever becomes ciphertext or ever comes back.
+
+step "Crypto"
+info "Two devices, a room key, and bytes the instance can't read."
+
+E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" pnpm exec tsx scripts/e2e-crypto.ts \
+  || die "The crypto checks failed."
+ok "real Olm/Megolm end to end"
+
 # ------------------------------------------------- backup / verify / restore
 
 step "Backup, verify, restore"

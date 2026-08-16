@@ -17,10 +17,15 @@ import { openExternal } from "@/lib/bridge";
 export default function FirstRun({
   onAddServer,
   onSignIn,
+  onHost,
+  canHost = false,
   identityUrl = "https://sovrgnnet.cc",
 }: {
   onAddServer: () => void;
   onSignIn: () => void;
+  /** Open the hosting panel. Only offered when this build bundles a server. */
+  onHost?: () => void;
+  canHost?: boolean;
   identityUrl?: string;
 }) {
   const [showingWhy, setShowingWhy] = useState(false);
@@ -31,7 +36,7 @@ export default function FirstRun({
       <h1>Welcome to SOVRGNnet</h1>
       <p className="dim">
         Chat on servers people own, not companies. Sign in to bring your servers
-        with you, or connect to one directly.
+        with you, connect to one directly — or run your own, right here.
       </p>
 
       <div className="firstrun-actions">
@@ -41,6 +46,11 @@ export default function FirstRun({
         <button className="ghost" onClick={onAddServer}>
           I have a server address
         </button>
+        {canHost && onHost && (
+          <button className="ghost" onClick={onHost}>
+            Run a server on this computer
+          </button>
+        )}
       </div>
 
       <button className="linky" onClick={() => setShowingWhy(v => !v)}>
