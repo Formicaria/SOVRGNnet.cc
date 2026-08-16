@@ -21,7 +21,9 @@ import {
 } from "./sso";
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import { parsePublicMatrixUrl } from "@shared/matrixDelegation";
 import * as db from "./db";
+import { directSync } from "./matrixPublic";
 import * as matrix from "./matrixService";
 import {
   ensureMatrixCredentials,
@@ -1127,6 +1129,71 @@ export const appRouter = router({
     status: publicProcedure.query(async () => ({
       reachable: await matrix.isHomeserverReachable(),
     })),
+
+    /**
+     * A device-scoped Matrix session for this client — ADR 0008 stage 3.
+     *
+     * Gated on the same probe that decides the `clientMatrix` capability, so
+     * a token is only ever minted for a homeserver the client can actually
+     * reach. Handing it out when the homeserver is loopback-only would give
+     * the client a credential for an address that refuses it.
+     *
+     * The client may pass back the deviceId it was given before; reusing it
+     * replaces that session on the homeserver instead of piling up a new
+     * anonymous device per page load. The id must be client-shaped — the
+     * server's own session and other users' devices are not claimable,
+     * because login only ever touches devices under this user's account and
+     * the prefix check keeps the server's recognisable id out of reach.
+     */
+    clientSession: protectedProcedure
+      .input(
+        z.object({
+          deviceId: z
+            .string()
+            .regex(/^SOVRGN_[A-Z0-9]{16}$/)
+            .optional(),
+          displayName: z.string().min(1).max(100),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const status = directSync();
+        if (!status.available) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              status.detail ??
+              "This instance does not offer direct Matrix sync.",
+          });
+        }
+
+        // The account must exist before a device can log into it.
+        await ensureMatrixCredentials(ctx.user.id);
+
+        const deviceId = input.deviceId ?? matrix.clientDeviceId();
+        const session = await matrix.login(
+          matrix.localpartForUser(ctx.user.id),
+          matrix.deriveMatrixPassword(ctx.user.id),
+          { deviceId, displayName: input.displayName }
+        );
+
+        const base = parsePublicMatrixUrl(process.env.MATRIX_PUBLIC_URL);
+        if (!base) {
+          // directSync().available implies a parseable URL; if it vanished
+          // between the check and here, refuse rather than hand out a token
+          // with nowhere to use it.
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "The homeserver address is no longer configured.",
+          });
+        }
+
+        return {
+          homeserverUrl: base,
+          matrixUserId: session.userId,
+          accessToken: session.accessToken,
+          deviceId: session.deviceId ?? deviceId,
+        };
+      }),
   }),
 });
 

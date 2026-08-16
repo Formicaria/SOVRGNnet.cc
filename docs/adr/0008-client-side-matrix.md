@@ -1,6 +1,6 @@
 # ADR 0008 — The client owns the Matrix session
 
-**Status:** Accepted · August 2026 · stages 1–2 implemented; 3–4 outstanding
+**Status:** Accepted · August 2026 · stages 1–3 implemented; 4 outstanding
 **Reverses:** the proxy decision in [ADR 0001](0001-multi-server-client.md) and
 [ARCHITECTURE.md](../ARCHITECTURE.md)
 
@@ -108,9 +108,18 @@ passes a naive check and fails every real request afterwards.
 Opt-in per instance: an operator who sets nothing keeps the proxy, and nothing
 about their deployment changes.
 
-**3 — Direct sync.** The client takes over `/sync` and the four polling
-intervals go away. The proxy stays in place for instances that have not
-completed stage 2, selected by capability rather than by version.
+**3 — Direct sync.** ✅ The client obtains a device-scoped session over the
+authenticated instance API (`matrix.clientSession`, gated on the same probe
+that decides `clientMatrix`) and long-polls `/sync` itself — a hand-rolled
+engine of ~150 lines rather than matrix-js-sdk, which earns its megabyte when
+stage 4 needs its crypto. Message and file liveness ride the stream: the two
+heavy polls (messages 3s, files 5s) switch off when sync is live, and uploads
+now emit an `m.file` room event so files announce themselves. The typing and
+member-list polls remain — they carry instance-level data (tRPC-recorded
+typing, roles, presence) that never lived in Matrix rooms, and moving them is
+a product decision this stage doesn't smuggle in. Sending also stays on the
+instance API, where permission enforcement already lives. The proxy remains
+for instances that have not completed stage 2, selected by capability.
 
 **4 — Olm/Megolm.** Encryption, cross-signing, device verification, and key
 backup. `e2ee` flips only when all of it works, including recovery.

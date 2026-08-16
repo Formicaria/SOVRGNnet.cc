@@ -159,7 +159,9 @@ this project exists to avoid.
       revocable; the instance's own session is visible rather than hidden
 - [x] **Reachable homeserver** — `.well-known` delegation served by the app;
       `clientMatrix` derived from a real probe rather than a set variable
-- [ ] **Client-side Matrix** — the client owns the Matrix session ([ADR 0008](adr/0008-client-side-matrix.md))
+- [x] **Client-side Matrix** — device-scoped sessions, reachable homeserver,
+      and direct `/sync` for message and file liveness ([ADR 0008](adr/0008-client-side-matrix.md),
+      stages 1–3; sending stays on the instance API where permissions live)
 - [ ] **E2EE** via Olm/Megolm, with device verification and key backup
 
 ## 0.5 — Portable infrastructure
@@ -200,16 +202,19 @@ social features. Deliberately after the architecture, not before it.
 Detail behind the checkboxes above. The numbered phases up to 7.6 are history;
 these are the reasoning for what's left.
 
-## Client-side Matrix (0.4)
+## Client-side Matrix (0.4) ✅
 
 The client syncs directly with each homeserver instead of the app proxying.
-Still plaintext — this step moves the transport without encrypting it, and
-separating the two keeps each reviewable. Replaces the 3-second polling loop
-with a real `/sync` stream. The homeserver stops being loopback-only and moves
-behind the tunnel with proper `.well-known` delegation.
+Still plaintext — this step moved the transport without encrypting it, and
+separating the two kept each reviewable. The 3-second message poll and the
+5-second file poll are gone when sync is live; uploads emit an `m.file` event
+so the stream carries them. Advertised as the `clientMatrix` capability and
+gated on a probe, so instances whose homeserver stays on loopback keep the
+proxy and notice nothing.
 
-Advertised as the `clientMatrix` capability, so a client can tell whether an
-instance supports direct sync or still requires the proxy.
+What deliberately did not move: sending (permission enforcement lives on the
+instance API), and the typing/member polls (instance-level data that never
+lived in Matrix rooms). Those move, if ever, as their own decisions.
 
 ## End-to-end encryption (0.4)
 
