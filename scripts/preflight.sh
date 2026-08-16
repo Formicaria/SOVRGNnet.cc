@@ -153,6 +153,20 @@ else
   skip "identity dependencies not installed (cd identity && pnpm install)"
 fi
 
+step "Static site"
+if [ -d site ]; then
+  # Cheap, and the site has no build step to catch a typo'd href.
+  if output="$(./scripts/check-site.sh 2>&1)"; then
+    printf '%s\n' "$output" | grep -E '✓|!' | sed 's/^/  /' | sed 's/^  *  /  /'
+    pass "links, assets, CSP, version claims"
+  else
+    printf '%s\n' "$output" | tail -20
+    fail "static site"
+  fi
+else
+  skip "no site directory"
+fi
+
 # ------------------------------------------------------------------ the slow
 
 if [ "$FULL" -eq 0 ]; then
@@ -172,6 +186,7 @@ docker_problem() {
     printf 'not installed\n     %sInstall it: sudo apt install docker.io docker-compose-v2%s' "$DIM" "$RESET"
     return
   fi
+
   if docker info >/dev/null 2>&1; then return 1; fi
 
   # Distinguish "daemon down" from "you can't reach the socket".
@@ -189,9 +204,17 @@ docker_problem() {
   fi
 }
 
+# Two separate capabilities, because they gate different steps. The integration
+# tests need only the daemon; the end-to-end harness also needs Compose. Rolling
+# them into one flag would skip the tests that can actually run.
 DOCKER_READY=0
+COMPOSE_READY=0
+
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   DOCKER_READY=1
+  if docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_READY=1
+  fi
 else
   DOCKER_NOTE="$(docker_problem)"
 fi
@@ -205,19 +228,27 @@ else
 fi
 
 step "End-to-end (full stack)"
-if [ "$DOCKER_READY" -eq 1 ]; then
+if [ "$COMPOSE_READY" -eq 1 ]; then
   ./scripts/e2e.sh || fail "end-to-end"
   pass "stack, journey, backup, restore"
+elif [ "$DOCKER_READY" -eq 1 ]; then
+  skip "Docker Compose isn't installed"
+  printf '     %sDocker CE: %ssudo apt install docker-compose-plugin%s\n' "$DIM" "$BOLD" "$RESET"
+  printf '     %sUbuntu/Pop!_OS docker.io: sudo apt install docker-compose-v2%s\n' "$DIM" "$RESET"
 else
   skip "Docker: $DOCKER_NOTE"
 fi
 
-# --full that silently ran neither of the two things --full exists for should
-# not print the same success as one that ran both.
-if [ "$DOCKER_READY" -eq 0 ]; then
+# A --full run that skipped the steps --full exists for should not print the
+# same success as one that ran them.
+if [ "$COMPOSE_READY" -eq 0 ]; then
   ELAPSED=$(( $(date +%s) - STARTED ))
-  printf '\n%s%sFast checks passed%s %s(%ss)%s\n' "$BOLD" "$YELLOW" "$RESET" "$DIM" "$ELAPSED" "$RESET"
-  printf '%sBut integration and end-to-end did not run, which is what --full is for.%s\n\n' "$DIM" "$RESET"
+  printf '\n%s%sPartially verified%s %s(%ss)%s\n' "$BOLD" "$YELLOW" "$RESET" "$DIM" "$ELAPSED" "$RESET"
+  if [ "$DOCKER_READY" -eq 1 ]; then
+    printf '%sEverything ran except end-to-end, which needs Compose.%s\n\n' "$DIM" "$RESET"
+  else
+    printf '%sIntegration and end-to-end did not run, which is what --full is for.%s\n\n' "$DIM" "$RESET"
+  fi
   exit 0
 fi
 
