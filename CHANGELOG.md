@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.2.0 — 2026-08-15
+
+The release that makes SOVRGNnet installable by someone who isn't a developer,
+and usable as an actual community rather than a chat demo.
+
+**Install it in one command.** `./install.sh` goes from `git clone` to a
+running instance — generating every secret, building, starting, and printing
+the URL. It asks one question: how people should reach you. One of the answers
+gets you a public `https://` address **with no domain and no account
+anywhere**. `scripts/install-lxc.sh` does the same with no Docker at all,
+running everything as systemd services. `./sovrgnnet start|stop|status|url|
+logs|backup|update` drives either install identically.
+
+**The app migrates itself.** There is no migration step to forget — and the
+one previously documented could never have worked, since `drizzle-kit` isn't
+in the production image.
+
+**Community features are real.** Roles enforced in one place across the whole
+API, a member list with live presence, kick and ban mirrored onto Matrix,
+message editing as a proper `m.replace`, reactions, typing indicators, and
+per-server profiles so one account can be "Zach" in one community and
+"chronus" in another.
+
+**Security fixes that mattered.** IPFS's unauthenticated admin API was
+published to the host, where anyone reaching it controlled the node — it and
+the homeserver are loopback-only now. Homeserver registration is gated behind
+a token. Federation defaults to off. The join policy was advertised and never
+enforced, so a server its owner had closed still accepted anyone.
+
+**And nobody was ever an administrator.** The installer promised the first
+account would be admin; `adminProcedure` checked for the role; nothing ever
+assigned it. Fixed, along with a settings screen so running a server doesn't
+require SSH.
+
+**Honesty fixes.** The login page claimed end-to-end encryption that does not
+exist, and advertised NFT subscriptions, voice, and a soundboard that also do
+not exist. Messages are plaintext on your own server, the interface says so,
+and the site now separates what works from what's planned.
+
+See below for the full detail.
+
 ## Unreleased
 
 ### Anyone can run this now

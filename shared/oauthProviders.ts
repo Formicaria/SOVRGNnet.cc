@@ -256,6 +256,52 @@ export function buildAuthorizeUrl(
   return url.toString();
 }
 
+// ------------------------------------------------------ matching an account
+
+export type BrokerMatch =
+  | { action: "sign-in"; accountId: number }
+  | { action: "link"; accountId: number }
+  | { action: "create" }
+  | { action: "refuse"; message: string };
+
+/**
+ * Which account a provider sign-in belongs to.
+ *
+ * The dangerous branch is matching by email. If someone signs in with a
+ * provider that hasn't verified the address, and we attach that to an existing
+ * account with the same address, then anyone who can set an unverified email
+ * at any provider can take over anyone's account. GitHub's profile endpoint
+ * hands out exactly such an address, which is why it's never trusted.
+ *
+ * So: a provider identity we already know wins. An unknown one links only on a
+ * verified address. Everything else creates a separate account or refuses.
+ */
+export function matchBrokerAccount(input: {
+  profile: Pick<NormalizedProfile, "email" | "emailVerified">;
+  /** Account already bound to this exact provider identity. */
+  existingByIdentity: { id: number } | null;
+  /** Account with the same email address, if any. */
+  existingByEmail: { id: number } | null;
+}): BrokerMatch {
+  if (input.existingByIdentity) {
+    return { action: "sign-in", accountId: input.existingByIdentity.id };
+  }
+
+  if (!input.profile.email || !input.existingByEmail) {
+    return { action: "create" };
+  }
+
+  if (!input.profile.emailVerified) {
+    return {
+      action: "refuse",
+      message:
+        "An account already uses that email address, and this provider hasn't confirmed the address belongs to you. Sign in the way you did before, then link this provider from your account settings.",
+    };
+  }
+
+  return { action: "link", accountId: input.existingByEmail.id };
+}
+
 /** Which providers an operator has actually configured. */
 export function configuredProviders(
   env: Record<string, string | undefined>

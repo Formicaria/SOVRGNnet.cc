@@ -66,19 +66,32 @@ set_json_version() {
   printf '  %s✓%s %s\n' "$DIM" "$RESET" "$1"
 }
 
+# Everything is rewritten through node rather than `sed -i`. GNU sed and BSD
+# sed disagree about whether -i takes a suffix, and the `.bak` dance leaves a
+# stray file behind on any filesystem that won't let us delete it.
+rewrite() {
+  local file="$1" pattern="$2" replacement="$3"
+  node -e "
+    const fs = require('fs');
+    const file = '$file';
+    const text = fs.readFileSync(file, 'utf8');
+    const updated = text.replace($pattern, \`$replacement\`);
+    if (updated === text) { console.error('nothing to update in ' + file); process.exit(1); }
+    fs.writeFileSync(file, updated);
+  "
+  printf '  %s✓%s %s\n' "$DIM" "$RESET" "$file"
+}
+
 set_json_version package.json
 set_json_version desktop/package.json
 set_json_version desktop/src-tauri/tauri.conf.json
 
 # Cargo.toml: only the first `version =`, which is the package's own — later
-# ones belong to dependencies.
-sed -i.bak "0,/^version = \".*\"$/s//version = \"$NEXT\"/" desktop/src-tauri/Cargo.toml
-rm -f desktop/src-tauri/Cargo.toml.bak
-printf '  %s✓%s desktop/src-tauri/Cargo.toml\n' "$DIM" "$RESET"
+# ones belong to dependencies, hence the non-global regex.
+rewrite desktop/src-tauri/Cargo.toml '/^version = "[^"]*"$/m' "version = \\\"$NEXT\\\""
 
-sed -i.bak "s/^export const APP_VERSION = \".*\";$/export const APP_VERSION = \"$NEXT\";/" shared/const.ts
-rm -f shared/const.ts.bak
-printf '  %s✓%s shared/const.ts\n' "$DIM" "$RESET"
+rewrite shared/const.ts '/^export const APP_VERSION = "[^"]*";$/m' \
+  "export const APP_VERSION = \\\"$NEXT\\\";"
 
 printf '\n'
 ./scripts/check-versions.sh

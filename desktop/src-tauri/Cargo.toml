@@ -1,6 +1,6 @@
 [package]
 name = "sovrgnnet-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "SOVRGNnet desktop client"
 authors = ["Formicaria"]
 license = "MIT"
@@ -11,7 +11,15 @@ rust-version = "1.77"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# The "unstable" feature is what exposes multiple webviews inside one window —
+# `Window`, `WebviewBuilder`, and `add_child`. That's load-bearing here: one
+# webview per server is what lets the app hold several signed-in servers at
+# once, each keeping its own cookies and storage.
+#
+# Tauri flags this API as unstable, meaning it can change between minor
+# versions. The pin below is deliberate: `tauri update` on this crate is a
+# thing to do on purpose and then test, not something to take automatically.
+tauri = { version = "2.11", features = ["unstable"] }
 tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 serde = { version = "1", features = ["derive"] }

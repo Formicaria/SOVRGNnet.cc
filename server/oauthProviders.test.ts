@@ -7,6 +7,7 @@ import {
   generateState,
   githubPrimaryEmail,
   isProviderId,
+  matchBrokerAccount,
   mergeGithubEmail,
   normalizeProfile,
 } from "@shared/oauthProviders";
@@ -249,6 +250,98 @@ describe("configuredProviders", () => {
 
   it("returns nothing when none are set up", () => {
     expect(configuredProviders({})).toEqual([]);
+  });
+});
+
+describe("matchBrokerAccount", () => {
+  const verified = { email: "z@example.com", emailVerified: true };
+  const unverified = { email: "z@example.com", emailVerified: false };
+
+  it("signs in a provider identity it already knows", () => {
+    expect(
+      matchBrokerAccount({
+        profile: verified,
+        existingByIdentity: { id: 7 },
+        existingByEmail: null,
+      })
+    ).toEqual({ action: "sign-in", accountId: 7 });
+  });
+
+  it("creates an account when nothing matches", () => {
+    expect(
+      matchBrokerAccount({
+        profile: verified,
+        existingByIdentity: null,
+        existingByEmail: null,
+      })
+    ).toEqual({ action: "create" });
+  });
+
+  it("links a new provider to an account on a verified address", () => {
+    // This is what makes a second provider possible, and what stops one
+    // suspension costing someone every server they belong to.
+    expect(
+      matchBrokerAccount({
+        profile: verified,
+        existingByIdentity: null,
+        existingByEmail: { id: 3 },
+      })
+    ).toEqual({ action: "link", accountId: 3 });
+  });
+
+  it("refuses to link on an unverified address", () => {
+    // The takeover: set an unverified email at any provider to someone else's
+    // address, and inherit their account everywhere.
+    const match = matchBrokerAccount({
+      profile: unverified,
+      existingByIdentity: null,
+      existingByEmail: { id: 3 },
+    });
+
+    expect(match.action).toBe("refuse");
+    expect(match).toHaveProperty("message", expect.stringMatching(/confirmed/i));
+  });
+
+  it("creates rather than refuses when the address is new", () => {
+    expect(
+      matchBrokerAccount({
+        profile: unverified,
+        existingByIdentity: null,
+        existingByEmail: null,
+      })
+    ).toEqual({ action: "create" });
+  });
+
+  it("creates when the provider gave no address at all", () => {
+    expect(
+      matchBrokerAccount({
+        profile: { email: null, emailVerified: false },
+        existingByIdentity: null,
+        existingByEmail: { id: 3 },
+      })
+    ).toEqual({ action: "create" });
+  });
+
+  it("prefers the known identity over any email match", () => {
+    expect(
+      matchBrokerAccount({
+        profile: verified,
+        existingByIdentity: { id: 7 },
+        existingByEmail: { id: 3 },
+      })
+    ).toEqual({ action: "sign-in", accountId: 7 });
+  });
+
+  it("refuses a GitHub profile email, which is never verified", () => {
+    // normalizeProfile marks these unverified precisely so this branch fires.
+    const github = normalizeProfile("github", { id: 1, email: "z@example.com", login: "x" })!;
+    expect(
+      matchBrokerAccount({
+        profile: github,
+        existingByIdentity: null,
+        existingByEmail: { id: 3 },
+      }).action
+    ).toBe("refuse");
   });
 });
 
