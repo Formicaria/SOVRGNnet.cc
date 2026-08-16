@@ -19,6 +19,7 @@ import {
 import { getDb } from "./db";
 import { jwks, loadKeys } from "./keys";
 import {
+  emailEnabled,
   passwordResetEmail,
   recoveryUsedEmail,
   verificationEmail,
@@ -124,16 +125,18 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
       codes.map(code => ({ accountId: account.id, codeHash: hashRecoveryCode(code) }))
     );
 
-    const verify = generateOpaqueToken();
-    await db.insert(emailTokens).values({
-      accountId: account.id,
-      purpose: "verify",
-      tokenHash: verify.hash,
-      expiresAt: new Date(Date.now() + VERIFY_TTL_HOURS * 60 * 60 * 1000),
-    });
-    await mail
-      .send(verificationEmail(email, `${baseUrl()}/verify?token=${verify.token}`))
-      .catch(error => console.error("[identity] couldn't send verification email:", error));
+    if (emailEnabled()) {
+      const verify = generateOpaqueToken();
+      await db.insert(emailTokens).values({
+        accountId: account.id,
+        purpose: "verify",
+        tokenHash: verify.hash,
+        expiresAt: new Date(Date.now() + VERIFY_TTL_HOURS * 60 * 60 * 1000),
+      });
+      await mail
+        .send(verificationEmail(email, `${baseUrl()}/verify?token=${verify.token}`))
+        .catch(error => console.error("[identity] couldn't send verification email:", error));
+    }
 
     const session = generateOpaqueToken();
     await db.insert(sessions).values({
@@ -149,8 +152,60 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
       email: account.email,
       emailVerified: false,
       recoveryCodes: codes,
-      warning:
-        "Save these recovery codes somewhere safe. They're shown once and are the only way back into your account if you lose access to your email.",
+      // Deliberately blunt when email is off, because in that mode this really
+      // is the only way back and there is nobody who can override it.
+      warning: emailEnabled()
+        ? "Save these recovery codes somewhere safe. They're shown once, and they're the way back into your account if you lose access to your email."
+        : "Save these recovery codes now. This server has no email, so they are the ONLY way back into your account. They're shown once. If you lose them, the account is gone and nobody — including whoever runs this service — can restore it.",
+    });
+  });
+
+  /**
+   * Replace every recovery code with a fresh set.
+   *
+   * Essential when email is off, because there is no other way to recover from
+   * having used or mislaid the codes. Requires the current password, so a
+   * borrowed session can't quietly mint a new way in.
+   */
+  app.post("/api/recovery-codes/regenerate", async (req, res) => {
+    const account = await currentAccount(req);
+    if (!account) return res.status(401).json({ error: "Not signed in." });
+
+    const password = String(req.body?.password ?? "");
+    if (!(await verifyPassword(password, account.passwordHash))) {
+      return res.status(401).json({ error: "That password is incorrect." });
+    }
+
+    const db = await getDb();
+    const codes = generateRecoveryCodes(8);
+
+    // Old codes go, including unused ones. A regenerated set that left the
+    // previous batch working would defeat the point of regenerating.
+    await db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, account.id));
+    await db.insert(recoveryCodes).values(
+      codes.map(code => ({ accountId: account.id, codeHash: hashRecoveryCode(code) }))
+    );
+
+    res.json({
+      recoveryCodes: codes,
+      warning: "Your previous codes no longer work. Save these.",
+    });
+  });
+
+  /** How many codes are left, so the UI can nag before it's too late. */
+  app.get("/api/recovery-codes/status", async (req, res) => {
+    const account = await currentAccount(req);
+    if (!account) return res.status(401).json({ error: "Not signed in." });
+
+    const db = await getDb();
+    const unused = await db
+      .select({ id: recoveryCodes.id })
+      .from(recoveryCodes)
+      .where(and(eq(recoveryCodes.accountId, account.id), isNull(recoveryCodes.usedAt)));
+
+    res.json({
+      remaining: unused.length,
+      emailRecoveryAvailable: emailEnabled() && account.emailVerified,
     });
   });
 
@@ -316,6 +371,9 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
   // ---------------------------------------------------------------- recovery
 
   app.post("/api/verify-email", async (req, res) => {
+    if (!emailEnabled()) {
+      return res.status(501).json({ error: "This service doesn't send email." });
+    }
     const token = String(req.body?.token ?? "");
     if (!token) return res.status(400).json({ error: "Missing token." });
 
@@ -341,6 +399,16 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
   });
 
   app.post("/api/reset/request", async (req, res) => {
+    // Saying "check your inbox" when no email will ever arrive is the worst
+    // possible failure here — someone waits, then concludes the account is
+    // lost. Say what's actually true and point at the path that works.
+    if (!emailEnabled()) {
+      return res.status(501).json({
+        error: "This service doesn't send email.",
+        recovery: "Use one of your recovery codes to set a new password.",
+      });
+    }
+
     const email = normalizeEmail(String(req.body?.email ?? ""));
     const db = await getDb();
     const [account] = await db.select().from(accounts).where(eq(accounts.email, email)).limit(1);

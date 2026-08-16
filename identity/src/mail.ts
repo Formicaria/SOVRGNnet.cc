@@ -52,9 +52,38 @@ export class UnconfiguredMailTransport implements MailTransport {
   }
 }
 
+/**
+ * Running deliberately without email.
+ *
+ * A supported configuration, not a broken one — it avoids depending on a mail
+ * vendor entirely. The costs are real and the rest of the service is written
+ * to account for them:
+ *
+ *   - No address is ever verified, so an SSO identity can never *automatically*
+ *     link to an existing local account on a server. Linking requires signing
+ *     in locally first, on purpose: auto-linking on an unverified address is
+ *     an account takeover.
+ *   - Recovery codes become the only way back into an account. Losing them
+ *     means losing the account, permanently, with nobody able to help.
+ *
+ * Silently dropping mail would leave both of those true while looking fine,
+ * which is why this is a distinct mode you switch on rather than a default you
+ * fall into.
+ */
+export class DisabledMailTransport implements MailTransport {
+  async send(mail: Mail): Promise<void> {
+    console.log(`[identity] email disabled; not sending "${mail.subject}" to ${mail.to}`);
+  }
+}
+
+export function emailEnabled(): boolean {
+  return (process.env.MAIL_TRANSPORT ?? "").toLowerCase() !== "none";
+}
+
 export function mailTransportFromEnv(): MailTransport {
   const configured = (process.env.MAIL_TRANSPORT ?? "").toLowerCase();
 
+  if (configured === "none") return new DisabledMailTransport();
   if (configured === "console") return new ConsoleMailTransport();
   if (!configured && process.env.NODE_ENV !== "production") {
     return new ConsoleMailTransport();
