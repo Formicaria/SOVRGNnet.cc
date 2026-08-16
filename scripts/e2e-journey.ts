@@ -327,16 +327,25 @@ async function runJourney(): Promise<void> {
 
   console.log("\n  Client-authored events");
 
-  const instance = (await (await fetch(`${BASE}/api/instance`)).json()) as {
-    capabilities?: { clientMatrix?: boolean; eventIngest?: boolean };
-  };
+  // clientMatrix comes from a reachability probe, and the boot-time probe can
+  // legitimately land while Dendrite is still starting. A cached negative
+  // expires within seconds; wait for the truth to settle instead of racing it.
+  let capabilities: { clientMatrix?: boolean; eventIngest?: boolean } = {};
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const instance = (await (await fetch(`${BASE}/api/instance`)).json()) as {
+      capabilities?: { clientMatrix?: boolean; eventIngest?: boolean };
+    };
+    capabilities = instance.capabilities ?? {};
+    if (capabilities.clientMatrix === true && capabilities.eventIngest === true) break;
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
   assert(
-    instance.capabilities?.clientMatrix === true,
-    `clientMatrix should be true in the harness: ${JSON.stringify(instance.capabilities)}`
+    capabilities.clientMatrix === true,
+    `clientMatrix should be true in the harness: ${JSON.stringify(capabilities)}`
   );
   assert(
-    instance.capabilities?.eventIngest === true,
-    `eventIngest should be true in the harness: ${JSON.stringify(instance.capabilities)}`
+    capabilities.eventIngest === true,
+    `eventIngest should be true in the harness: ${JSON.stringify(capabilities)}`
   );
   ok("Capabilities advertise direct sync and ingest");
 

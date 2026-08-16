@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { registerAppserviceRoutes } from "../appservice";
 import { registerFileRoutes } from "../fileRoutes";
 import { registerInstanceRoutes } from "../instanceRoutes";
+import { refreshDirectSync } from "../matrixPublic";
 import { registerMetricsRoutes } from "../metrics";
 import { runMigrations, waitForDatabase } from "../migrate";
 import { createContext } from "./context";
@@ -52,6 +53,20 @@ async function startServer() {
 
   const app = express();
   const server = createServer(app);
+
+  // Warm the direct-sync probe before traffic arrives, and keep it warmer
+  // than its own staleness bound. Without this, the first request after boot
+  // sees "unverified" while triggering the probe, and the *next* request sees
+  // the answer — so two endpoints asked in sequence disagree about
+  // clientMatrix. The conformance suite caught exactly that: /api/instance
+  // and /api/capabilities split on a capability during the first seconds of
+  // life. refreshDirectSync's comment always said "used at startup"; now it
+  // is. The interval is unref'd so it never holds the process open.
+  void refreshDirectSync().catch(() => {});
+  setInterval(() => {
+    void refreshDirectSync().catch(() => {});
+  }, 45_000).unref();
+
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));

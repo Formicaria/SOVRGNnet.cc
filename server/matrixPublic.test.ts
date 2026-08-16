@@ -161,6 +161,37 @@ describe("caching", () => {
     // descriptor endpoint that waits.
     expect(directSync().available).toBe(true);
   });
+
+  it("retries a negative answer much sooner than a positive one", async () => {
+    // The common way to cache a "no" is probing during boot while the
+    // homeserver is itself still starting. A 60-second "no" from that window
+    // means the instance spends its first minute denying a capability it
+    // has — the e2e journey caught exactly this shape.
+    const realNow = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(realNow);
+
+    try {
+      fetchMock.mockRejectedValue(new Error("still starting"));
+      await refreshDirectSync();
+      expect(directSync().available).toBe(false);
+      const probesAfterFailure = fetchMock.mock.calls.length;
+
+      // Six seconds later: a negative is stale, and asking again re-probes.
+      nowSpy.mockReturnValue(realNow + 6_000);
+      fetchMock.mockResolvedValue(versions());
+      directSync();
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(probesAfterFailure);
+
+      // A positive answer at the same age is still trusted — no re-probe.
+      await refreshDirectSync();
+      nowSpy.mockReturnValue(realNow + 12_000);
+      const probesWhilePositive = fetchMock.mock.calls.length;
+      directSync();
+      expect(fetchMock.mock.calls.length).toBe(probesWhilePositive);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
 });
 
 describe("a malformed URL", () => {
