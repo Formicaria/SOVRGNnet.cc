@@ -195,6 +195,16 @@ case "${1:-help}" in
     "$REPO_DIR/scripts/backup.sh"
     ;;
 
+  verify)
+    # No root needed — this only reads.
+    "$REPO_DIR/scripts/verify-backup.sh" "${2:-}"
+    ;;
+
+  restore)
+    need_root "$@"
+    "$REPO_DIR/scripts/restore.sh" "${2:-}"
+    ;;
+
   update)
     need_root "$@"
     printf '  Fetching the latest version...\n'
@@ -218,6 +228,8 @@ case "${1:-help}" in
     printf '    %ssovrgnnet url%s        what address do people use?\n' "$BOLD" "$RESET"
     printf '    %ssovrgnnet logs%s       watch what it is doing\n' "$BOLD" "$RESET"
     printf '    %ssovrgnnet backup%s     save a copy of everything\n' "$BOLD" "$RESET"
+    printf '    %ssovrgnnet verify%s     check a backup without restoring it\n' "$BOLD" "$RESET"
+    printf '    %ssovrgnnet restore%s    put a backup back\n' "$BOLD" "$RESET"
     printf '    %ssovrgnnet update%s     get the latest version\n' "$BOLD" "$RESET"
     printf '\n'
     ;;
