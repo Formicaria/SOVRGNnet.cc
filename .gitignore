@@ -136,3 +136,7 @@ dendrite/appservice-e2e.yaml
 # Rendered by scripts/e2e-federation.sh — configs, signing keys, appservice
 # registrations, and throwaway TLS pairs for the two-instance harness.
 dendrite/fed-*/
+# Host-server components assembled by scripts/host-bundle.sh — binaries,
+# never committed. The README stays so the directory exists for dev builds.
+desktop/src-tauri/host/*
+!desktop/src-tauri/host/README

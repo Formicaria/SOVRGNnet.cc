@@ -11,7 +11,7 @@
  */
 
 /** The pieces a hosted server is made of, in start order. */
-export const COMPONENTS = ["postgres", "conduit", "ipfs", "app"] as const;
+export const COMPONENTS = ["postgres", "matrix", "ipfs", "app"] as const;
 export type ComponentId = (typeof COMPONENTS)[number];
 
 export type ComponentState =
@@ -51,7 +51,7 @@ export type HostState =
  */
 export const PREFERRED_PORTS: Record<ComponentId, number> = {
   postgres: 5433, // not 5432 — a developer's own Postgres is likely there
-  conduit: 6167,
+  matrix: 8018, // not 8008 — Dendrite's default, and a developer may run one
   ipfs: 5101, // not 5001 — a developer's own Kubo is likely there
   app: 3100, // not 3000 — everything uses 3000
 };
@@ -79,7 +79,7 @@ export function isUsable(components: Component[]): boolean {
   return components.find(c => c.id === "app")?.state === "running";
 }
 
-export const REQUIRED_FOR_CHAT: ComponentId[] = ["postgres", "conduit", "app"];
+export const REQUIRED_FOR_CHAT: ComponentId[] = ["postgres", "matrix", "app"];
 
 /**
  * Turn a set of component states into one thing to show a person.
@@ -141,7 +141,7 @@ export function evaluate(components: Component[], url: string): HostState {
 
 const HUMAN_NAMES: Record<ComponentId, string> = {
   postgres: "the database",
-  conduit: "the chat server",
+  matrix: "the chat server",
   ipfs: "file storage",
   app: "the app",
 };

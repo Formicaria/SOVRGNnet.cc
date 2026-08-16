@@ -25,12 +25,13 @@
         <a href="/#features">Features</a>
         <a href="/#how">How it works</a>
         <a href="/#install">Install</a>
+        <a href="/download.html">Download</a>
         <a href="/docs/" aria-current="page">Documentation</a>
         <a href="/manifesto.html">Manifesto</a>
         <a href="/about.html">About</a>
       </nav>
-      <a class="btn btn-outline btn-sm header-cta" href="/docs/install.html">
-        <span class="prompt" aria-hidden="true">&gt;_</span> Install SOVRGN
+      <a class="btn btn-outline btn-sm header-cta" href="/download.html">
+        <span class="prompt" aria-hidden="true">&gt;_</span> Download
       </a>
       <details class="nav-toggle">
         <summary aria-label="Menu"></summary>
@@ -38,12 +39,13 @@
           <a href="/#features">Features</a>
           <a href="/#how">How it works</a>
           <a href="/#install">Install</a>
-          <a href="/docs/" aria-current="page">Documentation</a>
+          <a href="/download.html">Download</a>
+        <a href="/docs/" aria-current="page">Documentation</a>
           <a href="/manifesto.html">Manifesto</a>
           <a href="/about.html">About</a>
           <a href="https://github.com/Formicaria/SOVRGNnet.cc">GitHub</a>
-          <a class="btn btn-primary btn-sm" href="/docs/install.html">
-            <span class="prompt" aria-hidden="true">&gt;_</span> Install SOVRGN
+          <a class="btn btn-primary btn-sm" href="/download.html">
+            <span class="prompt" aria-hidden="true">&gt;_</span> Download
           </a>
         </nav>
       </details>
@@ -60,41 +62,44 @@
 
       <h2>The one that matters most</h2>
       <div class="warning">
-        <strong>A channel is plaintext unless somebody turned encryption on.</strong>
-        That's the default, and it doesn't change silently. In a plaintext
-        channel, messages are stored readable in your database and on your
-        Matrix homeserver, and anyone with administrator access to that machine
-        can read every one of them.
+        <strong>Channels are end-to-end encrypted by default</strong> — every
+        channel created on an instance whose deployment can support it,
+        Megolm-encrypted from the moment it exists, with no switch to find.
+        Keys live on members' devices; the instance and its homeserver store
+        ciphertext they have no key for, and file contents are encrypted in
+        the browser before upload.
       </div>
       <p>
-        For a self-hosted instance that's usually one person — you — which is
-        the whole point of running it yourself. It's a categorically different
-        situation from a company holding your messages on its servers. But if
-        you're running an instance for other people, they deserve to know which
-        kind of channel they're typing into.
+        Against an operator who reads the database, or whose backups leak, or
+        who is handed a subpoena, that works. Setting up encryption gives you
+        a recovery key, backs your message keys up to the server encrypted to
+        a key the instance never sees, and has your devices verify each other
+        by comparing emoji.
       </p>
       <p>
-        An administrator can encrypt a channel, permanently. From then on it's
-        Megolm: keys live on members' devices and the instance stores
-        ciphertext it has no key for. Against an operator who reads the
-        database, or whose backups leak, or who is handed a subpoena, that
-        works. Setting it up gives you a recovery key, backs your message keys
-        up to the server encrypted to a key the instance never sees, and has
-        your devices verify each other by comparing emoji.
+        <strong>"Can support it" is about the deployment, not the software.</strong>
+        It takes a homeserver clients can actually reach and an instance that
+        records what its homeserver pushes. Without both there is nowhere for
+        your keys to live except the server — so those instances get plaintext
+        channels and an interface that says so, rather than a lock icon over
+        text the operator can read. The default LXC install is like this, and
+        so is any channel created before encryption became the default.
       </p>
       <p>Three limits, stated here rather than discovered later:</p>
       <ul>
         <li><strong>Metadata is never encrypted.</strong> Who's in a channel,
-            who spoke, and when stay readable in every channel, encrypted or
-            not.</li>
+            who spoke, when, filenames, file sizes, reactions. With contents
+            encrypted, this is the whole of what an operator sees — and it is
+            not a little.</li>
         <li><strong>The instance can mint a Matrix device on any account</strong>,
             because Matrix passwords are derived from the app secret. The
             minted device receives no room keys until one of your own devices
             verifies it — the defence is real, and it ends with a person
             reading a dialog and deciding.</li>
-        <li><strong>Encryption needs a reachable homeserver.</strong> On a
-            loopback-only deployment the option isn't offered, because there'd
-            be nowhere for your keys to live except the server.</li>
+        <li><strong>Lose every device without a recovery key and the messages
+            are gone.</strong> That is what "the server can't read them" costs.
+            The app asks you to set one up the first time it can; declining is
+            allowed and has this exact price.</li>
       </ul>
       <p class="muted">
         Nothing here should be described as private in the way Signal is
@@ -201,7 +206,9 @@
         for is a gap that gets missed.
       </p>
       <ul>
-        <li><strong>Encryption is off by default and per channel</strong>, and
+        <li><strong>Encryption depends on the deployment.</strong> A
+            loopback-only instance, and any channel from before encryption
+            became the default, is plaintext the operator can read — and
             metadata is never encrypted anywhere.</li>
         <li><strong>The instance can log in as any of its users.</strong>
             Matrix passwords are derived from the app secret. In a plaintext

@@ -102,6 +102,28 @@ jobs:
         working-directory: desktop
         run: pnpm install --no-frozen-lockfile
 
+      # ---- the hosted server (ADR 0005) ------------------------------------
+      # Linux and Windows installers ship a complete server: Postgres, the
+      # homeserver, Kubo, a Node runtime, and the app as one bundle, all
+      # supervised by the shell. macOS ships client-only for now — the panel
+      # in the app says so rather than pretending.
+      - uses: actions/setup-go@v5
+        if: matrix.platform != 'macos-latest'
+        with:
+          go-version: "1.23"
+          cache: false
+
+      - name: Root install (host bundle build)
+        if: matrix.platform != 'macos-latest'
+        run: pnpm install --frozen-lockfile
+
+      - name: Assemble host components
+        if: matrix.platform != 'macos-latest'
+        shell: bash
+        run: |
+          ./scripts/host-bundle.sh \
+            ${{ matrix.platform == 'windows-latest' && 'windows-x64' || 'linux-x64' }}
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -180,10 +202,17 @@ jobs:
             connects to servers other people run — it is not required to use a
             SOVRGNnet server, which works in any browser.
 
-            **A channel is plaintext unless somebody turned encryption on.**
-            In plaintext channels — the default — whoever runs the server can
-            read the messages. An administrator can permanently encrypt a
-            channel: keys then live on members' devices and the server stores
-            ciphertext it cannot read. The limits that come with that, visible
-            metadata among them, are stated plainly in `SECURITY.md`.
+            **The Linux and Windows installers can also host.** "Run a server
+            on this computer" sets up a complete instance — database,
+            homeserver, file storage — under your user account, no terminal
+            involved. It runs while the app is open, and friends join with an
+            invite. macOS installs are client-only for now.
+
+            **Channels are end-to-end encrypted by default** on instances
+            whose deployment can support it — a reachable homeserver and a
+            wired appservice. Keys live on members' devices and the server
+            stores ciphertext it cannot read. Where the deployment can't
+            support it (a loopback-only install), channels are plaintext and
+            the instance says so rather than pretending. The limits — visible
+            metadata chief among them — are stated plainly in `SECURITY.md`.
           generate_release_notes: true

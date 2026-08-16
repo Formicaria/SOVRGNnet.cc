@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { EncryptedAttachment } from "@shared/attachments";
 import type {
   CryptoSession,
   DecryptedMessage,
+  FileAnnouncement,
   TimelineNotice,
   VerificationRequest,
 } from "@/lib/matrixCrypto";
@@ -99,6 +101,14 @@ export interface MatrixSessionResult {
   send: (roomId: string, body: string) => Promise<string>;
   lookup: (eventId: string) => DecryptedMessage | undefined;
   backfill: (roomId: string) => Promise<void>;
+  /** Announce an upload in the room, carrying the file's key if it has one. */
+  sendFile: (roomId: string, file: FileAnnouncement) => Promise<string>;
+  /**
+   * The key for an uploaded file. `null` means the announcement said the file
+   * isn't encrypted; `undefined` means no announcement has reached this device
+   * yet, which is a different thing and the UI has to say so.
+   */
+  attachmentFor: (cid: string) => EncryptedAttachment | null | undefined;
 }
 
 export function useMatrixSession(
@@ -232,6 +242,21 @@ export function useMatrixSession(
     await sessionRef.current?.backfill(roomId);
   }, []);
 
+  const sendFile = useCallback(
+    async (roomId: string, file: FileAnnouncement) => {
+      const running = sessionRef.current;
+      if (!running) throw new Error("No direct Matrix session");
+      return await running.sendFile(roomId, file);
+    },
+    []
+  );
+
+  const attachmentFor = useCallback(
+    (cid: string) => sessionRef.current?.attachmentFor(cid),
+    // Same reasoning as `lookup`: the answer changes when the session does.
+    [revision]
+  );
+
   const clearPendingVerification = useCallback(
     () => setPendingVerification(null),
     []
@@ -274,5 +299,7 @@ export function useMatrixSession(
     send,
     lookup,
     backfill,
+    sendFile,
+    attachmentFor,
   };
 }

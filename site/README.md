@@ -6,6 +6,8 @@ all. Deploys free on **Cloudflare Pages**.
 ```
 site/
   index.html              landing page
+  download.html           per-platform downloads; asset links pinned to the
+                          release, and check-site.sh fails if they drift
   manifesto.html          the six principles, and the test they have to pass
   about.html              what SOVRGN is, where it stands, who builds it
   legal.html              licence, privacy, terms

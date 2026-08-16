@@ -297,7 +297,22 @@ export async function getServerById(serverId: number) {
 }
 
 // Channel functions
-export async function createChannel(serverId: number, name: string, description: string | undefined, matrixRoomId: string, type: 'text' | 'voice' | 'video' = 'text') {
+export async function createChannel(
+  serverId: number,
+  name: string,
+  description: string | undefined,
+  matrixRoomId: string,
+  type: 'text' | 'voice' | 'video' = 'text',
+  /**
+   * Whether `m.room.encryption` was actually set on the room.
+   *
+   * Passed in rather than derived from the instance's capability. The state
+   * event can fail on its own, and a channel marked encrypted that isn't would
+   * put a lock icon over plaintext — which is the one direction this flag must
+   * never be wrong in.
+   */
+  encrypted: boolean = false
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -308,6 +323,7 @@ export async function createChannel(serverId: number, name: string, description:
     matrixRoomId,
     type,
     isPrivate: false,
+    encrypted,
   }).returning();
   return result[0];
 }

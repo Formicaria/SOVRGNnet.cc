@@ -446,6 +446,14 @@ button.ghost:hover { color: var(--text); }
   font-size: 12px;
 }
 
+/* One line inside the host panel when the server runs but something
+   non-essential is unwell — degraded is worth a sentence, not a siren. */
+.warn-inline {
+  color: var(--warn);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 /* Same shape as .panel-warn, quieter: a fact worth stating, not a hazard.
    Used when e2ee is offered — plaintext-by-default still deserves a line. */
 .panel-note {

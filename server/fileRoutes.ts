@@ -54,16 +54,26 @@ export function registerFileRoutes(app: Express): void {
         // (ADR 0008 stage 3). Best-effort: the upload already succeeded, and a
         // homeserver hiccup shouldn't turn a stored file into a 500 — clients
         // still on the polling fallback will see it within one interval.
-        try {
-          const creds = await ensureMatrixCredentials(user.id);
-          await sendFileNotice(creds.accessToken, channel.matrixRoomId, {
-            filename,
-            cid,
-            size: body.length,
-            mimeType,
-          });
-        } catch (err) {
-          console.warn("[upload] file notice not sent:", err);
+        //
+        // Not for an encrypted channel. Two reasons, and the second is the
+        // one that matters: this notice would be a plaintext `m.room.message`
+        // in a room whose members believe otherwise, and — because the
+        // decryption key for the bytes rides inside the event — only a client
+        // holding room keys can compose the event at all. So the client sends
+        // it, over its own session, encrypted, with the key inside. The
+        // instance stores ciphertext and never sees the key.
+        if (!channel.encrypted) {
+          try {
+            const creds = await ensureMatrixCredentials(user.id);
+            await sendFileNotice(creds.accessToken, channel.matrixRoomId, {
+              filename,
+              cid,
+              size: body.length,
+              mimeType,
+            });
+          } catch (err) {
+            console.warn("[upload] file notice not sent:", err);
+          }
         }
 
         return res.status(201).json(share);

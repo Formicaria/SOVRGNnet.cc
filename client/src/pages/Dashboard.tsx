@@ -20,7 +20,29 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy, Pencil, SmilePlus, X, Globe, Settings, KeyRound, Lock } from "lucide-react";
+import {
+  Loader2,
+  Plus,
+  Send,
+  LogOut,
+  Hash,
+  Compass,
+  AlertCircle,
+  Paperclip,
+  Download,
+  UserPlus,
+  Trash2,
+  DoorOpen,
+  Check,
+  Copy,
+  Pencil,
+  SmilePlus,
+  X,
+  Globe,
+  Settings,
+  KeyRound,
+  Lock,
+} from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -28,12 +50,17 @@ import MemberList from "@/components/MemberList";
 import AddServerDialog from "@/components/AddServerDialog";
 import ServerSettings from "@/components/ServerSettings";
 import { EncryptionPanel } from "@/components/EncryptionPanel";
+import { SharedFile } from "@/components/SharedFile";
 import { useConnections } from "@/contexts/ConnectionsContext";
 import { useMatrixSession } from "@/hooks/useMatrixSession";
+import { encryptAttachment } from "@shared/attachments";
 import type { MessageCryptoState } from "@shared/e2ee";
 
 /** Reactions people actually reach for, without shipping an emoji picker. */
 const QUICK_REACTIONS = ["👍", "😂", "🔥", "❤️", "👀", "🎉"] as const;
+
+/** Remembers that the recovery prompt has been shown on this browser. */
+const ENCRYPTION_PROMPTED_KEY = "sovrgn.encryption.prompted";
 
 type ReactionMap = Record<string, number[]>;
 
@@ -92,7 +119,9 @@ export default function Dashboard() {
   const [, setLocation] = useLocation();
 
   const [selectedServerId, setSelectedServerId] = useState<number | null>(null);
-  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(
+    null
+  );
   const [messageInput, setMessageInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [discoverOpen, setDiscoverOpen] = useState(false);
@@ -104,7 +133,9 @@ export default function Dashboard() {
 
   const utils = trpc.useUtils();
 
-  const serversQuery = trpc.servers.list.useQuery(undefined, { enabled: !!user });
+  const serversQuery = trpc.servers.list.useQuery(undefined, {
+    enabled: !!user,
+  });
   const publicServersQuery = trpc.servers.listPublic.useQuery(undefined, {
     enabled: !!user && discoverOpen,
   });
@@ -126,6 +157,8 @@ export default function Dashboard() {
     pendingVerification,
     clearPendingVerification,
     send: sendOverMatrix,
+    sendFile: sendFileOverMatrix,
+    attachmentFor,
     lookup: lookupPlaintext,
     backfill,
   } = useMatrixSession(!!user, event => {
@@ -147,14 +180,21 @@ export default function Dashboard() {
     }
   });
   const [encryptionPanelOpen, setEncryptionPanelOpen] = useState(false);
+  const [encryptionFirstRun, setEncryptionFirstRun] = useState(false);
 
   const messagesQuery = trpc.messages.listByChannel.useQuery(
     { channelId: selectedChannelId!, limit: 50 },
-    { enabled: selectedChannelId != null, refetchInterval: syncLive ? false : 3000 }
+    {
+      enabled: selectedChannelId != null,
+      refetchInterval: syncLive ? false : 3000,
+    }
   );
   const filesQuery = trpc.fileShares.listByChannel.useQuery(
     { channelId: selectedChannelId! },
-    { enabled: selectedChannelId != null, refetchInterval: syncLive ? false : 5000 }
+    {
+      enabled: selectedChannelId != null,
+      refetchInterval: syncLive ? false : 5000,
+    }
   );
 
   const createServer = trpc.servers.create.useMutation({
@@ -176,7 +216,9 @@ export default function Dashboard() {
   });
   const createChannel = trpc.channels.create.useMutation({
     onSuccess: async chan => {
-      await utils.channels.listByServer.invalidate({ serverId: selectedServerId! });
+      await utils.channels.listByServer.invalidate({
+        serverId: selectedServerId!,
+      });
       setSelectedChannelId(chan.id);
       setChannelDialogOpen(false);
       setNewChannelName("");
@@ -185,7 +227,9 @@ export default function Dashboard() {
   });
   const enableEncryption = trpc.channels.enableEncryption.useMutation({
     onSuccess: async () => {
-      await utils.channels.listByServer.invalidate({ serverId: selectedServerId! });
+      await utils.channels.listByServer.invalidate({
+        serverId: selectedServerId!,
+      });
       // Opened straight afterwards because encrypting a channel is the moment
       // a recovery key stops being optional, and the person who just did it is
       // the one who most needs to be told.
@@ -196,13 +240,17 @@ export default function Dashboard() {
   const sendMessage = trpc.messages.send.useMutation({
     onSuccess: async () => {
       setMessageInput("");
-      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+      await utils.messages.listByChannel.invalidate({
+        channelId: selectedChannelId!,
+      });
     },
     onError: e => setError(e.message),
   });
   const deleteMessage = trpc.messages.delete.useMutation({
     onSuccess: async () => {
-      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+      await utils.messages.listByChannel.invalidate({
+        channelId: selectedChannelId!,
+      });
     },
     onError: e => setError(e.message),
   });
@@ -210,13 +258,17 @@ export default function Dashboard() {
     onSuccess: async () => {
       setEditingId(null);
       setEditDraft("");
-      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+      await utils.messages.listByChannel.invalidate({
+        channelId: selectedChannelId!,
+      });
     },
     onError: e => setError(e.message),
   });
   const reactToMessage = trpc.messages.react.useMutation({
     onSuccess: async () => {
-      await utils.messages.listByChannel.invalidate({ channelId: selectedChannelId! });
+      await utils.messages.listByChannel.invalidate({
+        channelId: selectedChannelId!,
+      });
     },
     onError: e => setError(e.message),
   });
@@ -267,25 +319,76 @@ export default function Dashboard() {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  /**
+   * Upload a file, encrypting the bytes first when the channel is encrypted.
+   *
+   * The order matters and is not the obvious one. The bytes are encrypted in
+   * this browser *before* the upload, so the instance stores and pins
+   * ciphertext and never holds a readable copy — and then the key is published
+   * in a room event the instance also can't read. If those were reversed, or
+   * if the announcement went through the API like it does for plaintext
+   * channels, the instance would hold both halves and the lock icon would be
+   * decoration.
+   *
+   * Filename, size and MIME type still go to the index in the clear. That is
+   * how the file list works, it is metadata the threat model already concedes,
+   * and it is written down rather than left to be discovered.
+   */
   const uploadFile = async (file: File) => {
     if (selectedChannelId == null) return;
+    const channel = channels.find(c => c.id === selectedChannelId);
+    const encrypt = channel?.encrypted === true;
+
     try {
       setIsUploading(true);
       setError(null);
+
+      if (encrypt && !canAuthor) {
+        // Same refusal as sending a message into an encrypted channel: without
+        // its own session this client cannot publish the key, so an upload
+        // would leave bytes nobody can ever open.
+        throw new Error(
+          "This channel is encrypted, and this client isn't holding its own Matrix " +
+            "session. Reload, or upload from a device that can."
+        );
+      }
+
+      const plaintext = new Uint8Array(await file.arrayBuffer());
+      const sealed = encrypt ? await encryptAttachment(plaintext) : null;
+
       const res = await fetch(
         `/api/upload?channelId=${selectedChannelId}&filename=${encodeURIComponent(file.name)}`,
         {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": file.type || "application/octet-stream" },
-          body: file,
+          body: new Uint8Array(sealed ? sealed.ciphertext : plaintext),
         }
       );
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error ?? `Upload failed (${res.status})`);
       }
-      await utils.fileShares.listByChannel.invalidate({ channelId: selectedChannelId });
+      const share = (await res.json()) as {
+        ipfsHash?: string;
+        fileSize?: number;
+      };
+
+      if (sealed && channel?.matrixRoomId && share.ipfsHash) {
+        // The instance skips the notice for encrypted channels, so this is the
+        // only announcement — and the only copy of the key.
+        await sendFileOverMatrix(channel.matrixRoomId, {
+          filename: file.name,
+          cid: share.ipfsHash,
+          size: share.fileSize ?? plaintext.length,
+          mimeType: file.type || null,
+          encryption: sealed.info,
+        });
+      }
+
+      await utils.fileShares.listByChannel.invalidate({
+        channelId: selectedChannelId,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -325,7 +428,9 @@ export default function Dashboard() {
   const timeline: TimelineItem[] = useMemo(() => {
     const items: TimelineItem[] = [
       ...messages.map(m => {
-        const decrypted = m.encrypted ? lookupPlaintext(m.matrixEventId) : undefined;
+        const decrypted = m.encrypted
+          ? lookupPlaintext(m.matrixEventId)
+          : undefined;
         return {
           kind: "message" as const,
           id: `m${m.id}`,
@@ -364,7 +469,8 @@ export default function Dashboard() {
     // changes what `lookupPlaintext` returns without changing `messages`.
   }, [messages, files, lookupPlaintext, cryptoRevision]);
   const selectedServer = servers.find(s => s.id === selectedServerId) ?? null;
-  const selectedChannel = channels.find(c => c.id === selectedChannelId) ?? null;
+  const selectedChannel =
+    channels.find(c => c.id === selectedChannelId) ?? null;
 
   /**
    * Pull the room's own timeline when an encrypted channel is opened.
@@ -377,7 +483,12 @@ export default function Dashboard() {
   useEffect(() => {
     if (!selectedChannel?.encrypted || !selectedChannel.matrixRoomId) return;
     void backfill(selectedChannel.matrixRoomId);
-  }, [selectedChannel?.id, selectedChannel?.encrypted, selectedChannel?.matrixRoomId, backfill]);
+  }, [
+    selectedChannel?.id,
+    selectedChannel?.encrypted,
+    selectedChannel?.matrixRoomId,
+    backfill,
+  ]);
 
   // Pick sensible defaults as data arrives.
   useEffect(() => {
@@ -403,6 +514,27 @@ export default function Dashboard() {
   useEffect(() => {
     if (!loading && !user) setLocation("/");
   }, [user, loading, setLocation]);
+
+  /**
+   * Ask about recovery once, on the first session that could set it up.
+   *
+   * Every channel on a capable instance is encrypted, which makes a recovery
+   * key the difference between "my messages are private" and "my messages are
+   * gone when I clear my browser". Leaving that behind a key icon most people
+   * never click would make encryption-by-default a data-loss default.
+   *
+   * Once per browser, not once per load: `cryptoReady` is null until the
+   * readiness check answers, so this waits for a definite false rather than
+   * firing on a loading state, and the flag is written whether they set it up
+   * or skipped. The amber badge keeps asking afterwards.
+   */
+  useEffect(() => {
+    if (!encryptionAvailable || cryptoReady !== false) return;
+    if (localStorage.getItem(ENCRYPTION_PROMPTED_KEY)) return;
+    localStorage.setItem(ENCRYPTION_PROMPTED_KEY, "1");
+    setEncryptionFirstRun(true);
+    setEncryptionPanelOpen(true);
+  }, [encryptionAvailable, cryptoReady]);
 
   if (loading || !user) {
     return (
@@ -463,7 +595,8 @@ export default function Dashboard() {
   };
 
   const myRole = myRoleQuery.data ?? null;
-  const canModerate = myRole === "owner" || myRole === "admin" || myRole === "moderator";
+  const canModerate =
+    myRole === "owner" || myRole === "admin" || myRole === "moderator";
   const canManageServer = myRole === "owner" || myRole === "admin";
   const typingNames = (typingQuery.data ?? []).map(t => t.name);
   const typingLabel =
@@ -507,7 +640,9 @@ export default function Dashboard() {
                   </TooltipTrigger>
                   <TooltipContent side="right">
                     <span className="font-medium">{connection.name}</span>
-                    <span className="block text-[11px] opacity-70">{connection.host}</span>
+                    <span className="block text-[11px] opacity-70">
+                      {connection.host}
+                    </span>
                   </TooltipContent>
                 </Tooltip>
               );
@@ -547,7 +682,8 @@ export default function Dashboard() {
             <DialogHeader>
               <DialogTitle>Create a server</DialogTitle>
               <DialogDescription>
-                A server is your community's space — it starts with a #general channel.
+                A server is your community's space — it starts with a #general
+                channel.
               </DialogDescription>
             </DialogHeader>
             <Input
@@ -564,7 +700,9 @@ export default function Dashboard() {
             <DialogFooter>
               <Button
                 disabled={!newServerName.trim() || createServer.isPending}
-                onClick={() => createServer.mutate({ name: newServerName.trim() })}
+                onClick={() =>
+                  createServer.mutate({ name: newServerName.trim() })
+                }
               >
                 {createServer.isPending && (
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -584,7 +722,9 @@ export default function Dashboard() {
           <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
             <DialogHeader>
               <DialogTitle>Discover servers</DialogTitle>
-              <DialogDescription>Public servers on this instance.</DialogDescription>
+              <DialogDescription>
+                Public servers on this instance.
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 max-h-72 overflow-y-auto">
               {(publicServersQuery.data ?? [])
@@ -597,7 +737,9 @@ export default function Dashboard() {
                     <div>
                       <p className="font-medium">{s.name}</p>
                       {s.description && (
-                        <p className="text-xs text-slate-400">{s.description}</p>
+                        <p className="text-xs text-slate-400">
+                          {s.description}
+                        </p>
                       )}
                     </div>
                     <Button
@@ -648,7 +790,10 @@ export default function Dashboard() {
               </TooltipTrigger>
               <TooltipContent side="right">Server settings</TooltipContent>
             </Tooltip>
-            <ServerSettings open={settingsOpen} onOpenChange={setSettingsOpen} />
+            <ServerSettings
+              open={settingsOpen}
+              onOpenChange={setSettingsOpen}
+            />
           </>
         )}
 
@@ -754,7 +899,8 @@ export default function Dashboard() {
               className="text-slate-400 hover:text-red-400 transition-colors"
               title="Leave server"
               onClick={() =>
-                selectedServerId && leaveServer.mutate({ serverId: selectedServerId })
+                selectedServerId &&
+                leaveServer.mutate({ serverId: selectedServerId })
               }
             >
               <DoorOpen className="w-4 h-4" />
@@ -785,7 +931,10 @@ export default function Dashboard() {
             </button>
           ))}
           {selectedServer && canManageServer && (
-            <Dialog open={channelDialogOpen} onOpenChange={setChannelDialogOpen}>
+            <Dialog
+              open={channelDialogOpen}
+              onOpenChange={setChannelDialogOpen}
+            >
               <DialogTrigger asChild>
                 <button className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors">
                   <Plus className="w-4 h-4" />
@@ -802,7 +951,11 @@ export default function Dashboard() {
                   placeholder="channel-name"
                   className="bg-slate-800 border-slate-700"
                   onKeyDown={e => {
-                    if (e.key === "Enter" && newChannelName.trim() && selectedServerId) {
+                    if (
+                      e.key === "Enter" &&
+                      newChannelName.trim() &&
+                      selectedServerId
+                    ) {
                       createChannel.mutate({
                         serverId: selectedServerId,
                         name: newChannelName.trim(),
@@ -852,8 +1005,9 @@ export default function Dashboard() {
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">
-                    Messages here are readable only on the devices of people in this
-                    channel. Whoever runs this instance stores them, and can't read them.
+                    Messages here are readable only on the devices of people in
+                    this channel. Whoever runs this instance stores them, and
+                    can't read them.
                   </TooltipContent>
                 </Tooltip>
               ) : (
@@ -879,7 +1033,9 @@ export default function Dashboard() {
                       ) {
                         return;
                       }
-                      enableEncryption.mutate({ channelId: selectedChannel.id });
+                      enableEncryption.mutate({
+                        channelId: selectedChannel.id,
+                      });
                     }}
                   >
                     {enableEncryption.isPending ? (
@@ -901,7 +1057,10 @@ export default function Dashboard() {
           <div className="mx-4 mt-2 flex items-center gap-2 rounded bg-red-950/60 border border-red-900 px-3 py-2 text-sm text-red-300">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span className="flex-1">{error}</span>
-            <button onClick={() => setError(null)} className="text-red-400 hover:text-red-200">
+            <button
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-200"
+            >
               ✕
             </button>
           </div>
@@ -909,7 +1068,9 @@ export default function Dashboard() {
 
         <div
           className={`flex-1 overflow-y-auto px-4 py-3 space-y-3 ${
-            isDragging ? "outline-2 outline-dashed outline-purple-500 -outline-offset-8 rounded-lg" : ""
+            isDragging
+              ? "outline-2 outline-dashed outline-purple-500 -outline-offset-8 rounded-lg"
+              : ""
           }`}
           onDragOver={e => {
             if (selectedChannelId != null) {
@@ -938,7 +1099,8 @@ export default function Dashboard() {
                   <div className="text-sm max-w-md space-y-1.5 text-left">
                     <p>
                       <Plus className="w-3.5 h-3.5 inline mr-1" />
-                      Create your first community — it starts with a #general channel.
+                      Create your first community — it starts with a #general
+                      channel.
                     </p>
                     <p>
                       <UserPlus className="w-3.5 h-3.5 inline mr-1" />
@@ -955,8 +1117,9 @@ export default function Dashboard() {
                 <>
                   <p className="text-lg text-slate-300">Welcome.</p>
                   <p className="text-sm">
-                    Create a server with the <Plus className="w-3.5 h-3.5 inline" /> button, or
-                    find one with <Compass className="w-3.5 h-3.5 inline" /> Discover.
+                    Create a server with the{" "}
+                    <Plus className="w-3.5 h-3.5 inline" /> button, or find one
+                    with <Compass className="w-3.5 h-3.5 inline" /> Discover.
                   </p>
                 </>
               )}
@@ -987,7 +1150,10 @@ export default function Dashboard() {
                     <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button className="text-slate-600 hover:text-purple-400" title="Add reaction">
+                          <button
+                            className="text-slate-600 hover:text-purple-400"
+                            title="Add reaction"
+                          >
                             <SmilePlus className="w-3.5 h-3.5" />
                           </button>
                         </DropdownMenuTrigger>
@@ -1000,7 +1166,10 @@ export default function Dashboard() {
                               key={emoji}
                               className="text-base leading-none px-1.5 py-1 rounded hover:bg-slate-800 transition-colors"
                               onClick={() =>
-                                reactToMessage.mutate({ messageId: item.dbId, emoji })
+                                reactToMessage.mutate({
+                                  messageId: item.dbId,
+                                  emoji,
+                                })
                               }
                             >
                               {emoji}
@@ -1026,7 +1195,9 @@ export default function Dashboard() {
                         <button
                           className="text-slate-600 hover:text-red-400"
                           title="Delete message"
-                          onClick={() => deleteMessage.mutate({ messageId: item.dbId })}
+                          onClick={() =>
+                            deleteMessage.mutate({ messageId: item.dbId })
+                          }
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -1083,14 +1254,18 @@ export default function Dashboard() {
                         <X className="w-3.5 h-3.5" />
                       </Button>
                     </div>
-                  ) : item.kind === "message" && item.cryptoState !== "plaintext" && !item.content ? (
+                  ) : item.kind === "message" &&
+                    item.cryptoState !== "plaintext" &&
+                    !item.content ? (
                     // Encrypted and not readable here. The three states are
                     // rendered differently on purpose: "pending" resolves by
                     // itself, "recoverable" is something the reader can act
                     // on, and "lost" is a hole they should stop waiting for.
                     <p
                       className={`flex items-center gap-1.5 text-sm italic ${
-                        item.cryptoState === "recoverable" ? "text-amber-500" : "text-slate-500"
+                        item.cryptoState === "recoverable"
+                          ? "text-amber-500"
+                          : "text-slate-500"
                       }`}
                     >
                       <Lock className="w-3.5 h-3.5 shrink-0" />
@@ -1111,54 +1286,56 @@ export default function Dashboard() {
                       </p>
                       {Object.keys(item.reactions).length > 0 && (
                         <div className="mt-1 flex flex-wrap gap-1">
-                          {Object.entries(item.reactions).map(([emoji, userIds]) => {
-                            const mine = userIds.includes(user.id);
-                            return (
-                              <button
-                                key={emoji}
-                                onClick={() =>
-                                  reactToMessage.mutate({ messageId: item.dbId, emoji })
-                                }
-                                className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs transition-colors ${
-                                  mine
-                                    ? "border-purple-600 bg-purple-950/60 text-purple-200"
-                                    : "border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-600"
-                                }`}
-                                title={mine ? "Click to remove" : "Click to add"}
-                              >
-                                <span className="leading-none">{emoji}</span>
-                                <span className="leading-none">{userIds.length}</span>
-                              </button>
-                            );
-                          })}
+                          {Object.entries(item.reactions).map(
+                            ([emoji, userIds]) => {
+                              const mine = userIds.includes(user.id);
+                              return (
+                                <button
+                                  key={emoji}
+                                  onClick={() =>
+                                    reactToMessage.mutate({
+                                      messageId: item.dbId,
+                                      emoji,
+                                    })
+                                  }
+                                  className={`flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-xs transition-colors ${
+                                    mine
+                                      ? "border-purple-600 bg-purple-950/60 text-purple-200"
+                                      : "border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-600"
+                                  }`}
+                                  title={
+                                    mine ? "Click to remove" : "Click to add"
+                                  }
+                                >
+                                  <span className="leading-none">{emoji}</span>
+                                  <span className="leading-none">
+                                    {userIds.length}
+                                  </span>
+                                </button>
+                              );
+                            }
+                          )}
                         </div>
                       )}
                     </>
                   )
-                ) : item.mimeType?.startsWith("image/") ? (
-                  <a href={`/api/files/${item.ipfsHash}`} target="_blank" rel="noreferrer">
-                    <img
-                      src={`/api/files/${item.ipfsHash}`}
-                      alt={item.filename}
-                      className="mt-1 max-w-sm max-h-72 rounded-lg border border-slate-800 object-contain"
-                    />
-                  </a>
                 ) : (
-                  <a
-                    href={`/api/files/${item.ipfsHash}`}
-                    download={item.filename}
-                    className="mt-1 flex items-center gap-3 rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 max-w-sm hover:border-purple-700 transition-colors"
-                  >
-                    <Download className="w-4 h-4 text-purple-400 shrink-0" />
-                    <span className="min-w-0">
-                      <span className="block text-sm text-slate-200 truncate">
-                        {item.filename}
-                      </span>
-                      <span className="block text-[11px] text-slate-500">
-                        {formatBytes(item.fileSize)}
-                      </span>
-                    </span>
-                  </a>
+                  <SharedFile
+                    cid={item.ipfsHash}
+                    filename={item.filename}
+                    fileSize={item.fileSize}
+                    mimeType={item.mimeType}
+                    // In an encrypted channel the key rides in the room event,
+                    // so the index can list the file and only a device holding
+                    // room keys can open it. In a plaintext channel there is
+                    // nothing to look up and the browser fetches it directly.
+                    encryption={
+                      selectedChannel?.encrypted
+                        ? attachmentFor(item.ipfsHash)
+                        : null
+                    }
+                    formatBytes={formatBytes}
+                  />
                 )}
               </div>
             </div>
@@ -1238,11 +1415,15 @@ export default function Dashboard() {
           another device has to be able to open it on its own. */}
       <EncryptionPanel
         open={encryptionPanelOpen}
-        onOpenChange={setEncryptionPanelOpen}
+        onOpenChange={open => {
+          setEncryptionPanelOpen(open);
+          if (!open) setEncryptionFirstRun(false);
+        }}
         session={cryptoSession}
         revision={cryptoRevision}
         incoming={pendingVerification}
         onIncomingHandled={clearPendingVerification}
+        firstRun={encryptionFirstRun}
       />
     </div>
   );

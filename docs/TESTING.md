@@ -141,6 +141,11 @@ cannot come back silently.
 Stated so it isn't mistaken for coverage:
 
 - **Tauri bundling.** Needs each target OS; only CI builds installers.
+- **Desktop hosting, end to end.** The supervisor's seams are statically
+  checked (`server/hostingShell.test.ts` — Rust, bundle script, CI, and
+  policy agreeing on names, steps, and versions) and its Rust is
+  cargo-checked on both platforms every push, but "install, click, get a
+  working server" needs a real release build on a real machine.
 - **macOS packaging.** Non-blocking in CI for the same reason.
 - **Federation over real DNS and real certificates.** The harness proves the
   protocol path with self-signed pairs and validation off; the public-internet

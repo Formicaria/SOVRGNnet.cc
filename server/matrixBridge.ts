@@ -1,6 +1,54 @@
 import { TRPCError } from "@trpc/server";
 import * as db from "./db";
+import { e2eeAvailable } from "./instance";
 import * as matrix from "./matrixService";
+
+/**
+ * Create a channel room, encrypted if this instance can manage it at all.
+ *
+ * Encryption is the default and there is no per-channel choice — a lock that
+ * has to be found and switched on is a lock most conversations never get, and
+ * "why would anyone want the insecure option" is the right question to ask of
+ * a default.
+ *
+ * The one thing that overrides it is whether the deployment can actually
+ * support it. On an instance whose homeserver clients cannot reach, or which
+ * doesn't record what its homeserver pushes, there is nowhere for a member's
+ * keys to live except the server — so encrypting there would produce a channel
+ * nobody can read while claiming the opposite. Those instances get plaintext
+ * rooms and an `e2ee` capability that says so, which is the same capability
+ * contract every other feature here uses.
+ *
+ * Encryption is applied *after* the room exists rather than at creation, so a
+ * homeserver that refuses the state event leaves a working plaintext channel
+ * and an honest `encrypted: false` in the index, instead of a half-made room.
+ */
+export async function createChannelRoom(
+  accessToken: string,
+  spaceId: string,
+  name: string,
+  description?: string
+): Promise<{ roomId: string; encrypted: boolean }> {
+  const roomId = await matrix.createChannelRoom(
+    accessToken,
+    spaceId,
+    name,
+    description
+  );
+
+  if (!e2eeAvailable()) return { roomId, encrypted: false };
+
+  try {
+    await matrix.enableRoomEncryption(accessToken, roomId);
+    return { roomId, encrypted: true };
+  } catch (err) {
+    // Reported as unencrypted, which is what it is. The alternative — marking
+    // it encrypted and hoping — is how a channel ends up with a lock icon over
+    // plaintext, and this codebase has made that class of mistake twice.
+    console.warn(`[matrix] channel ${roomId} created without encryption:`, err);
+    return { roomId, encrypted: false };
+  }
+}
 
 /**
  * Bridge between SOVRGNnet users and their Matrix accounts.
@@ -17,7 +65,8 @@ export async function ensureMatrixCredentials(
     await db.saveMatrixCredentials(appUserId, creds.userId, creds.accessToken);
     return creds;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Matrix provisioning failed";
+    const message =
+      err instanceof Error ? err.message : "Matrix provisioning failed";
     throw new TRPCError({
       code: "INTERNAL_SERVER_ERROR",
       message: `Messaging backend unavailable: ${message}`,
@@ -112,7 +161,12 @@ export async function syncPowerLevels(
 
   for (const roomId of await serverRoomIds(serverId)) {
     try {
-      await matrix.setPowerLevel(creds.accessToken, roomId, targetMatrixId, level);
+      await matrix.setPowerLevel(
+        creds.accessToken,
+        roomId,
+        targetMatrixId,
+        level
+      );
     } catch {
       // A room we can't set levels in doesn't invalidate the app-side change.
     }
@@ -138,7 +192,12 @@ export async function removeFromServerRooms(
       if (mode === "ban") {
         await matrix.banUser(creds.accessToken, roomId, targetMatrixId, reason);
       } else {
-        await matrix.kickUser(creds.accessToken, roomId, targetMatrixId, reason);
+        await matrix.kickUser(
+          creds.accessToken,
+          roomId,
+          targetMatrixId,
+          reason
+        );
       }
     } catch {
       // The app-side membership row is authoritative for our own UI.

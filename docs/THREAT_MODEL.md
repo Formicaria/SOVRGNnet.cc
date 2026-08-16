@@ -13,21 +13,32 @@ Last reviewed: v0.6 development, after ADR 0008 stage 4.
 
 ## The single most important fact
 
-**A channel is plaintext unless somebody turned encryption on.** That is the
-default, it does not change silently, and everything below depends on which
-kind of channel you are in.
+**Channels are encrypted, unless the instance can't manage it.** There is no
+per-channel switch: every channel created on an instance that advertises `e2ee`
+is Megolm-encrypted from the moment it exists, and nobody has to know to turn
+anything on.
 
-*In a plaintext channel* — every channel, until an administrator encrypts it —
-messages are stored readable in the instance's database and homeserver. The
-operator is inside your trust boundary, not outside it, and no threat involving
-"someone with access to the instance" has a technical mitigation. Only a social
-one: you chose who runs it.
+*What "can't manage it" means* is two conditions, both about the deployment
+rather than the software. A homeserver has to be reachable by clients, because
+otherwise the only place a member's keys could live is the server — which is
+the arrangement encryption exists to end. And the instance has to record what
+its homeserver pushes, or an encrypted message is not unreadable to other
+members, it is absent. The default LXC install produces a loopback homeserver
+and therefore plaintext channels; it says so through the `e2ee` capability, and
+a client that reads capabilities will tell you.
+
+*In a plaintext channel* — one created before this, or on an instance that
+can't offer encryption — messages are stored readable in the instance's
+database and homeserver. The operator is inside your trust boundary, not
+outside it, and no threat involving "someone with access to the instance" has a
+technical mitigation. Only a social one: you chose who runs it.
 
 *In an encrypted channel* — Megolm, since ADR 0008 stage 4 — the instance holds
 ciphertext it has no key for, and its own index stores those messages
-content-blind by design. Against a **passive** operator — one who reads the
-database, or whose backups leak, or who is compelled to hand over what they
-have — this works.
+content-blind by design. File contents are encrypted in the browser before
+upload, so the instance pins ciphertext to IPFS and never holds the key.
+Against a **passive** operator — one who reads the database, or whose backups
+leak, or who is compelled to hand over what they have — this works.
 
 Against an **active** operator it is weaker, and the honest version is worth
 reading twice. The instance can mint a Matrix device for any of its users at
@@ -39,11 +50,17 @@ someone clicking through.
 
 Better than plaintext by a wide margin. Not the same as Signal.
 
-Two further conditions. Encryption is only offered by an instance whose
-homeserver clients can actually reach and whose appservice is wired — the
-`e2ee` capability is derived from both rather than declared — and a client that
-cannot hold keys reads nothing in an encrypted channel rather than falling back
-to something readable.
+**Metadata is not encrypted anywhere**, and with encryption on everywhere it is
+now the whole of what an operator can read: who is in which channel, who spoke,
+when, how often, filenames, file sizes, and who reacted to what. That is a lot
+about a conversation without a word of it.
+
+**A client that cannot hold keys reads nothing**, rather than falling back to
+something readable. On a capable instance that includes the instance's own API:
+it cannot compose Megolm, so it refuses to send or edit rather than writing
+plaintext into a room whose members believe otherwise. Encryption everywhere
+means the API can no longer speak in any channel, which is the point and is
+also a real constraint on bots and integrations.
 
 ---
 
@@ -75,22 +92,29 @@ outside it and deliberately kept ignorant.
 ### T1 — Malicious or curious instance operator
 
 **Capabilities:** Full database and homeserver access. Can read every plaintext
-message, impersonate any member, alter history, and read files. Can read
-metadata everywhere: who is in which channel, who spoke, when, and how often.
+message, impersonate any member, and alter history. Can read metadata
+everywhere, encrypted channels included: who is in which channel, who spoke,
+when, how often, filenames, file sizes, and who reacted to what.
 
-**Affected:** Everything on that instance except the *content* of encrypted
-channels.
+**Affected:** Everything on that instance except the *contents* of encrypted
+channels and the files shared in them.
 
-**Mitigations:** For a plaintext channel, none technical. The interface states
-plainly that messages are readable by whoever runs the instance — on the login
-page, in the add-server dialog, and in the docs — so the choice is informed.
-Per-server identity limits blast radius to that one community.
+**Mitigations:** For a plaintext channel — one created before encryption became
+the default, or any channel on an instance that can't offer it — none
+technical. The interface states plainly that messages are readable by whoever
+runs the instance, so the choice is informed. Per-server identity limits blast
+radius to that one community.
 
-For an encrypted channel, Megolm (ADR 0008 stage 4, ADR 0011). Keys live on
-members' devices; the instance stores ciphertext and its index records those
-messages content-blind, so there is no readable copy for it to hold. This
-covers content only — the metadata above is unchanged, and the operator still
-knows exactly who is talking to whom.
+For an encrypted channel, which is now every channel a capable instance
+creates, Megolm (ADR 0008 stage 4, ADR 0011). Keys live on members' devices;
+the instance stores ciphertext and its index records those messages
+content-blind, so there is no readable copy for it to hold. File contents are
+AES-encrypted in the browser before upload, with the key carried in the
+Megolm-encrypted event, so the instance pins ciphertext it cannot open.
+
+This covers contents only. The metadata above is unchanged, and an operator
+still knows exactly who is talking to whom, how often, and what their files are
+called.
 
 **Residual risk: total in a plaintext channel, and metadata everywhere.**
 Choosing whose instance you join *is* the security decision. In an encrypted
@@ -500,9 +524,10 @@ improvement and has not been made.
 
 ## Known gaps
 
-1. **Encryption is per channel and off by default.** A channel nobody encrypted
-   is plaintext, and metadata — membership, timing, who spoke — stays readable
-   to the operator in every channel including encrypted ones.
+1. **Metadata is readable in every channel**, encrypted ones included:
+   membership, timing, who spoke, filenames, file sizes, reactions. Channels
+   created before encryption became the default are plaintext, as are all
+   channels on an instance whose homeserver clients cannot reach.
 2. **The instance can log in as any user** (T17), and its cooperation is
    required to set up cross-signing (T20). Both trace to the derived password,
    and both are now the sharpest edge rather than a future one.

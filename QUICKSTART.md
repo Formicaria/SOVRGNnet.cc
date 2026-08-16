@@ -197,10 +197,12 @@ Five pieces, each in its own container:
 
 Your messages live on your machine. They pass through no company's servers.
 
-One honest caveat: a channel is plaintext unless somebody turned encryption
-on. An administrator can encrypt a channel permanently — keys then live on
-members' devices, and the server keeps ciphertext it can't read — but in the
-default state, anyone with administrator access to that computer could read
-messages. For most people that's just you, which is the entire point. But it's
-worth knowing before you use it for anything sensitive, and
-[SECURITY.md](SECURITY.md) states the limits that come with encryption too.
+One honest caveat: whether channels are end-to-end encrypted depends on how
+your instance is reachable. Where clients can reach the homeserver directly,
+every new channel is encrypted by default — keys on members' devices, the
+server holding ciphertext it can't read. On a loopback-only install (this
+guide's simplest path), channels are plaintext, and anyone with administrator
+access to that computer could read messages. For most people that's just you,
+which is the entire point. The app states which kind you have rather than
+leaving you to guess, and [SECURITY.md](SECURITY.md) states the limits that
+come with encryption too.

@@ -53,6 +53,11 @@ import {
   type VerificationRequest,
 } from "matrix-js-sdk/lib/crypto-api/verification.js";
 import {
+  ATTACHMENT_EVENT_KEY,
+  readAttachment,
+  type EncryptedAttachment,
+} from "@shared/attachments";
+import {
   describeDecryptionFailure,
   describeReadiness,
   formatRecoveryKey,
@@ -60,6 +65,16 @@ import {
   type DecryptionVerdict,
   type ReadinessVerdict,
 } from "@shared/e2ee";
+
+/** What the client tells the room about a file it just uploaded. */
+export interface FileAnnouncement {
+  filename: string;
+  cid: string;
+  size: number;
+  mimeType?: string | null;
+  /** Absent when the channel is plaintext and the bytes went up as-is. */
+  encryption?: EncryptedAttachment;
+}
 
 /** What the UI needs to know about one message the index told us exists. */
 export interface DecryptedMessage {
@@ -102,6 +117,19 @@ export interface StartOptions {
   onVerificationRequest: (request: VerificationRequest) => void;
   /** Every room timeline event, in the shape stage 3's engine emitted. */
   onTimelineEvent: (event: TimelineNotice) => void;
+  /**
+   * Persist the crypto store. True in a browser, and it must be — Megolm
+   * inbound sessions are the only copy of the ability to read messages already
+   * received, so a store that resets on refresh makes every reload permanent
+   * history loss.
+   *
+   * The only caller that passes false is the end-to-end harness, which runs
+   * this module in Node where there is no IndexedDB. That is the point of the
+   * option: it lets the harness exercise *this* code — the real session, the
+   * real Olm, the real key sharing — rather than a reimplementation of it that
+   * could pass while the shipped path is broken.
+   */
+  persistCryptoStore?: boolean;
 }
 
 /**
@@ -125,6 +153,15 @@ export interface CryptoSession {
   readonly deviceId: string;
   /** Plaintext for an event id the instance index reported, if we have it. */
   lookup(eventId: string): DecryptedMessage | undefined;
+  /**
+   * The decryption key for an uploaded file, read off the encrypted event that
+   * announced it. Undefined until that event has reached this device — which
+   * is the same "waiting for the key" state messages have, for the same
+   * reason.
+   */
+  attachmentFor(cid: string): EncryptedAttachment | null | undefined;
+  /** Announce an upload in the room, with the file's key inside the event. */
+  sendFile(roomId: string, file: FileAnnouncement): Promise<string>;
   /** Pull older timeline for a room so its encrypted history can decrypt. */
   backfill(roomId: string, limit?: number): Promise<void>;
   send(roomId: string, body: string): Promise<string>;
@@ -217,7 +254,7 @@ export async function startCryptoSession(
   });
 
   await client.initRustCrypto({
-    useIndexedDB: true,
+    useIndexedDB: opts.persistCryptoStore !== false,
     cryptoDatabasePrefix: cryptoStorePrefix(opts.userId),
   });
 
@@ -264,12 +301,21 @@ export async function startCryptoSession(
 
   const decrypted = new Map<string, DecryptedMessage>();
 
+  // cid → the key that opens those bytes, harvested from decrypted file
+  // events. The instance's file list supplies the cid, size and filename; only
+  // this supplies the means to read the contents, and only on a device the
+  // room key reached.
+  const attachments = new Map<string, EncryptedAttachment | null>();
+
   function record(event: MatrixEvent): void {
     if (event.getType() !== "m.room.message" && !event.isEncrypted()) return;
     const eventId = event.getId();
     const roomId = event.getRoomId();
     const sender = event.getSender();
     if (!eventId || !roomId || !sender) return;
+
+    const attachment = readAttachment(event.getContent());
+    if (attachment) attachments.set(attachment.cid, attachment.encryption);
 
     const failure = event.isDecryptionFailure()
       ? event.decryptionFailureReason
@@ -416,6 +462,32 @@ export async function startCryptoSession(
 
     lookup(eventId) {
       return decrypted.get(eventId);
+    },
+
+    attachmentFor(cid) {
+      return attachments.get(cid);
+    },
+
+    async sendFile(roomId, file) {
+      // Same send path as a message, so the SDK encrypts it if the room is
+      // encrypted — which is what puts the file's key beyond the instance's
+      // reach. Composing this event without encryption would publish the key
+      // next to the ciphertext it opens.
+      const result = await client.sendEvent(
+        roomId,
+        "m.room.message" as never,
+        {
+          msgtype: "m.file",
+          body: file.filename,
+          [ATTACHMENT_EVENT_KEY]: {
+            cid: file.cid,
+            size: file.size,
+            ...(file.mimeType ? { mimeType: file.mimeType } : {}),
+            ...(file.encryption ? { encryption: file.encryption } : {}),
+          },
+        } as never
+      );
+      return result.event_id;
     },
 
     async backfill(roomId, limit = 50) {
@@ -578,6 +650,7 @@ export async function startCryptoSession(
       // IndexedDB store.
       client.stopClient();
       secretStorageKeys.clear();
+      attachments.clear();
     },
   };
 }
