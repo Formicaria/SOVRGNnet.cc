@@ -54,6 +54,15 @@ export interface DirectSyncResult {
   /** True while a /sync stream is delivering events. */
   live: boolean;
   state: SyncState | "unavailable";
+  /**
+   * True when this client may author events over its own session: the stream
+   * is live AND the instance records homeserver pushes (ADR 0009). Without
+   * the second half, a directly-sent message would be invisible to every
+   * member on the API fallback.
+   */
+  canAuthor: boolean;
+  /** Send m.text over the client's own session. Throws when it can't. */
+  sendText: (roomId: string, body: string) => Promise<string>;
 }
 
 export function useDirectSync(
@@ -61,7 +70,9 @@ export function useDirectSync(
   onEvent: (event: SyncEvent) => void
 ): DirectSyncResult {
   const [state, setState] = useState<SyncState | "unavailable">("unavailable");
+  const [ingests, setIngests] = useState(false);
   const engineRef = useRef<SyncEngine | null>(null);
+  const sessionRef = useRef<{ baseUrl: string; accessToken: string } | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
 
@@ -83,6 +94,7 @@ export function useDirectSync(
           res.ok ? res.json() : null
         );
         if (cancelled || !info?.capabilities?.clientMatrix) return;
+        setIngests(info?.capabilities?.eventIngest === true);
 
         const stored = localStorage.getItem(DEVICE_ID_KEY) ?? undefined;
         const session = await clientSessionRef.current.mutateAsync({
@@ -92,6 +104,10 @@ export function useDirectSync(
         if (cancelled) return;
 
         localStorage.setItem(DEVICE_ID_KEY, session.deviceId);
+        sessionRef.current = {
+          baseUrl: session.homeserverUrl,
+          accessToken: session.accessToken,
+        };
 
         engineRef.current = createSyncEngine({
           baseUrl: session.homeserverUrl,
@@ -112,9 +128,34 @@ export function useDirectSync(
       cancelled = true;
       engineRef.current?.stop();
       engineRef.current = null;
+      sessionRef.current = null;
       setState("unavailable");
+      setIngests(false);
     };
   }, [enabled]);
 
-  return { live: state === "live", state };
+  const live = state === "live";
+
+  const sendText = async (roomId: string, body: string): Promise<string> => {
+    const session = sessionRef.current;
+    if (!session) throw new Error("No direct Matrix session");
+    const txnId = `sovrgn_web_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const response = await fetch(
+      `${session.baseUrl}/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+      {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ msgtype: "m.text", body }),
+      }
+    );
+    if (!response.ok) throw new Error(`send failed (${response.status})`);
+    const data = (await response.json()) as { event_id?: string };
+    if (!data.event_id) throw new Error("send returned no event id");
+    return data.event_id;
+  };
+
+  return { live, state, canAuthor: live && ingests, sendText };
 }
