@@ -162,20 +162,63 @@ if [ "$FULL" -eq 0 ]; then
   exit 0
 fi
 
-step "Integration tests (real Postgres)"
+# Why Docker can't be used, specifically.
+#
+# "Docker unavailable" is three different problems with three different fixes,
+# and the most common one — your user not being in the docker group — looks
+# identical to not having it installed.
+docker_problem() {
+  if ! command -v docker >/dev/null 2>&1; then
+    printf 'not installed\n     %sInstall it: sudo apt install docker.io docker-compose-v2%s' "$DIM" "$RESET"
+    return
+  fi
+  if docker info >/dev/null 2>&1; then return 1; fi
+
+  # Distinguish "daemon down" from "you can't reach the socket".
+  local err
+  err="$(docker info 2>&1 || true)"
+  if printf '%s' "$err" | grep -qi "permission denied"; then
+    printf 'permission denied on the Docker socket\n'
+    printf '     %sYour user is not in the docker group. Fix with:%s\n' "$DIM" "$RESET"
+    printf '     %ssudo usermod -aG docker $USER && newgrp docker%s' "$BOLD" "$RESET"
+  elif printf '%s' "$err" | grep -qiE "cannot connect|is the docker daemon running"; then
+    printf 'the daemon is not running\n'
+    printf '     %sStart it: sudo systemctl enable --now docker%s' "$BOLD" "$RESET"
+  else
+    printf 'unavailable\n     %s%s%s' "$DIM" "$(printf '%s' "$err" | head -2)" "$RESET"
+  fi
+}
+
+DOCKER_READY=0
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  DOCKER_READY=1
+else
+  DOCKER_NOTE="$(docker_problem)"
+fi
+
+step "Integration tests (real Postgres)"
+if [ "$DOCKER_READY" -eq 1 ]; then
   ./scripts/test-db.sh || fail "integration tests"
   pass "against a real database"
 else
-  skip "Docker unavailable — these cannot run"
+  skip "Docker: $DOCKER_NOTE"
 fi
 
 step "End-to-end (full stack)"
-if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+if [ "$DOCKER_READY" -eq 1 ]; then
   ./scripts/e2e.sh || fail "end-to-end"
   pass "stack, journey, backup, restore"
 else
-  skip "Docker unavailable — this cannot run"
+  skip "Docker: $DOCKER_NOTE"
+fi
+
+# --full that silently ran neither of the two things --full exists for should
+# not print the same success as one that ran both.
+if [ "$DOCKER_READY" -eq 0 ]; then
+  ELAPSED=$(( $(date +%s) - STARTED ))
+  printf '\n%s%sFast checks passed%s %s(%ss)%s\n' "$BOLD" "$YELLOW" "$RESET" "$DIM" "$ELAPSED" "$RESET"
+  printf '%sBut integration and end-to-end did not run, which is what --full is for.%s\n\n' "$DIM" "$RESET"
+  exit 0
 fi
 
 ELAPSED=$(( $(date +%s) - STARTED ))
