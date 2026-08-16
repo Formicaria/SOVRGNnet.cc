@@ -59,6 +59,22 @@ export async function closeServer(label: string): Promise<void> {
   await invoke("close_server", { label });
 }
 
+/**
+ * Open a link in the user's real browser, not in the app.
+ *
+ * Used for release pages and sign-in. A download or an OAuth flow inside an
+ * app webview is both worse and more suspicious than the browser someone
+ * already trusts.
+ */
+export async function openExternal(url: string): Promise<void> {
+  await invoke("open_external", { url });
+}
+
+/** The app's own version, read from the shell rather than hardcoded. */
+export async function appVersion(): Promise<string> {
+  return await invoke<string>("app_version");
+}
+
 /** A stable, filesystem-safe webview label for a connection. */
 export function webviewLabel(instanceId: string): string {
   return `server-${instanceId}`;

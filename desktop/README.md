@@ -35,7 +35,7 @@ shipping unsigned meanwhile, but don't mistake the warning for a broken build.
 ## Hosting a server — planned, not built
 
 [ADR 0005](../docs/adr/0005-desktop-hosts-a-server.md) commits to bundling
-PostgreSQL, Conduit, and Kubo inside the installer, so installing the app means
+PostgreSQL, Dendrite, and Kubo inside the installer, so installing the app means
 you're hosting, usable at first launch, with no terminal and no root prompt.
 
 None of that exists yet. Today this is a client: it connects to servers that

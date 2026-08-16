@@ -52,12 +52,26 @@ if [ "$RUNTIME" = "native" ]; then
   fi
   echo -e "${GREEN}  ✓ $(wc -l < "$DEST/database.sql") lines${NC}"
 
+  # The homeserver's own database — rooms, events, everything Matrix knows.
   echo -e "${YELLOW}Chat history...${NC}"
-  if [ -d /var/lib/matrix-conduit ]; then
-    tar czf "$DEST/matrix_data.tar.gz" -C /var/lib/matrix-conduit . 2>/dev/null
-    echo -e "${GREEN}  ✓ archived${NC}"
+  if su - postgres -c "pg_dump -d dendrite --clean --if-exists" > "$DEST/dendrite.sql" 2>/dev/null; then
+    echo -e "${GREEN}  ✓ $(wc -l < "$DEST/dendrite.sql") lines${NC}"
   else
-    echo -e "${DIM}  - nothing at /var/lib/matrix-conduit${NC}"
+    rm -f "$DEST/dendrite.sql"
+    echo -e "${DIM}  - no homeserver database yet${NC}"
+  fi
+
+  # Chat history lives in the `dendrite` database now, not a separate store —
+  # so it comes out with the database dump below rather than as a tarball.
+  # The signing key still needs saving: it is the server's Matrix identity,
+  # and losing it makes this a different server to everyone it federates with.
+  echo -e "${YELLOW}Homeserver identity...${NC}"
+  if [ -f /etc/dendrite/matrix_key.pem ]; then
+    cp /etc/dendrite/matrix_key.pem "$DEST/matrix_key.pem"
+    chmod 600 "$DEST/matrix_key.pem"
+    echo -e "${GREEN}  ✓ signing key saved${NC}"
+  else
+    echo -e "${DIM}  - no signing key at /etc/dendrite${NC}"
   fi
 
   echo -e "${YELLOW}Shared files...${NC}"
@@ -81,12 +95,22 @@ else
   fi
   echo -e "${GREEN}  ✓ $(wc -l < "$DEST/database.sql") lines${NC}"
 
+  # Chat history is in the `dendrite` database, dumped alongside the app's.
   echo -e "${YELLOW}Chat history...${NC}"
-  docker run --rm \
-    -v "${PROJECT}_matrix_data:/data:ro" \
-    -v "$(pwd)/$DEST:/backup" \
-    alpine tar czf /backup/matrix_data.tar.gz -C /data . 2>/dev/null \
-    || echo -e "${RED}  ! Skipped (volume ${PROJECT}_matrix_data not found)${NC}"
+  if $DC exec -T db pg_dump -U sovrgn -d dendrite --clean --if-exists > "$DEST/dendrite.sql" 2>/dev/null; then
+    echo -e "${GREEN}  ✓ $(wc -l < "$DEST/dendrite.sql") lines${NC}"
+  else
+    rm -f "$DEST/dendrite.sql"
+    echo -e "${DIM}  - no homeserver database yet${NC}"
+  fi
+
+  # The signing key is the server's Matrix identity — losing it makes this a
+  # different server to everyone it has ever federated with.
+  if [ -f dendrite/matrix_key.pem ]; then
+    cp dendrite/matrix_key.pem "$DEST/matrix_key.pem"
+    chmod 600 "$DEST/matrix_key.pem"
+    echo -e "${GREEN}  ✓ signing key saved${NC}"
+  fi
 
   echo -e "${YELLOW}Shared files...${NC}"
   docker run --rm \
@@ -111,7 +135,9 @@ Host:     $(uname -srm)
 
 What's inside
   database.sql        accounts, servers, channels, messages
-  matrix_data.tar.gz  the Matrix homeserver's own store
+  dendrite.sql        the homeserver's rooms and events
+  matrix_key.pem      the homeserver's identity — without it this becomes a
+                      different server to everyone it federates with
   ipfs_data.tar.gz    the actual bytes of every shared file
   env.backup          your secrets and settings — treat this as a password
 

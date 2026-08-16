@@ -169,6 +169,35 @@ export const sessions = pgTable("sessions", {
  * minted for, not what happened afterwards, because this service has no
  * business knowing that.
  */
+/**
+ * In-flight desktop sign-ins.
+ *
+ * The desktop app can't use the browser redirect flow — returning a token to
+ * `sovrgn://` would hand it to whatever application registered that scheme.
+ * So it asks for a code here, the person approves it in their own browser,
+ * and the app polls this table.
+ *
+ * The device code is stored hashed: it's the bearer secret the app polls with,
+ * and a leak of this table shouldn't hand anyone a pending sign-in.
+ */
+export const deviceAuthorizations = pgTable("deviceAuthorizations", {
+  id: serial("id").primaryKey(),
+  deviceCodeHash: varchar("deviceCodeHash", { length: 64 }).notNull().unique(),
+  /** The short code a person reads off the app and types in a browser. */
+  userCode: varchar("userCode", { length: 16 }).notNull().unique(),
+  /** Set once somebody signed in approves it. */
+  accountId: integer("accountId"),
+  /** "pending" | "approved" | "denied" */
+  status: varchar("status", { length: 16 }).default("pending").notNull(),
+  /** Handed to the app once approved, then never again. */
+  sessionTokenHash: varchar("sessionTokenHash", { length: 64 }),
+  /** Bumped when polled too fast, so the server can ask it to back off. */
+  polls: integer("polls").default(0).notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  lastPolledAt: timestamp("lastPolledAt"),
+});
+
 export const grants = pgTable("grants", {
   id: serial("id").primaryKey(),
   accountId: integer("accountId").notNull(),

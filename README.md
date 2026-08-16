@@ -35,7 +35,7 @@ Never done this before? [**QUICKSTART.md**](QUICKSTART.md) walks through it
 assuming no prior experience.
 
 **No Docker?** [`scripts/install-lxc.sh`](docs/LXC.md) installs everything as
-plain systemd services — PostgreSQL, Conduit, Kubo, and the app. Built for a
+plain systemd services — PostgreSQL, Dendrite, Kubo, and the app. Built for a
 Proxmox LXC, fine on any bare Debian box.
 
 Day to day, either install: `sovrgnnet status | start | stop | url | backup | update`
@@ -44,7 +44,7 @@ Day to day, either install: `sovrgnnet status | start | stop | url | backup | up
 
 SOVRGNnet gives a community the familiar Discord experience — servers, channels, text chat, voice, file sharing — without renting it from a corporation:
 
-- **Messaging** rides on [Matrix](https://matrix.org) (Conduit homeserver), an open, federated, end-to-end-encryptable protocol.
+- **Messaging** rides on [Matrix](https://matrix.org) (Dendrite homeserver), an open, federated, end-to-end-encryptable protocol.
 - **Files** are stored on [IPFS](https://ipfs.tech) with WebTorrent for large transfers.
 - **Identity** starts with plain email/password; wallet-based login (ENS, WalletConnect) is on the roadmap as an optional layer, not a requirement.
 - **Everything self-hosts** via Docker Compose: app, Postgres, Matrix, IPFS, and nginx in one stack.
@@ -56,7 +56,7 @@ SOVRGNnet gives a community the familiar Discord experience — servers, channel
 | Frontend | React 19, Vite, Tailwind 4, shadcn/ui, wouter |
 | API | Express + tRPC 11, Zod |
 | Database | PostgreSQL + Drizzle ORM |
-| Messaging | Matrix (Conduit homeserver), matrix-js-sdk |
+| Messaging | Matrix (Dendrite homeserver), matrix-js-sdk |
 | Storage | IPFS (Kubo), WebTorrent |
 | Web3 (optional) | wagmi, viem, RainbowKit, ethers |
 | Deploy | Docker Compose, nginx, ARM64-friendly (Pi 5 supported) |

@@ -1,0 +1,105 @@
+# Dendrite configuration for SOVRGNnet.
+#
+# Generated from this template by install.sh / install-lxc.sh, which fill in
+# the __PLACEHOLDERS__. Don't edit the generated copy expecting it to survive
+# a reinstall — change the template.
+#
+# See docs/adr/0006-dendrite-replaces-conduit.md for why Dendrite rather than
+# Conduit.
+
+version: 2
+
+global:
+  # Written into every user and room ID at creation. Changing this on a live
+  # server orphans all existing history — there is no migration.
+  server_name: __MATRIX_SERVER_NAME__
+
+  # The server's federation identity. Losing this file changes who this
+  # server *is* to the rest of Matrix. Back it up separately.
+  private_key: /etc/dendrite/matrix_key.pem
+
+  # One database for everything: the app's tables and Dendrite's live in the
+  # same PostgreSQL instance, so there's one thing to back up and one thing to
+  # restore. Conduit kept its own RocksDB store alongside; this is simpler.
+  database:
+    connection_string: __DENDRITE_DATABASE_URL__
+    max_open_conns: 20
+    max_idle_conns: 5
+    conn_max_lifetime: -1
+
+  # Off by default. Your server talks to no other homeserver until you decide
+  # otherwise — see MATRIX_ALLOW_FEDERATION.
+  disable_federation: __DENDRITE_DISABLE_FEDERATION__
+
+  well_known_server_name: ""
+  well_known_client_name: ""
+
+  # Presence is off: the app tracks its own, and Dendrite's version costs
+  # federation traffic we have no use for yet.
+  presence:
+    enable_inbound: false
+    enable_outbound: false
+
+  report_stats:
+    enabled: false
+
+  server_notices:
+    enabled: false
+
+client_api:
+  # Public registration stays closed, permanently. Accounts are created by the
+  # app through shared-secret registration below — which means someone finding
+  # this homeserver directly cannot sign up on it.
+  registration_disabled: true
+  guests_disabled: true
+
+  # The secret the app uses to provision one Matrix account per SOVRGNnet
+  # user, via /_synapse/admin/v1/register. It never leaves the app process.
+  # Empty here would silently disable account creation, so install refuses to
+  # proceed without it.
+  registration_shared_secret: __MATRIX_SHARED_SECRET__
+
+  # No reCAPTCHA: registration is closed, so there is nothing to protect with
+  # one, and it would mean handing Google a request per signup.
+  enable_registration_captcha: false
+
+  rate_limiting:
+    enabled: true
+    threshold: 20
+    cooloff_ms: 500
+
+federation_api:
+  send_max_retries: 16
+  disable_tls_validation: false
+  key_perspectives:
+    - server_name: matrix.org
+      keys:
+        - key_id: ed25519:auto
+          public_key: Noi6WqcDj0QmPxCNQqgezwTlBKrfqehY1u2FyWP9uYw
+        - key_id: ed25519:a_RXGa
+          public_key: l8Hft5qXKn1vfHrg3p4+W8gELQVo8N13JkluMfmn2sQ
+  prefer_direct_fetch: false
+
+media_api:
+  # Files live on IPFS via the app, not here. This exists because Dendrite
+  # requires it, and is deliberately small.
+  base_path: /var/lib/dendrite/media
+  max_file_size_bytes: 10485760
+  dynamic_thumbnails: false
+
+sync_api:
+  search:
+    enabled: false
+
+user_api:
+  # Cost factor for Dendrite's own password hashing. Its accounts are machine
+  # -generated with high-entropy passwords derived from the app secret, so the
+  # default is ample.
+  bcrypt_cost: 10
+
+room_server:
+  default_room_version: "10"
+
+logging:
+  - type: std
+    level: info

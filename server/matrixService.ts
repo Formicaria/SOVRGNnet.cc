@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+
 import { nanoid } from "nanoid";
 import { ENV } from "./_core/env";
 
@@ -87,25 +88,79 @@ export type MatrixCredentials = {
   accessToken: string;
 };
 
-/** Register a Matrix account. Falls back to login if it already exists. */
+/**
+ * The MAC proving a shared-secret registration request is ours.
+ *
+ * Dendrite implements Synapse's shared-secret registration: the homeserver
+ * hands out a nonce, and the caller returns an HMAC-SHA1 over
+ * `nonce\0username\0password\0admin-or-not`, keyed with a secret only the
+ * server knows.
+ *
+ * The null separators matter. Joining the fields without them would let
+ * different field splits produce identical MACs — a classic length-extension
+ * -adjacent confusion — so they're explicit here rather than incidental.
+ */
+export function sharedSecretMac(
+  sharedSecret: string,
+  nonce: string,
+  username: string,
+  password: string,
+  admin: boolean
+): string {
+  return createHmac("sha1", sharedSecret)
+    .update(`${nonce}\x00${username}\x00${password}\x00${admin ? "admin" : "notadmin"}`)
+    .digest("hex");
+}
+
+/**
+ * Provision a Matrix account, falling back to login when it already exists.
+ *
+ * Uses shared-secret registration rather than a registration token, because
+ * Dendrite has no token flow — its choices are registration disabled, or
+ * reCAPTCHA, or open. Shared secret is strictly better than the token we used
+ * with Conduit: public registration stays *fully disabled*, and only something
+ * holding the secret can create an account. The secret never leaves this
+ * process.
+ */
 export async function registerOrLogin(appUserId: number): Promise<MatrixCredentials> {
   const username = localpartForUser(appUserId);
   const password = deriveMatrixPassword(appUserId);
 
-  const auth = ENV.matrixRegistrationToken
-    ? { type: "m.login.registration_token", token: ENV.matrixRegistrationToken }
-    : { type: "m.login.dummy" };
+  if (!ENV.matrixSharedSecret) {
+    throw new MatrixError(
+      "MATRIX_SHARED_SECRET is not set, so this server can't create Matrix accounts.",
+      500,
+      "M_MISSING_SHARED_SECRET"
+    );
+  }
 
   try {
+    // The homeserver issues a nonce per attempt; it's single-use, which is
+    // what stops a captured request being replayed.
+    const { nonce } = await matrixRequest<{ nonce: string }>(
+      "GET",
+      "/_synapse/admin/v1/register"
+    );
+
     const reg = await matrixRequest<{ user_id: string; access_token: string }>(
       "POST",
-      "/_matrix/client/v3/register",
-      { username, password, auth, inhibit_login: false }
+      "/_synapse/admin/v1/register",
+      {
+        nonce,
+        username,
+        password,
+        admin: false,
+        mac: sharedSecretMac(ENV.matrixSharedSecret, nonce, username, password, false),
+      }
     );
     return { userId: reg.user_id, accessToken: reg.access_token };
   } catch (err) {
-    // M_USER_IN_USE → account exists (e.g. token was wiped); log in instead.
-    if (err instanceof MatrixError && err.errcode === "M_USER_IN_USE") {
+    // The account already exists — expected whenever an access token was
+    // wiped but the Matrix account survived. Log in instead.
+    if (
+      err instanceof MatrixError &&
+      (err.errcode === "M_USER_IN_USE" || err.status === 400)
+    ) {
       return await login(username, password);
     }
     throw err;

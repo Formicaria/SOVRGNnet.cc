@@ -139,6 +139,55 @@ body {
 .empty h1 { font-size: 22px; margin-bottom: 10px; }
 .empty p { color: var(--muted); font-size: 14px; margin-bottom: 22px; }
 
+/* ------------------------------------------------------------- first run */
+
+.firstrun {
+  margin: auto;
+  max-width: 420px;
+  text-align: center;
+  padding: 40px 24px;
+  user-select: text;
+}
+.firstrun-mark {
+  width: 62px; height: 62px;
+  margin: 0 auto 20px;
+  border-radius: 18px;
+  background: linear-gradient(120deg, var(--accent), #ec4899);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 20px; color: #fff;
+}
+.firstrun h1 { font-size: 22px; margin-bottom: 10px; }
+.firstrun > p { font-size: 14px; margin-bottom: 26px; }
+.firstrun-actions { display: flex; flex-direction: column; gap: 10px; }
+.firstrun-actions button { width: 100%; margin: 0; }
+
+.linky {
+  background: none; border: 0; padding: 8px 0; margin-top: 16px;
+  color: var(--muted); font-size: 12.5px; cursor: pointer; text-decoration: underline;
+}
+.linky:hover { color: var(--text); }
+.linky.inline { padding: 0; margin: 0; font-size: inherit; color: var(--accent); }
+
+.firstrun-why {
+  margin-top: 14px; padding: 14px 16px; text-align: left;
+  border: 1px solid var(--border); border-radius: 10px; background: #0d0818;
+}
+.firstrun-why p { font-size: 12.5px; margin-bottom: 10px; }
+.firstrun-why p:last-child { margin-bottom: 0; }
+
+/* The code someone reads off this screen and types into a browser. */
+.devicecode {
+  font-family: var(--mono);
+  font-size: 30px;
+  letter-spacing: 5px;
+  padding: 18px;
+  margin: 6px 0 14px;
+  border-radius: 12px;
+  background: #0d0818;
+  border: 1px solid var(--border);
+  user-select: all;
+}
+
 /* ---------------------------------------------------------------- dialog */
 
 .scrim {
@@ -210,6 +259,33 @@ button.ghost:hover { color: var(--text); }
   color: var(--danger);
   font-size: 13px;
 }
+
+/* ---------------------------------------------------------------- update */
+
+.update {
+  position: fixed;
+  right: 18px; bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  max-width: 440px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  z-index: 70;
+}
+/* A security release looks different on purpose — if every prompt looks the
+   same, people stop reading the ones that matter. */
+.update.is-security { border-color: rgba(251, 191, 36, 0.5); }
+.update.is-security strong { color: var(--warn); }
+
+.update-text { display: flex; flex-direction: column; gap: 3px; }
+.update-text strong { font-size: 13.5px; }
+.update-text span { font-size: 12.5px; color: var(--muted); }
+.update-actions { display: flex; gap: 8px; margin-left: auto; }
+.update-actions button { margin: 0; padding: 7px 14px; font-size: 12.5px; width: auto; }
 
 /* ---------------------------------------------------------------- notice */
 

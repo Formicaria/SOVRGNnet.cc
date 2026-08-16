@@ -6,7 +6,7 @@
 # machine. Everything runs as ordinary systemd services:
 #
 #   postgresql        accounts, servers, channels, messages
-#   conduit           the Matrix homeserver (127.0.0.1:6167)
+#   dendrite          the Matrix homeserver (127.0.0.1:6167)
 #   ipfs              Kubo, storing shared files (127.0.0.1:5001)
 #   sovrgnnet         the app itself (:3000)
 #   cloudflared       optional, only if you want a public address
@@ -24,8 +24,12 @@ set -euo pipefail
 APP_DIR="/opt/sovrgnnet"
 ENV_DIR="/etc/sovrgnnet"
 ENV_FILE="$ENV_DIR/sovrgnnet.env"
-CONDUIT_CONFIG="/etc/matrix-conduit/conduit.toml"
-CONDUIT_DATA="/var/lib/matrix-conduit"
+DENDRITE_CONFIG="/etc/dendrite/dendrite.yaml"
+DENDRITE_DATA="/var/lib/dendrite"
+# Dendrite publishes no binaries — source tarballs only — so it's built here.
+# See docs/adr/0006-dendrite-replaces-conduit.md.
+DENDRITE_VERSION="${DENDRITE_VERSION:-v0.15.2}"
+GO_VERSION="${GO_VERSION:-1.23.4}"
 IPFS_HOME="/var/lib/ipfs"
 
 # ---------------------------------------------------------------- appearance
@@ -98,11 +102,11 @@ command -v systemctl >/dev/null 2>&1 || fail "This needs systemd. Is this a mini
 [ -f /etc/debian_version ] || warn "Not Debian or Ubuntu — this may not go smoothly."
 
 case "$(uname -m)" in
-  x86_64)          CONDUIT_ARCH="x86_64-unknown-linux-musl";  KUBO_ARCH="linux-amd64" ;;
-  aarch64|arm64)   CONDUIT_ARCH="aarch64-unknown-linux-musl"; KUBO_ARCH="linux-arm64" ;;
-  *) fail "Unsupported architecture: $(uname -m). Conduit ships x86_64 and aarch64 binaries only." ;;
+  x86_64)          GO_ARCH="amd64"; KUBO_ARCH="linux-amd64" ;;
+  aarch64|arm64)   GO_ARCH="arm64"; KUBO_ARCH="linux-arm64" ;;
+  *) fail "Unsupported architecture: $(uname -m)." ;;
 esac
-ok "$(uname -m) — using $CONDUIT_ARCH"
+ok "$(uname -m)"
 
 if [ ! -d "$APP_DIR/.git" ] && [ ! -f "$APP_DIR/package.json" ]; then
   fail "Expected the SOVRGNnet source at $APP_DIR. Clone it there first."
@@ -148,8 +152,11 @@ install -d -m 0750 "$ENV_DIR"
 
 JWT_SECRET="$(env_get JWT_SECRET)";                 [ -z "$JWT_SECRET" ] && JWT_SECRET="$(secret)"
 DB_PASSWORD="$(env_get DB_PASSWORD)";               [ -z "$DB_PASSWORD" ] && DB_PASSWORD="$(secret)"
-MATRIX_REGISTRATION_TOKEN="$(env_get MATRIX_REGISTRATION_TOKEN)"
-[ -z "$MATRIX_REGISTRATION_TOKEN" ] && MATRIX_REGISTRATION_TOKEN="$(secret)"
+# Read the old name too, so a Conduit-era install upgrades rather than
+# silently minting a secret the homeserver will not accept.
+MATRIX_SHARED_SECRET="$(env_get MATRIX_SHARED_SECRET)"
+[ -z "$MATRIX_SHARED_SECRET" ] && MATRIX_SHARED_SECRET="$(env_get MATRIX_REGISTRATION_TOKEN)"
+[ -z "$MATRIX_SHARED_SECRET" ] && MATRIX_SHARED_SECRET="$(secret)"
 
 MATRIX_SERVER_NAME="$(env_get MATRIX_SERVER_NAME)"
 ACCESS_MODE="$(env_get SOVRGNNET_ACCESS_MODE)"
@@ -201,7 +208,7 @@ SOVRGNNET_RUNTIME=native
 
 JWT_SECRET=$JWT_SECRET
 DB_PASSWORD=$DB_PASSWORD
-MATRIX_REGISTRATION_TOKEN=$MATRIX_REGISTRATION_TOKEN
+MATRIX_SHARED_SECRET=$MATRIX_SHARED_SECRET
 
 DATABASE_URL=postgresql://sovrgn:$DB_PASSWORD@127.0.0.1:5432/sovrgnnet
 NODE_ENV=production
@@ -248,69 +255,104 @@ else
   ok "Database already present"
 fi
 
-# ------------------------------------------------------------------- conduit
+# ------------------------------------------------------------------ dendrite
 
-step "Matrix homeserver (Conduit)"
+step "Matrix homeserver (Dendrite)"
 
-id -u conduit >/dev/null 2>&1 || \
-  adduser --system conduit --group --disabled-login --no-create-home >/dev/null
+id -u dendrite >/dev/null 2>&1 || \
+  adduser --system dendrite --group --disabled-login --no-create-home >/dev/null
 
-if [ ! -x /usr/local/bin/matrix-conduit ]; then
-  hint "Downloading the Conduit binary..."
-  curl -fsSL -o /usr/local/bin/matrix-conduit \
-    "https://gitlab.com/api/v4/projects/famedly%2Fconduit/jobs/artifacts/master/raw/${CONDUIT_ARCH}?job=artifacts"
-  chmod +x /usr/local/bin/matrix-conduit
+# Dendrite gets its own database inside the PostgreSQL instance already
+# running here. One engine, one backup — Conduit kept a separate RocksDB store.
+if ! su - postgres -c "psql -tAc \"select 1 from pg_database where datname='dendrite'\"" | grep -q 1; then
+  su - postgres -c "createdb -O sovrgn dendrite"
+  ok "Homeserver database created"
 fi
-ok "Conduit installed"
 
-install -d -m 0755 /etc/matrix-conduit
-install -d -o conduit -g conduit -m 0700 "$CONDUIT_DATA"
+if [ ! -x /usr/local/bin/dendrite ]; then
+  # Built from source because Dendrite publishes no binaries — only source
+  # tarballs. Go is fetched, used, and left in /usr/local/go.
+  hint "Building the homeserver (a few minutes; Dendrite ships no binaries)..."
 
-# Registration stays enabled because SOVRGNnet provisions a Matrix account per
-# user — but it's gated behind a token only this app knows.
-cat > "$CONDUIT_CONFIG" <<EOF
-[global]
-server_name = "$MATRIX_SERVER_NAME"
-database_path = "$CONDUIT_DATA"
-database_backend = "rocksdb"
+  if ! command -v go >/dev/null 2>&1; then
+    TMP_GO="$(mktemp -d)"
+    curl -fsSL -o "$TMP_GO/go.tar.gz" \
+      "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
+    rm -rf /usr/local/go
+    tar -C /usr/local -xzf "$TMP_GO/go.tar.gz"
+    rm -rf "$TMP_GO"
+  fi
+  export PATH="/usr/local/go/bin:$PATH"
 
-# Loopback only. The app talks to it over 127.0.0.1; nothing else should.
-port = 6167
-address = "127.0.0.1"
+  TMP_SRC="$(mktemp -d)"
+  curl -fsSL -o "$TMP_SRC/dendrite.tar.gz" \
+    "https://github.com/element-hq/dendrite/archive/refs/tags/${DENDRITE_VERSION}.tar.gz"
+  tar xzf "$TMP_SRC/dendrite.tar.gz" -C "$TMP_SRC"
 
-max_request_size = 20_000_000
-allow_registration = true
-registration_token = "$MATRIX_REGISTRATION_TOKEN"
-allow_federation = ${MATRIX_ALLOW_FEDERATION:-false}
-allow_check_for_updates = true
-trusted_servers = ["matrix.org"]
-EOF
-chmod 644 "$CONDUIT_CONFIG"
+  # CGO off: with the PostgreSQL backend Dendrite needs no C dependencies,
+  # which is also what lets it cross-compile for Windows later.
+  ( cd "$TMP_SRC"/dendrite-* && CGO_ENABLED=0 go build -trimpath -o /usr/local/bin/ ./cmd/dendrite ./cmd/generate-keys )
+  rm -rf "$TMP_SRC"
+  ok "Dendrite $DENDRITE_VERSION built"
+else
+  ok "Dendrite already installed"
+fi
 
-cat > /etc/systemd/system/conduit.service <<'EOF'
+install -d -m 0755 /etc/dendrite
+install -d -o dendrite -g dendrite -m 0700 "$DENDRITE_DATA"
+install -d -o dendrite -g dendrite -m 0700 "$DENDRITE_DATA/media"
+
+# The signing key is this server's identity on the Matrix network. Generated
+# once; regenerating it makes the server a different server.
+if [ ! -f /etc/dendrite/matrix_key.pem ]; then
+  /usr/local/bin/generate-keys --private-key /etc/dendrite/matrix_key.pem >/dev/null
+  ok "Signing key generated"
+else
+  ok "Keeping the existing signing key"
+fi
+chown dendrite:dendrite /etc/dendrite/matrix_key.pem
+chmod 600 /etc/dendrite/matrix_key.pem
+
+# Public registration is disabled outright. Accounts are created by the app
+# through shared-secret registration, so nobody who finds this homeserver can
+# sign up on it.
+DISABLE_FEDERATION="true"
+[ "${MATRIX_ALLOW_FEDERATION:-false}" = "true" ] && DISABLE_FEDERATION="false"
+
+sed \
+  -e "s|__MATRIX_SERVER_NAME__|$MATRIX_SERVER_NAME|g" \
+  -e "s|__MATRIX_SHARED_SECRET__|$MATRIX_SHARED_SECRET|g" \
+  -e "s|__DENDRITE_DISABLE_FEDERATION__|$DISABLE_FEDERATION|g" \
+  -e "s|__DENDRITE_DATABASE_URL__|postgresql://sovrgn:$DB_PASSWORD@127.0.0.1:5432/dendrite?sslmode=disable|g" \
+  "$APP_DIR/dendrite/dendrite.yaml.template" > "$DENDRITE_CONFIG"
+
+chown dendrite:dendrite "$DENDRITE_CONFIG"
+chmod 600 "$DENDRITE_CONFIG"
+
+cat > /etc/systemd/system/dendrite.service <<EOF
 [Unit]
-Description=Conduit Matrix homeserver (SOVRGNnet)
-After=network.target
+Description=Dendrite Matrix homeserver (SOVRGNnet)
+After=network.target postgresql.service
+Wants=postgresql.service
 
 [Service]
-Environment="CONDUIT_CONFIG=/etc/matrix-conduit/conduit.toml"
-User=conduit
-Group=conduit
-ExecStart=/usr/local/bin/matrix-conduit
+User=dendrite
+Group=dendrite
+WorkingDirectory=$DENDRITE_DATA
+ExecStart=/usr/local/bin/dendrite --config $DENDRITE_CONFIG --http-bind-address 127.0.0.1:6167
 Restart=always
 RestartSec=5
 
-# It needs its own data directory and nothing else.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/matrix-conduit
+ReadWritePaths=$DENDRITE_DATA
 
 [Install]
 WantedBy=multi-user.target
 EOF
-ok "Conduit configured"
+ok "Dendrite configured"
 
 # ---------------------------------------------------------------------- ipfs
 
@@ -405,8 +447,8 @@ install -d -o sovrgnnet -g sovrgnnet -m 0750 "$APP_DIR/logs"
 cat > /etc/systemd/system/sovrgnnet.service <<EOF
 [Unit]
 Description=SOVRGNnet
-After=network.target postgresql.service conduit.service ipfs.service
-Wants=postgresql.service conduit.service ipfs.service
+After=network.target postgresql.service dendrite.service ipfs.service
+Wants=postgresql.service dendrite.service ipfs.service
 
 [Service]
 Type=simple
@@ -475,7 +517,7 @@ fi
 step "Starting everything"
 
 systemctl daemon-reload
-systemctl enable --now conduit ipfs >/dev/null 2>&1
+systemctl enable --now dendrite ipfs >/dev/null 2>&1
 sleep 3
 systemctl enable --now sovrgnnet >/dev/null 2>&1
 [ -f /etc/systemd/system/sovrgnnet-tunnel.service ] && \
