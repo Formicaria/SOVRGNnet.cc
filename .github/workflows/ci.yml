@@ -19,6 +19,7 @@ jobs:
     outputs:
       app: ${{ steps.filter.outputs.app }}
       desktop: ${{ steps.filter.outputs.desktop }}
+      identity: ${{ steps.filter.outputs.identity }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -39,6 +40,10 @@ jobs:
               - '.github/workflows/ci.yml'
             desktop:
               - 'desktop/**'
+              - 'shared/**'
+              - '.github/workflows/ci.yml'
+            identity:
+              - 'identity/**'
               - 'shared/**'
               - '.github/workflows/ci.yml'
 
@@ -112,6 +117,28 @@ jobs:
         working-directory: desktop
         run: pnpm check
 
+  # The identity provider is its own service with its own dependencies. Its
+  # crypto is tested in the root suite, since shared/identity.ts is what both
+  # this service and every server rely on.
+  identity:
+    needs: changes
+    if: needs.changes.outputs.identity == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        working-directory: identity
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Typecheck
+        working-directory: identity
+        run: pnpm check
+
   # Version strings live in five files and drift silently. Cheap to check,
   # miserable to discover during a release.
   versions:
@@ -124,7 +151,7 @@ jobs:
   # request can still merge even though the app jobs were skipped — a skipped
   # required check never reports and would block the merge forever.
   ci:
-    needs: [app, desktop, versions]
+    needs: [app, desktop, identity, versions]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -132,8 +159,9 @@ jobs:
         run: |
           echo "app:      ${{ needs.app.result }}"
           echo "desktop:  ${{ needs.desktop.result }}"
+          echo "identity: ${{ needs.identity.result }}"
           echo "versions: ${{ needs.versions.result }}"
-          for result in "${{ needs.app.result }}" "${{ needs.desktop.result }}" "${{ needs.versions.result }}"; do
+          for result in "${{ needs.app.result }}" "${{ needs.desktop.result }}" "${{ needs.identity.result }}" "${{ needs.versions.result }}"; do
             case "$result" in
               success|skipped) ;;
               *) echo "::error::A required job did not pass."; exit 1 ;;
