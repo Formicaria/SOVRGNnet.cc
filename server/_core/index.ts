@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { registerAppserviceRoutes } from "../appservice";
 import { registerFileRoutes } from "../fileRoutes";
 import { registerInstanceRoutes } from "../instanceRoutes";
+import { registerMetricsRoutes } from "../metrics";
 import { runMigrations, waitForDatabase } from "../migrate";
 import { createContext } from "./context";
 import { serveStatic } from "./static";
@@ -60,6 +61,8 @@ async function startServer() {
   registerInstanceRoutes(app);
   // Homeserver event pushes (ADR 0009) — hs_token-gated, 404 when unconfigured
   registerAppserviceRoutes(app);
+  // Prometheus text exposition; METRICS_TOKEN makes it bearer-gated
+  registerMetricsRoutes(app);
   // File upload/download (bytes go through REST, metadata through tRPC)
   registerFileRoutes(app);
   // Auth endpoints live in the tRPC auth router

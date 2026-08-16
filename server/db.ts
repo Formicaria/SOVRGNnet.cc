@@ -440,6 +440,27 @@ export async function getServerProfile(serverId: number, userId: number) {
   return rows[0] ?? null;
 }
 
+/** Instance-level totals for /metrics. Totals only — see server/metrics.ts. */
+export async function countTotals(): Promise<{
+  users: number;
+  servers: number;
+  messages: number;
+}> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const [userRows, serverRows, messageRows] = await Promise.all([
+    db.select({ n: sql<number>`count(*)::int` }).from(users),
+    db.select({ n: sql<number>`count(*)::int` }).from(servers),
+    db.select({ n: sql<number>`count(*)::int` }).from(messages),
+  ]);
+  return {
+    users: userRows[0]?.n ?? 0,
+    servers: serverRows[0]?.n ?? 0,
+    messages: messageRows[0]?.n ?? 0,
+  };
+}
+
 // Matrix credential storage (userProfiles)
 export async function getMatrixCredentials(userId: number) {
   const db = await getDb();
