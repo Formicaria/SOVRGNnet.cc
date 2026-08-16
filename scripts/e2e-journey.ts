@@ -320,6 +320,77 @@ async function runJourney(): Promise<void> {
   );
   ok("Message edited");
 
+  // -- client-authored events (ADR 0008 stage 3 + ADR 0009) ------------------
+  // The full loop nothing else exercises: the client obtains its own Matrix
+  // session, sends an event straight to the homeserver — the instance never
+  // sees the request — and the appservice push writes it into the index.
+
+  console.log("\n  Client-authored events");
+
+  const instance = (await (await fetch(`${BASE}/api/instance`)).json()) as {
+    capabilities?: { clientMatrix?: boolean; eventIngest?: boolean };
+  };
+  assert(
+    instance.capabilities?.clientMatrix === true,
+    `clientMatrix should be true in the harness: ${JSON.stringify(instance.capabilities)}`
+  );
+  assert(
+    instance.capabilities?.eventIngest === true,
+    `eventIngest should be true in the harness: ${JSON.stringify(instance.capabilities)}`
+  );
+  ok("Capabilities advertise direct sync and ingest");
+
+  const session = await owner.mutate<{
+    homeserverUrl: string;
+    accessToken: string;
+    deviceId: string;
+  }>("matrix.clientSession", { displayName: "e2e journey" });
+  assert(
+    session?.accessToken && /^SOVRGN_/.test(session.deviceId),
+    `client session looks wrong: ${JSON.stringify({ ...session, accessToken: "…" })}`
+  );
+  ok("Device-scoped client session minted");
+
+  // The advertised URL is the in-network address; from the host the same
+  // homeserver is the published port. The journey knows the topology.
+  const homeserver = process.env.E2E_MATRIX ?? "http://127.0.0.1:8008";
+  const channelInfo = await owner.query<{ matrixRoomId: string }>(
+    "channels.getById",
+    { channelId: channel.id }
+  );
+  const direct = `authored by the client ${stamp}`;
+  const put = await fetch(
+    `${homeserver}/_matrix/client/v3/rooms/${encodeURIComponent(
+      channelInfo.matrixRoomId
+    )}/send/m.room.message/e2e_${Date.now()}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${session.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ msgtype: "m.text", body: direct }),
+    }
+  );
+  assert(put.ok, `direct send to the homeserver failed: HTTP ${put.status}`);
+  ok("Event sent directly to the homeserver, instance not involved");
+
+  // The appservice push is asynchronous; poll briefly rather than assuming.
+  let ingested = false;
+  for (let attempt = 0; attempt < 20 && !ingested; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const rows = await owner.query<Array<{ content: string }>>(
+      "messages.listByChannel",
+      { channelId: channel.id }
+    );
+    ingested = rows.some(m => m.content === direct);
+  }
+  assert(
+    ingested,
+    "the directly-sent event never appeared in the index — the appservice push isn't reaching the instance"
+  );
+  ok("Ingest recorded it — the database is an index of Matrix, demonstrated");
+
   // -- files ----------------------------------------------------------------
 
   console.log("\n  Files");
