@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { APP_VERSION } from "@shared/const";
 import { isValidInviteCode } from "@shared/invite";
+import { clientDelegation, serverDelegation } from "@shared/matrixDelegation";
 import { PROTOCOL_VERSION } from "@shared/protocol";
 import * as db from "./db";
 import { instanceDescriptor, instanceInfo } from "./instance";
@@ -120,6 +121,51 @@ export function registerInstanceRoutes(app: Express): void {
       checks,
       ...(database.error ? { detail: { database: database.error } } : {}),
     });
+  });
+
+  /**
+   * Matrix delegation.
+   *
+   * A Matrix ID is `@zach:example.com`, and clients take the part after the
+   * colon and ask that host where the homeserver actually lives. Serving these
+   * from the app means delegation works in every deployment shape, rather than
+   * only where someone configured nginx by hand.
+   *
+   * Both must be readable cross-origin — a Matrix client on another origin is
+   * exactly who reads them.
+   */
+  app.get("/.well-known/matrix/client", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Cache-Control", "public, max-age=300");
+
+    // No m.identity_server: that field names a *Matrix* identity service
+    // (sydent — email and phone lookup), which this project doesn't run. The
+    // SOVRGN identity provider is a different thing entirely, and advertising
+    // it here would point Matrix clients at something that doesn't speak the
+    // protocol they'd use it with.
+    const document = clientDelegation(process.env.MATRIX_PUBLIC_URL ?? null);
+
+    // 404 rather than an empty document. A client that gets a 404 falls back
+    // to its own default sensibly; one handed a delegation pointing nowhere
+    // fails later and less clearly.
+    if (!document) return res.status(404).json({ errcode: "M_NOT_FOUND" });
+    res.json(document);
+  });
+
+  app.get("/.well-known/matrix/server", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Cache-Control", "public, max-age=300");
+
+    // Gated on federation actually being on. Advertising a federation
+    // endpoint while refusing federated traffic invites other servers to try
+    // and then fail, which is worse than saying nothing.
+    const document = serverDelegation(
+      process.env.MATRIX_PUBLIC_URL ?? null,
+      process.env.MATRIX_ALLOW_FEDERATION === "true"
+    );
+
+    if (!document) return res.status(404).json({ errcode: "M_NOT_FOUND" });
+    res.json(document);
   });
 
   app.options("/api/instance", (_req, res) => {

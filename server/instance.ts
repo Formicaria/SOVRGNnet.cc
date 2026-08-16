@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { PROTOCOL_VERSION, type InstanceDescriptor } from "@shared/protocol";
 import { ENV } from "./_core/env";
+import { directSync } from "./matrixPublic";
 
 /**
  * Who this server is, to someone who has never met it.
@@ -172,9 +173,16 @@ export function instanceDescriptor(
       federation: process.env.MATRIX_ALLOW_FEDERATION === "true",
       sso: info.sso.enabled,
       publicRegistration: info.joinPolicy === "open",
-      // True once clients sync with Matrix themselves. Requires a reachable
-      // homeserver, which is exactly what MATRIX_PUBLIC_URL announces.
-      clientMatrix: Boolean(publicMatrix),
+      // True only when a homeserver has actually answered at the advertised
+      // address — not merely when MATRIX_PUBLIC_URL is set.
+      //
+      // It used to be `Boolean(publicMatrix)`, which announced the capability
+      // the moment an operator set a variable, before anything confirmed a
+      // homeserver was there or that the address was even right. Same mistake
+      // `encryption` made in v0.3: a deployment detail silently becoming a
+      // claim. A client acts on capabilities, so one that lies is worse than
+      // one that's absent.
+      clientMatrix: directSync().available,
       portableBackup: true,
     },
     matrix: {
