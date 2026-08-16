@@ -106,6 +106,16 @@ A settings dialog in the client covers name, description, join policy, and direc
 
 **Remaining:** WSL2 provisioning from the installer, lifecycle supervision, LAN reachability (WSL2's NAT address changes across reboots), and surfacing backups somewhere visible in Windows rather than inside the distro.
 
+## Phase 7.6 — One account across every server 🚧
+
+[ADR 0003](adr/0003-central-identity.md) records the decision to have sovrgnnet.cc issue identities that any server accepts, and — unusually for an ADR — spends most of its length arguing against itself, because this is centralisation in the part of the system where it hurts most. The mitigations are the design: Ed25519 signatures verified against a **cached** public key so an outage blocks new sign-ins rather than logging anyone out, tokens bound to a single server so no operator can replay their users' tokens elsewhere, local accounts that keep working, and `INSTANCE_ALLOW_SSO=false` for anyone who wants nothing to do with it.
+
+Done: the token format, signing, and verification in `shared/identity.ts` — shared deliberately, because the provider signs what every server verifies and two implementations of a signature format is how signature bugs are born. 25 tests covering forgery, payload tampering, cross-server replay, `alg: none`, expiry, clock drift, and key rotation overlap. Recovery codes with confusable-character avoidance, forgiving normalisation, hashed storage, and single-use consumption. The provider's schema, kept deliberately ignorant of memberships.
+
+**Per-server profiles** landed alongside: one identity, but "Zach" in one community and "chronus" in another, resolved in a single place and covering messages and member lists.
+
+**Remaining:** the HTTP service — registration, sign-in, token endpoint, JWKS route, email delivery — and `auth.ssoLogin` on the server side. Until both exist, every account is local and nothing here affects a running instance.
+
 ## Phase 8 — Client-side Matrix
 
 The client syncs directly with each homeserver instead of the app proxying. Still plaintext — this step is about moving the transport, not encrypting it, and separating the two keeps each reviewable. Replaces the 3-second polling loop with a real `/sync` stream. Conduit stops being loopback-only and moves behind the tunnel with proper delegation.
