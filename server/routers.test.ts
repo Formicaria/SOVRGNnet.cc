@@ -249,4 +249,28 @@ describe.skipIf(!process.env.DATABASE_URL)("Platform flow (DB + fake homeserver)
       aliceCaller.servers.leave({ serverId })
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
+
+  it("admin.overview: vitals for admins, forbidden for everyone else", async () => {
+    // Bob is an ordinary account; the panel must not exist for him.
+    const bobCaller = appRouter.createCaller(contextFor(bob));
+    await expect(bobCaller.admin.overview()).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+
+    await db.setUserRole(alice.id, "admin");
+    const adminCaller = appRouter.createCaller(
+      contextFor({ ...alice, role: "admin" })
+    );
+    const overview = await adminCaller.admin.overview();
+
+    expect(typeof overview.version).toBe("string");
+    expect(overview.uptimeSeconds).toBeGreaterThanOrEqual(0);
+    expect(typeof overview.checks.database).toBe("boolean");
+    expect(typeof overview.checks.homeserver).toBe("boolean");
+    expect(typeof overview.eventIngest).toBe("boolean");
+    // The database is genuinely up in this suite, and the probe should say so.
+    expect(overview.checks.database).toBe(true);
+    expect(overview.totals).not.toBeNull();
+    expect(overview.totals!.users).toBeGreaterThanOrEqual(2);
+  });
 });

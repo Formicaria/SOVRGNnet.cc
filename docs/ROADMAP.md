@@ -192,8 +192,12 @@ this project exists to avoid.
 - [x] Credentials in the OS keychain
 - [x] Deep links, including cold start
 - [x] Update checks on launch
-- [ ] Server administration from the client — no SSH for routine operations
-- [ ] Instance health surfaced in the UI
+- [x] Server administration from the client — instance settings, join policy,
+      account roles, and session management all live in the settings dialog
+      (backup and update remain CLI operations, deliberately: they move data)
+- [x] Instance health surfaced in the UI — a Health tab with live dependency
+      status, direct-sync and ingest state, uptime, and totals, refreshing
+      while watched
 - [ ] Onboarding polish
 
 ## 0.7 — Network

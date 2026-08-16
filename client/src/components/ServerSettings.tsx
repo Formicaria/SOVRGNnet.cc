@@ -11,6 +11,25 @@ import {
 } from "@/components/ui/dialog";
 import { Loader2, Check, ShieldAlert } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/contexts/AuthContext";
+
+function formatUptime(seconds: number): string {
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86400)
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  return `${Math.floor(seconds / 86400)}d ${Math.floor((seconds % 86400) / 3600)}h`;
+}
+
+function HealthDot({ up }: { up: boolean }) {
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full ${
+        up ? "bg-emerald-400" : "bg-red-500"
+      }`}
+      aria-hidden="true"
+    />
+  );
+}
 
 type JoinPolicy = "open" | "invite" | "closed";
 
@@ -47,7 +66,26 @@ export default function ServerSettings({
   onOpenChange: (open: boolean) => void;
 }) {
   const utils = trpc.useUtils();
+  const { user: me } = useAuth();
+  const [tab, setTab] = useState<"settings" | "health" | "members">("settings");
   const settingsQuery = trpc.admin.getSettings.useQuery(undefined, { enabled: open });
+
+  // Health refreshes while it's being looked at; a status panel showing
+  // ten-minute-old truth is worse than none.
+  const overviewQuery = trpc.admin.overview.useQuery(undefined, {
+    enabled: open && tab === "health",
+    refetchInterval: 10_000,
+  });
+  const usersQuery = trpc.admin.listUsers.useQuery(undefined, {
+    enabled: open && tab === "members",
+  });
+  const setRole = trpc.admin.setUserRole.useMutation({
+    onSuccess: async () => {
+      setError(null);
+      await utils.admin.listUsers.invalidate();
+    },
+    onError: e => setError(e.message),
+  });
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -88,11 +126,145 @@ export default function ServerSettings({
           </DialogDescription>
         </DialogHeader>
 
-        {settingsQuery.isLoading && (
+        <div className="flex gap-1 border-b border-slate-800 -mt-1">
+          {(
+            [
+              ["settings", "Settings"],
+              ["health", "Health"],
+              ["members", "Members"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`px-3 py-1.5 text-sm rounded-t transition-colors ${
+                tab === key
+                  ? "text-white border-b-2 border-purple-500"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "health" && (
+          <div className="space-y-4 min-h-[200px]">
+            {overviewQuery.isLoading && (
+              <Loader2 className="w-5 h-5 animate-spin text-purple-500 mx-auto my-6" />
+            )}
+            {overviewQuery.data && (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      ["Database", overviewQuery.data.checks.database],
+                      ["Homeserver", overviewQuery.data.checks.homeserver],
+                      ["IPFS", overviewQuery.data.checks.ipfs],
+                    ] as const
+                  ).map(([label, up]) => (
+                    <div
+                      key={label}
+                      className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 flex items-center gap-2"
+                    >
+                      <HealthDot up={up} />
+                      <span className="text-sm">{label}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 space-y-1.5 text-sm">
+                  <p className="text-slate-300">
+                    v{overviewQuery.data.version} · up{" "}
+                    {formatUptime(overviewQuery.data.uptimeSeconds)}
+                  </p>
+                  <p className="text-slate-400 text-xs">
+                    Direct Matrix sync:{" "}
+                    {overviewQuery.data.directSync.available ? (
+                      <span className="text-emerald-400">available</span>
+                    ) : (
+                      <span title={overviewQuery.data.directSync.detail ?? undefined}>
+                        proxied — {overviewQuery.data.directSync.detail}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-slate-400 text-xs">
+                    Event ingest:{" "}
+                    {overviewQuery.data.eventIngest ? (
+                      <span className="text-emerald-400">configured</span>
+                    ) : (
+                      "not configured — clients send through the API"
+                    )}
+                  </p>
+                  {overviewQuery.data.totals && (
+                    <p className="text-slate-500 text-xs font-mono">
+                      {overviewQuery.data.totals.users} accounts ·{" "}
+                      {overviewQuery.data.totals.servers} communities ·{" "}
+                      {overviewQuery.data.totals.messages} messages
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === "members" && (
+          <div className="space-y-2 min-h-[200px] max-h-80 overflow-y-auto">
+            {usersQuery.isLoading && (
+              <Loader2 className="w-5 h-5 animate-spin text-purple-500 mx-auto my-6" />
+            )}
+            {(usersQuery.data ?? []).map(account => (
+              <div
+                key={account.id}
+                className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm truncate">
+                    {account.name ?? account.email ?? `#${account.id}`}
+                    {me && account.id === me.id && (
+                      <span className="text-slate-500"> (you)</span>
+                    )}
+                  </p>
+                  <p className="text-[11px] text-slate-500 truncate">
+                    {account.email} · joined{" "}
+                    {new Date(account.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+                {account.role === "admin" ? (
+                  <span className="text-[11px] uppercase tracking-wide text-purple-300">
+                    admin
+                  </span>
+                ) : null}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-slate-700 text-xs"
+                  disabled={setRole.isPending || (me != null && account.id === me.id)}
+                  onClick={() =>
+                    setRole.mutate({
+                      userId: account.id,
+                      role: account.role === "admin" ? "user" : "admin",
+                    })
+                  }
+                >
+                  {account.role === "admin" ? "Remove admin" : "Make admin"}
+                </Button>
+              </div>
+            ))}
+            {error && (
+              <p className="text-sm text-red-300 bg-red-950/50 border border-red-900 rounded px-3 py-2">
+                {error}
+              </p>
+            )}
+          </div>
+        )}
+
+        {tab === "settings" && settingsQuery.isLoading && (
           <Loader2 className="w-5 h-5 animate-spin text-purple-500 mx-auto my-6" />
         )}
 
-        {data && (
+        {tab === "settings" && data && (
           <div className="space-y-5">
             <div>
               <label className="text-xs text-slate-400 block mb-1.5">Name</label>
@@ -177,6 +349,7 @@ export default function ServerSettings({
           </div>
         )}
 
+        {tab === "settings" && (
         <DialogFooter>
           <Button
             disabled={!data || save.isPending || !name.trim()}
@@ -194,6 +367,7 @@ export default function ServerSettings({
             {saved ? "Saved" : "Save"}
           </Button>
         </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

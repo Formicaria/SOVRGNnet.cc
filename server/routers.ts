@@ -22,7 +22,9 @@ import {
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { parsePublicMatrixUrl } from "@shared/matrixDelegation";
+import { appserviceConfigured } from "./appservice";
 import * as db from "./db";
+import { isIpfsReachable } from "./ipfsService";
 import { directSync } from "./matrixPublic";
 import * as matrix from "./matrixService";
 import {
@@ -1110,6 +1112,44 @@ export const appRouter = router({
           listed: saved.listed,
         };
       }),
+
+    /**
+     * The instance's vital signs, for the settings panel — 0.6's "no SSH for
+     * routine operations". The same facts /ready and /metrics export, shaped
+     * for a person: every probe bounded at 2s so a hung dependency shows as
+     * down instead of hanging the panel with it.
+     */
+    overview: adminProcedure.query(async () => {
+      const bounded = <T,>(work: Promise<T>, fallback: T): Promise<T> =>
+        Promise.race([
+          work.catch(() => fallback),
+          new Promise<T>(resolve => setTimeout(() => resolve(fallback), 2000)),
+        ]);
+
+      const [database, homeserver, ipfs, totals] = await Promise.all([
+        bounded(db.pingDatabase().then(r => r.ok), false),
+        bounded(matrix.isHomeserverReachable(), false),
+        bounded(isIpfsReachable(), false),
+        bounded(
+          db.countTotals(),
+          null as { users: number; servers: number; messages: number } | null
+        ),
+      ]);
+
+      const sync = directSync();
+
+      return {
+        version: APP_VERSION,
+        uptimeSeconds: Math.floor(process.uptime()),
+        checks: { database, homeserver, ipfs },
+        directSync: {
+          available: sync.available,
+          detail: sync.detail ?? null,
+        },
+        eventIngest: appserviceConfigured(),
+        totals,
+      };
+    }),
 
     /** Everyone with an account on this instance. */
     listUsers: adminProcedure.query(async () => {
