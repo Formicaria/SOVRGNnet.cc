@@ -31,15 +31,27 @@ function routerPaths(): Set<string> {
   return paths;
 }
 
-/** Every procedure path the journey calls. */
+/** Comment text, so assertions about the code don't match prose about it. */
+function withoutComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+/**
+ * Every procedure path the journey calls.
+ *
+ * Restricted to strings whose first segment is a real router namespace.
+ * Matching any `word.word` in quotes pulled in things like "error.message" and
+ * asserted they were procedures, which is a test failing on its own sloppiness
+ * rather than on a problem.
+ */
 function calledPaths(): string[] {
-  const pattern = /["'`]([a-zA-Z]+\.[a-zA-Z]+)["'`]/g;
+  const namespaces = new Set([...routerPaths()].map(p => p.split(".")[0]));
+  const code = withoutComments(journey);
+  const pattern = /["'`]([a-z][a-zA-Z]*)\.([a-z][a-zA-Z]*)["'`]/g;
   const found = new Set<string>();
   let match: RegExpExecArray | null;
-  while ((match = pattern.exec(journey)) !== null) {
-    const candidate = match[1];
-    // Only things that look like router paths, not file names or MIME types.
-    if (/^[a-z][a-zA-Z]*\.[a-z][a-zA-Z]*$/.test(candidate)) found.add(candidate);
+  while ((match = pattern.exec(code)) !== null) {
+    if (namespaces.has(match[1])) found.add(`${match[1]}.${match[2]}`);
   }
   return [...found];
 }
@@ -61,6 +73,50 @@ describe("the journey calls procedures that exist", () => {
 
   it.each(calledPaths())("%s exists on the router", path => {
     expect(available.has(path), `${path} is not a procedure on appRouter`).toBe(true);
+  });
+});
+
+describe("the journey speaks the wire format the server actually uses", () => {
+  // The server sets superjson as its tRPC transformer, so input and output are
+  // both wrapped in { json: ... }. The journey sent raw input, every call
+  // failed validation with "expected object, received undefined", and the
+  // error — also wrapped — surfaced as "unknown error".
+  //
+  // Verified against the live router before writing these: wrapped input
+  // validates real values, raw input produces exactly that error, and success
+  // comes back as {"result":{"data":{"json":...}}}.
+
+  it("the server does configure a transformer", () => {
+    // If this stops being true the wrapping becomes wrong, not merely
+    // unnecessary — so it's worth failing loudly rather than drifting.
+    const trpc = readFileSync(join(ROOT, "server", "_core", "trpc.ts"), "utf8");
+    expect(trpc).toMatch(/transformer:\s*superjson/);
+  });
+
+  it("wraps mutation input", () => {
+    expect(journey).toMatch(/body:\s*JSON\.stringify\(\{\s*json:/);
+  });
+
+  it("wraps query input", () => {
+    expect(journey).toMatch(/JSON\.stringify\(\{\s*json:\s*input\s*\}\)/);
+  });
+
+  it("unwraps the nested result", () => {
+    expect(journey).toMatch(/"json"\s+in/);
+  });
+
+  it("reads the error message from where superjson puts it", () => {
+    expect(journey).toMatch(/err\.json\?\.message/);
+  });
+
+  it("never reports a failure without something concrete", () => {
+    // "unknown error" sent debugging in the wrong direction for an entire run.
+    // Every failure path now carries the HTTP status at minimum.
+    //
+    // Comments are stripped: the code explains that history, and matching the
+    // explanation would fail on the documentation rather than the behaviour.
+    expect(withoutComments(journey)).not.toMatch(/unknown error/);
+    expect(journey).toMatch(/HTTP \$\{status\}/);
   });
 });
 
