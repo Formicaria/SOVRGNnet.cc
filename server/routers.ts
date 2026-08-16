@@ -764,6 +764,54 @@ export const appRouter = router({
           input.matrixUserId
         );
       }),
+
+    /**
+     * Every Matrix session on this account.
+     *
+     * Deliberately includes the instance's own, flagged as such. Someone
+     * looking at their sessions should be able to see that the server holds
+     * one — because it does, and omitting it would be the dishonest option.
+     */
+    devices: protectedProcedure.query(async ({ ctx }) => {
+      const credentials = await db.getMatrixCredentials(ctx.user.id);
+      if (!credentials) return [];
+
+      try {
+        return await matrix.listDevices(credentials.accessToken);
+      } catch {
+        // A homeserver that's down shouldn't make the settings page fail —
+        // it should say it couldn't ask.
+        return [];
+      }
+    }),
+
+    /** Sign a session out. Refuses the server's own — see matrixService. */
+    signOutDevice: protectedProcedure
+      .input(z.object({ deviceId: z.string().min(1).max(255) }))
+      .mutation(async ({ ctx, input }) => {
+        const credentials = await db.getMatrixCredentials(ctx.user.id);
+        if (!credentials) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "You don't have a Matrix session yet.",
+          });
+        }
+
+        try {
+          await matrix.deleteDevice(credentials.accessToken, input.deviceId, {
+            user: matrix.localpartForUser(ctx.user.id),
+            password: matrix.deriveMatrixPassword(ctx.user.id),
+          });
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              error instanceof Error ? error.message : "Couldn't sign that session out.",
+          });
+        }
+
+        return { signedOut: input.deviceId } as const;
+      }),
   }),
 
   // Nitro subscription operations

@@ -86,6 +86,8 @@ export function localpartForUser(userId: number): string {
 export type MatrixCredentials = {
   userId: string;
   accessToken: string;
+  /** Null only when talking to a homeserver that didn't report one. */
+  deviceId?: string | null;
 };
 
 /**
@@ -161,23 +163,148 @@ export async function registerOrLogin(appUserId: number): Promise<MatrixCredenti
       err instanceof MatrixError &&
       (err.errcode === "M_USER_IN_USE" || err.status === 400)
     ) {
-      return await login(username, password);
+      // Always under the same device id, so a token lost and recovered
+      // replaces the server's session instead of adding another anonymous one
+      // beside it. Homeservers used to accumulate one per recovery.
+      return await login(username, password, {
+        deviceId: SERVER_DEVICE_ID,
+        displayName: SERVER_DEVICE_NAME,
+      });
     }
     throw err;
   }
 }
 
-export async function login(username: string, password: string): Promise<MatrixCredentials> {
-  const res = await matrixRequest<{ user_id: string; access_token: string }>(
-    "POST",
-    "/_matrix/client/v3/login",
+/**
+ * Devices are named, not anonymous.
+ *
+ * Every login used to create a fresh device with no id and no display name, so
+ * a homeserver accumulated identical unnamed sessions that nobody could tell
+ * apart — which is the actual reason there was no per-device revocation.
+ * Nothing was identified, so nothing could be revoked.
+ *
+ * The instance's own session is deliberately recognisable. Someone looking at
+ * their device list should be able to see that the server holds one, because
+ * it does, and hiding it would be the dishonest option.
+ */
+export const SERVER_DEVICE_ID = "SOVRGNNET_SERVER";
+export const SERVER_DEVICE_NAME = "SOVRGNnet server";
+
+/** A device id for a client session. Random, so two clients never collide. */
+export function clientDeviceId(): string {
+  return `SOVRGN_${nanoid(16).toUpperCase().replace(/[^A-Z0-9]/g, "0")}`;
+}
+
+export type MatrixDevice = {
+  deviceId: string;
+  displayName: string | null;
+  lastSeenIp: string | null;
+  lastSeenAt: number | null;
+  /** Whether this is the session the instance itself holds. */
+  isServer: boolean;
+};
+
+export async function login(
+  username: string,
+  password: string,
+  device?: { deviceId?: string; displayName?: string }
+): Promise<MatrixCredentials> {
+  const res = await matrixRequest<{
+    user_id: string;
+    access_token: string;
+    device_id?: string;
+  }>("POST", "/_matrix/client/v3/login", {
+    type: "m.login.password",
+    identifier: { type: "m.id.user", user: username },
+    password,
+    // Reusing a device_id replaces that session rather than adding another,
+    // which is what stops the server's own repeated logins piling up.
+    ...(device?.deviceId ? { device_id: device.deviceId } : {}),
+    ...(device?.displayName ? { initial_device_display_name: device.displayName } : {}),
+  });
+
+  return {
+    userId: res.user_id,
+    accessToken: res.access_token,
+    deviceId: res.device_id ?? device?.deviceId ?? null,
+  };
+}
+
+/**
+ * Every session on this account.
+ *
+ * Needs the user's own token — this is deliberately not an admin API call, so
+ * it reports what that user can actually see and act on.
+ */
+export async function listDevices(accessToken: string): Promise<MatrixDevice[]> {
+  const res = await matrixRequest<{
+    devices?: Array<{
+      device_id: string;
+      display_name?: string | null;
+      last_seen_ip?: string | null;
+      last_seen_ts?: number | null;
+    }>;
+  }>("GET", "/_matrix/client/v3/devices", undefined, accessToken);
+
+  return (res.devices ?? []).map(device => ({
+    deviceId: device.device_id,
+    displayName: device.display_name ?? null,
+    lastSeenIp: device.last_seen_ip ?? null,
+    lastSeenAt: device.last_seen_ts ?? null,
+    isServer: device.device_id === SERVER_DEVICE_ID,
+  }));
+}
+
+/**
+ * Sign a device out.
+ *
+ * Deleting a device on Matrix requires user-interactive auth, so the password
+ * goes in the auth block. It is derived rather than stored — see
+ * deriveMatrixPassword, and ADR 0008 for why that is a disclosed weakness
+ * rather than a hidden one.
+ *
+ * Refuses to remove the instance's own session: doing so would break every
+ * operation the server performs on the user's behalf, and the user would
+ * experience it as the account silently failing.
+ */
+export async function deleteDevice(
+  accessToken: string,
+  deviceId: string,
+  auth: { user: string; password: string }
+): Promise<void> {
+  if (deviceId === SERVER_DEVICE_ID) {
+    throw new MatrixError(
+      "That session belongs to the server itself and can't be signed out from here.",
+      400,
+      "M_FORBIDDEN"
+    );
+  }
+
+  await matrixRequest<unknown>(
+    "DELETE",
+    `/_matrix/client/v3/devices/${encodeURIComponent(deviceId)}`,
     {
-      type: "m.login.password",
-      identifier: { type: "m.id.user", user: username },
-      password,
-    }
+      auth: {
+        type: "m.login.password",
+        identifier: { type: "m.id.user", user: auth.user },
+        password: auth.password,
+      },
+    },
+    accessToken
   );
-  return { userId: res.user_id, accessToken: res.access_token };
+}
+
+/** Which account and device a token actually belongs to. */
+export async function whoami(
+  accessToken: string
+): Promise<{ userId: string; deviceId: string | null }> {
+  const res = await matrixRequest<{ user_id: string; device_id?: string }>(
+    "GET",
+    "/_matrix/client/v3/account/whoami",
+    undefined,
+    accessToken
+  );
+  return { userId: res.user_id, deviceId: res.device_id ?? null };
 }
 
 /** Create a Space (SOVRGNnet "server"). Returns the space room id. */
