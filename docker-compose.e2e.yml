@@ -1,0 +1,32 @@
+# Overrides for the end-to-end harness.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml -p sovrgnnet-e2e ...
+#
+# Used only by scripts/e2e.sh. Kept as an override rather than folded into the
+# real compose file so that what the harness exercises is the actual production
+# topology, with only the differences a test needs stated explicitly here.
+
+services:
+  app:
+    # A different port, so running the harness never collides with a real
+    # instance already listening on 3000.
+    ports: !override
+      - "${E2E_PORT:-3999}:3000"
+    environment:
+      # The main compose file doesn't pass these through, so a Docker install
+      # can only set instance identity through the settings UI after first
+      # boot. The harness needs them at startup to assert that the advertised
+      # join policy is actually enforced.
+      INSTANCE_NAME: ${INSTANCE_NAME:-E2E instance}
+      INSTANCE_JOIN_POLICY: ${INSTANCE_JOIN_POLICY:-invite}
+    # A crash should fail the run, not be quietly papered over by a restart.
+    restart: "no"
+
+  db:
+    restart: "no"
+
+  matrix:
+    restart: "no"
+
+  ipfs:
+    restart: "no"

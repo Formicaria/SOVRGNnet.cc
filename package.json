@@ -11,7 +11,10 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
-    "conformance": "tsx scripts/conformance.ts"
+    "conformance": "tsx scripts/conformance.ts",
+    "preflight": "./scripts/preflight.sh",
+    "test:db": "./scripts/test-db.sh",
+    "e2e": "./scripts/e2e.sh"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.12",
