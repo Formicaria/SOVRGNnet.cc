@@ -343,6 +343,30 @@ compose exec -T db psql -U sovrgn -d sovrgnnet -v ON_ERROR_STOP=0 \
   < "$RESTORED/database.sql" >/dev/null 2>&1 || true
 ok "Database restored"
 
+# The homeserver's own database. Restoring the app's without this leaves every
+# channel pointing at a room the homeserver has never heard of — structure
+# intact, history gone. That was a real bug, and skipping it here would mean
+# the harness never exercised the fix.
+if [ -f "$RESTORED/dendrite.sql" ]; then
+  compose exec -T db psql -U sovrgn -d dendrite -v ON_ERROR_STOP=0 \
+    < "$RESTORED/dendrite.sql" >/dev/null 2>&1 || true
+  ok "Chat history restored"
+else
+  die "The backup carried no homeserver database — restore is untested."
+fi
+
+# The signing key is the instance's Matrix identity. Restoring everything else
+# without it silently produces a different server.
+if [ -f "$RESTORED/matrix_key.pem" ]; then
+  BEFORE="$(sha256sum dendrite/matrix_key.pem | cut -d' ' -f1)"
+  install -m 600 "$RESTORED/matrix_key.pem" dendrite/matrix_key.pem
+  AFTER="$(sha256sum dendrite/matrix_key.pem | cut -d' ' -f1)"
+  [ "$BEFORE" = "$AFTER" ] || die "The restored signing key differs from the one backed up."
+  ok "Signing key restored, and identical"
+else
+  die "The backup carried no signing key — the instance would become a different server."
+fi
+
 compose restart app >/dev/null 2>&1 || true
 
 deadline=$(( $(date +%s) + 90 ))

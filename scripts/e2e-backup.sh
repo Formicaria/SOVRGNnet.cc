@@ -51,6 +51,18 @@ else
   rm -f "$DEST/dendrite.sql"
 fi
 
+# --- homeserver identity ----------------------------------------------------
+#
+# Bind-mounted from the host, so it's read straight off disk. Omitting it was a
+# real gap: the signing key never being restored was one of the three
+# data-destroying bugs found by reading this code, and a harness that doesn't
+# carry the key cannot exercise the fix.
+
+if [ -f "$REPO_DIR/dendrite/matrix_key.pem" ]; then
+  cp "$REPO_DIR/dendrite/matrix_key.pem" "$DEST/matrix_key.pem"
+  chmod 600 "$DEST/matrix_key.pem"
+fi
+
 # --- shared files -----------------------------------------------------------
 
 if docker run --rm \
