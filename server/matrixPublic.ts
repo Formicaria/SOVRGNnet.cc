@@ -33,6 +33,14 @@ export function __setFetchForTests(f: FetchLike): void {
 
 const PROBE_TIMEOUT_MS = 3000;
 const FRESH_FOR_MS = 60_000;
+/**
+ * A negative answer expires much sooner than a positive one. The common way
+ * to cache a "no" is probing during boot, while the homeserver is itself
+ * still starting — and a 60-second "no" from that window means the instance
+ * spends its first minute denying a capability it has. A dead homeserver
+ * stays dead across a 5-second retry; a starting one doesn't.
+ */
+const NEGATIVE_FRESH_FOR_MS = 5_000;
 
 type Probe = {
   reachable: boolean;
@@ -104,7 +112,11 @@ export function directSync(): DirectSyncStatus {
   const base = publicUrl();
   if (!base) return directSyncStatus(null, null);
 
-  const stale = !cached || Date.now() - cached.at > FRESH_FOR_MS;
+  const freshFor =
+    cached && cached.reachable && cached.isHomeserver
+      ? FRESH_FOR_MS
+      : NEGATIVE_FRESH_FOR_MS;
+  const stale = !cached || Date.now() - cached.at > freshFor;
 
   if (stale && !inFlight) {
     inFlight = probe(base)
