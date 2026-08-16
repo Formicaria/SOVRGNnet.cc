@@ -104,6 +104,10 @@ JWT_SECRET=$(secret)
 MATRIX_SHARED_SECRET=$(secret)
 MATRIX_SERVER_NAME=e2e.local
 MATRIX_HOMESERVER_URL=http://matrix:8008
+# Advertised to clients; true inside the compose network, which is where the
+# app's own reachability probe runs. The journey on the host talks to the
+# published 127.0.0.1:8008 instead and knows the difference.
+MATRIX_PUBLIC_URL=http://matrix:8008
 IPFS_API_URL=http://ipfs:5001
 INSTANCE_NAME=E2E instance
 # Invite-only is the default a real install gets, so it's what should be
@@ -147,7 +151,7 @@ step "Configuring the homeserver"
 # source doesn't exist. Dendrite then finds a directory where its config should
 # be, fails to start, and the only symptom is that the homeserver never becomes
 # reachable.
-for stray in dendrite/dendrite.yaml dendrite/matrix_key.pem; do
+for stray in dendrite/dendrite.yaml dendrite/matrix_key.pem dendrite/appservice-e2e.yaml; do
   if [ -d "$stray" ]; then
     rmdir "$stray" 2>/dev/null || rm -rf "$stray"
     info "Removed $stray, which Docker had created as a directory"
@@ -190,6 +194,37 @@ if [ -n "$LEFTOVER" ]; then
   die "The Dendrite template has placeholders this script doesn't fill in."
 fi
 ok "Config written from the template"
+
+# --- Appservice ingest (ADR 0009) -------------------------------------------
+# The harness wires the registration a real operator would wire by hand, so
+# eventIngest is true in the stack under test and the journey can prove a
+# client-authored event lands in the index. Throwaway tokens per run.
+E2E_AS_TOKEN="$(openssl rand -hex 32)"
+E2E_HS_TOKEN="$(openssl rand -hex 32)"
+export MATRIX_APPSERVICE_AS_TOKEN="$E2E_AS_TOKEN"
+export MATRIX_APPSERVICE_HS_TOKEN="$E2E_HS_TOKEN"
+
+sed \
+  -e "s|{{AS_TOKEN}}|$E2E_AS_TOKEN|g" \
+  -e "s|{{HS_TOKEN}}|$E2E_HS_TOKEN|g" \
+  dendrite/appservice.yaml.template > dendrite/appservice-e2e.yaml
+chmod 600 dendrite/appservice-e2e.yaml
+
+# The production template deliberately ships without an app_service_api
+# section (operators add it when they opt in — docs/UPGRADING.md). The
+# harness opts in. Appending a top-level section to the rendered config is
+# valid YAML as long as the template never grows its own; the guard below
+# turns that collision into a loud failure instead of a duplicate-key one.
+if grep -q '^app_service_api:' dendrite/dendrite.yaml; then
+  die "dendrite.yaml.template now has app_service_api; e2e.sh must stop appending its own."
+fi
+cat >> dendrite/dendrite.yaml <<'YAML'
+
+app_service_api:
+  config_files:
+    - /etc/dendrite/appservice-e2e.yaml
+YAML
+ok "Appservice registration wired (eventIngest will be live)"
 
 step "Starting the stack"
 info "Postgres, Dendrite, Kubo, and the app. First run builds the image."

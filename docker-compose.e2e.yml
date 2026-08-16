@@ -27,6 +27,9 @@ services:
 
   matrix:
     restart: "no"
+    volumes:
+      # Appended to the main file's mounts (compose merges volume lists).
+      - ./dendrite/appservice-e2e.yaml:/etc/dendrite/appservice-e2e.yaml:ro
 
   ipfs:
     restart: "no"

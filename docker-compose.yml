@@ -37,6 +37,14 @@ services:
       # Shared secret that lets the app — and only the app — create Matrix
       # accounts. Public registration on the homeserver is disabled outright.
       MATRIX_SHARED_SECRET: ${MATRIX_SHARED_SECRET:-${MATRIX_REGISTRATION_TOKEN}}
+      # Where clients may reach the homeserver directly (ADR 0008). Unset by
+      # default: the capability comes from a reachability probe, not this
+      # variable, so setting it wrongly advertises nothing.
+      MATRIX_PUBLIC_URL: ${MATRIX_PUBLIC_URL:-}
+      # Appservice ingest (ADR 0009) — set both, with the matching
+      # registration wired into Dendrite, to record client-authored events.
+      MATRIX_APPSERVICE_AS_TOKEN: ${MATRIX_APPSERVICE_AS_TOKEN:-}
+      MATRIX_APPSERVICE_HS_TOKEN: ${MATRIX_APPSERVICE_HS_TOKEN:-}
       IPFS_API_URL: ${IPFS_API_URL:-http://ipfs:5001}
       REACT_APP_WALLET_CONNECT_PROJECT_ID: ${REACT_APP_WALLET_CONNECT_PROJECT_ID}
     logging: *default-logging
