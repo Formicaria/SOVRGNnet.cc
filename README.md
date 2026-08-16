@@ -21,10 +21,11 @@ control rather than renting space inside somebody else's product.
 Maintained by [Formicaria](https://formicaria.us) · reference instance at
 [sovrgnnet.cc](https://sovrgnnet.cc)
 
-> **Status: v0.3.0 alpha.** Messaging, files, invites, roles, and moderation
+> **Status: v0.4.0 alpha.** Messaging, files, invites, roles, and moderation
 > work end-to-end. The desktop client connects to multiple independent
-> instances. **Messages are not yet end-to-end encrypted** — see
-> [SECURITY.md](SECURITY.md). Full history in [CHANGELOG.md](CHANGELOG.md).
+> instances. Backups are portable and verified before restore. **Messages are
+> not yet end-to-end encrypted** — see [SECURITY.md](SECURITY.md). Full history
+> in [CHANGELOG.md](CHANGELOG.md).
 
 ## What "sovereign" means here, technically
 
@@ -210,6 +211,17 @@ it to run the app. The server applies pending migrations itself at startup.
 
 Useful commands: `pnpm check` (typecheck), `pnpm test` (vitest), `pnpm build` (production build), `pnpm format`.
 
+Before pushing:
+
+```bash
+pnpm preflight            # ~20s — versions, typecheck, tests, build
+pnpm preflight --full     # ~10m — plus real Postgres and a full-stack run
+```
+
+`pnpm e2e` stands up the whole stack, drives a real user journey through the
+HTTP API, then takes a backup, **drops the schema**, restores, and checks the
+data came back. See [docs/TESTING.md](docs/TESTING.md).
+
 ## Deployment
 
 `./install.sh` covers every hosting shape below; these are the underlying
@@ -257,6 +269,7 @@ Two settings are worth knowing about:
 
 - [docs/ROADMAP.md](docs/ROADMAP.md) — milestones 0.4 through 0.7
 - [docs/AUDIT.md](docs/AUDIT.md) — current state of the codebase: what works, what's broken, what's missing
+- [docs/TESTING.md](docs/TESTING.md) — what each test layer proves, and what still isn't checked
 
 ## License
 
