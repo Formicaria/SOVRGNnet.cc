@@ -36,7 +36,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "appimage", "msi", "dmg"],
+    "targets": ["deb", "appimage", "nsis", "dmg"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -54,7 +54,13 @@
         "desktopTemplate": "sovrgnnet.desktop"
       },
       "appimage": {
-        "bundleMediaFramework": true
+        "bundleMediaFramework": false
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["English"]
       }
     },
     "macOS": {

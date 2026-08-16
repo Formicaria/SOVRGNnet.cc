@@ -84,10 +84,12 @@ jobs:
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
+          # libappindicator3-dev and libayatana-appindicator3-dev conflict with
+          # each other — ayatana is the maintained one and what Tauri 2 wants.
           sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-            patchelf build-essential curl wget file libssl-dev \
-            libgtk-3-dev libayatana-appindicator3-dev
+            libwebkit2gtk-4.1-dev librsvg2-dev libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            patchelf build-essential curl wget file libssl-dev
 
       - name: Install
         working-directory: desktop
@@ -96,6 +98,10 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # bundle_dmg.sh drives Finder with AppleScript to arrange the disk
+          # image window. There's no Finder on a CI runner, so it hangs or
+          # fails; CI=true makes it skip the cosmetics and just build the DMG.
+          CI: true
         with:
           projectPath: desktop
           releaseId: ${{ needs.draft.outputs.id }}

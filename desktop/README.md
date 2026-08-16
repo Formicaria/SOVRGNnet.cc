@@ -12,7 +12,7 @@ The bundles register the app properly with the desktop, not just drop a binary:
 | Platform | Artifact | Notes |
 |---|---|---|
 | Linux | `.deb` | Menu entry, icon, and claims `sovrgn://` links |
-| Linux | `.AppImage` | Portable; bundles the GTK/WebKit runtime so it runs on distributions other than the build machine's |
+| Linux | `.AppImage` | Portable; linuxdeploy bundles the GTK/WebKit libraries |
 | Windows | `.msi` | Start Menu entry; the deep-link plugin registers `sovrgn://` on first run |
 | macOS | `.dmg` | Universal binary, 10.15+ |
 
@@ -20,6 +20,12 @@ The `sovrgn://` registration is what makes an invite link in a browser open
 the app instead of doing nothing. On Linux that comes from the `MimeType` line
 in `src-tauri/sovrgnnet.desktop`; the `.AppImage` needs desktop integration
 (AppImageLauncher, or running it once) before the association takes effect.
+
+`bundleMediaFramework` is off. It bundles GStreamer for audio and video
+playback, needs gstreamer dev packages on every build machine, and buys
+nothing while there's no voice. Turn it on when
+[voice](../docs/ROADMAP.md) lands, and add the packages to CI in the same
+change or the AppImage build breaks.
 
 **Builds are unsigned.** macOS will refuse to open the `.dmg` without
 right-click → Open, and Windows will show a SmartScreen warning. Fixable with
