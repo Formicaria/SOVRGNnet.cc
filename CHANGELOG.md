@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## v0.5.1 — 2026-08-16
+
+**v0.5.0's desktop builds never shipped, and this is the release that fixes
+why.** A bump-time edit to `desktop/src-tauri/Cargo.lock` used a pattern that
+matched every crate pinned at the old version, not just this package — turning
+`heck 0.4.1` into a second `heck 0.5.0` entry. Cargo refuses a lockfile like
+that, so all three platform builds died in CI while every local check stayed
+green, because nothing local parses the lockfile. The lockfile is restored
+from history with only the one intended change, and `check-versions.sh` (run
+by preflight and the release guard) now fails on duplicate lockfile packages —
+the mistake now costs seconds locally instead of a broken release.
+
+Everything below rode the broken tag and ships properly here.
 
 **Onboarding that reads the room (0.6).** The sign-in page now fetches the
 instance's name, description, and join policy and shapes itself around them:
