@@ -262,8 +262,18 @@ export async function createMessage(channelId: number, userId: number, content: 
   return result[0];
 }
 
-/** Messages with sender names, oldest first. */
-export async function getMessagesByChannel(channelId: number, limit: number = 50) {
+/**
+ * Messages with sender names, oldest first.
+ *
+ * The sender's name is their per-server nickname when they've set one, and
+ * their account name otherwise — so someone can be "Zach" in one community and
+ * "chronus" in another without two accounts.
+ */
+export async function getMessagesByChannel(
+  channelId: number,
+  limit: number = 50,
+  serverId?: number
+) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -277,15 +287,76 @@ export async function getMessagesByChannel(channelId: number, limit: number = 50
       createdAt: messages.createdAt,
       editedAt: messages.editedAt,
       reactions: messages.reactions,
-      senderName: users.name,
+      accountName: users.name,
+      nickname: serverMembers.nickname,
+      memberAvatar: serverMembers.avatar,
     })
     .from(messages)
     .leftJoin(users, eq(messages.userId, users.id))
+    .leftJoin(
+      serverMembers,
+      serverId === undefined
+        ? sql`false`
+        : and(
+            eq(serverMembers.userId, messages.userId),
+            eq(serverMembers.serverId, serverId)
+          )
+    )
     .where(eq(messages.channelId, channelId))
     .orderBy(sql`${messages.createdAt} DESC`)
     .limit(limit);
 
-  return rows.reverse();
+  return rows.reverse().map(row => ({
+    ...row,
+    senderName: displayName(row.nickname, row.accountName),
+    senderAvatar: row.memberAvatar,
+  }));
+}
+
+/**
+ * Which name to show for someone in a given server.
+ *
+ * Per-server nickname wins; the account name is the fallback. A nickname of
+ * whitespace is treated as unset rather than rendering as a blank author.
+ */
+export function displayName(
+  nickname: string | null | undefined,
+  accountName: string | null | undefined
+): string | null {
+  const trimmed = nickname?.trim();
+  if (trimmed) return trimmed;
+  return accountName ?? null;
+}
+
+/** Set or clear the current user's profile within one server. */
+export async function setServerProfile(
+  serverId: number,
+  userId: number,
+  values: { nickname?: string | null; avatar?: string | null }
+): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(serverMembers)
+    .set(values)
+    .where(and(eq(serverMembers.serverId, serverId), eq(serverMembers.userId, userId)));
+}
+
+export async function getServerProfile(serverId: number, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select({
+      nickname: serverMembers.nickname,
+      avatar: serverMembers.avatar,
+      role: serverMembers.role,
+    })
+    .from(serverMembers)
+    .where(and(eq(serverMembers.serverId, serverId), eq(serverMembers.userId, userId)))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 // Matrix credential storage (userProfiles)
@@ -554,12 +625,14 @@ export async function getServerMembersDetailed(serverId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db
+  const rows = await db
     .select({
       userId: serverMembers.userId,
       role: serverMembers.role,
       joinedAt: serverMembers.joinedAt,
-      name: users.name,
+      accountName: users.name,
+      nickname: serverMembers.nickname,
+      avatar: serverMembers.avatar,
       email: users.email,
       matrixUserId: userProfiles.matrixUserId,
     })
@@ -567,6 +640,8 @@ export async function getServerMembersDetailed(serverId: number) {
     .leftJoin(users, eq(serverMembers.userId, users.id))
     .leftJoin(userProfiles, eq(serverMembers.userId, userProfiles.userId))
     .where(eq(serverMembers.serverId, serverId));
+
+  return rows.map(row => ({ ...row, name: displayName(row.nickname, row.accountName) }));
 }
 
 export async function getServerMemberRole(
