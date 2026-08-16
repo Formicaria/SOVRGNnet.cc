@@ -9,7 +9,7 @@ import { registerFileRoutes } from "../fileRoutes";
 import { registerInstanceRoutes } from "../instanceRoutes";
 import { runMigrations, waitForDatabase } from "../migrate";
 import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
+import { serveStatic } from "./static";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -68,8 +68,23 @@ async function startServer() {
       createContext,
     })
   );
-  // development mode uses Vite, production mode uses static files
+  // Development serves through Vite; production serves the built files.
+  //
+  // The import has to be dynamic. A static one is resolved when the module
+  // graph loads, before this condition is ever evaluated — so production would
+  // import `vite`, which the production image doesn't install, and the process
+  // would die on startup. It did exactly that, and only the Docker deployment
+  // was affected because native installs carry devDependencies too.
   if (process.env.NODE_ENV === "development") {
+    // The specifier is computed on purpose. esbuild bundles a *literal*
+    // dynamic import of an internal module straight into the output, which
+    // turns `vite`'s own import back into a static one at the top of the
+    // bundle — exactly the crash this is avoiding. A variable specifier can't
+    // be resolved at build time, so the module stays out of the graph and is
+    // only loaded when this branch actually runs, under tsx, in development.
+    const devServer = "./vite.ts";
+    const { setupVite } = (await import(/* @vite-ignore */ devServer)) as
+      typeof import("./vite");
     await setupVite(app, server);
   } else {
     serveStatic(app);
