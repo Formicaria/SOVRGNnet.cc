@@ -89,13 +89,30 @@ export function registerInstanceRoutes(app: Express): void {
       matrix: "down",
     };
 
+    // Every check is bounded. An unbounded one doesn't make this endpoint slow,
+    // it makes it *hang* — and a readiness probe that never answers is worse
+    // than one reporting a failure, because a caller sees a timeout instead of
+    // information. The homeserver check did exactly this while Dendrite was
+    // starting, and took /ready down with it.
+    // Read per request so tests can shorten it without waiting out the real
+    // bound, and so an operator on slow storage can raise it.
+    const limit = Number(process.env.READY_TIMEOUT_MS ?? 3000);
+
+    const timeout = <T>(work: Promise<T>, fallback: T): Promise<T> =>
+      Promise.race([
+        work,
+        new Promise<T>(resolve => setTimeout(() => resolve(fallback), limit)),
+      ]);
+
     // pingDatabase, not getInstanceSettings. The latter catches its own errors
     // and returns null by design, so this endpoint used to report the database
     // as healthy when there was no database at all.
-    const database = await db.pingDatabase();
+    const database = await timeout(db.pingDatabase(), { ok: false, error: "timed out" });
     checks.database = database.ok ? "ok" : "down";
 
-    checks.matrix = (await matrix.isHomeserverReachable()) ? "ok" : "down";
+    // Bounded twice: once inside isHomeserverReachable, once here. The inner
+    // bound is the real one; this catches anything that never resolves at all.
+    checks.matrix = (await timeout(matrix.isHomeserverReachable(limit), false)) ? "ok" : "down";
 
     const ready = checks.database === "ok";
     res.status(ready ? 200 : 503).json({
