@@ -82,23 +82,26 @@ class Session {
 
   async query<T>(path: string, input?: unknown): Promise<T> {
     const url = new URL(`/api/trpc/${path}`, BASE);
-    if (input !== undefined) url.searchParams.set("input", JSON.stringify(input));
+    // The server configures superjson as its tRPC transformer, so everything
+    // on the wire is wrapped in { json: ... }. Sending raw input means the
+    // procedure receives undefined and fails validation — and the error comes
+    // back wrapped too, which is why this first surfaced as "unknown error"
+    // rather than as anything diagnosable.
+    if (input !== undefined) url.searchParams.set("input", JSON.stringify({ json: input }));
 
-    const response = await fetch(url, {
-      headers: { cookie: this.cookieHeader() },
-    });
+    const response = await fetch(url, { headers: { cookie: this.cookieHeader() } });
     this.absorb(response);
-    return unwrap<T>(await response.text(), `${this.label} GET ${path}`);
+    return unwrap<T>(await response.text(), response.status, `${this.label} GET ${path}`);
   }
 
   async mutate<T>(path: string, input?: unknown): Promise<T> {
     const response = await fetch(new URL(`/api/trpc/${path}`, BASE), {
       method: "POST",
       headers: { "content-type": "application/json", cookie: this.cookieHeader() },
-      body: JSON.stringify(input ?? {}),
+      body: JSON.stringify({ json: input ?? {} }),
     });
     this.absorb(response);
-    return unwrap<T>(await response.text(), `${this.label} POST ${path}`);
+    return unwrap<T>(await response.text(), response.status, `${this.label} POST ${path}`);
   }
 
   /** Expect a call to be refused. Returns the message, so it can be asserted on. */
@@ -140,19 +143,61 @@ class Session {
   }
 }
 
-function unwrap<T>(text: string, context: string): T {
+/**
+ * Read a tRPC response, superjson-wrapped or not.
+ *
+ * Deliberately thorough about errors. The first version reported "unknown
+ * error" for every failure, because it looked for `error.message` and superjson
+ * puts it at `error.json.message`. A harness whose diagnostics are wrong costs
+ * more than one that doesn't exist — it sends you looking in the wrong place.
+ */
+function unwrap<T>(text: string, status: number, context: string): T {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new JourneyError(`${context}: response wasn't JSON — ${text.slice(0, 200)}`);
+    throw new JourneyError(
+      `${context}: HTTP ${status}, response wasn't JSON — ${text.slice(0, 300)}`
+    );
   }
 
-  const body = parsed as { error?: { message?: string }; result?: { data?: T } };
+  const body = parsed as {
+    error?: {
+      message?: string;
+      json?: { message?: string; data?: { code?: string; zodError?: unknown } };
+      data?: { code?: string };
+    };
+    result?: { data?: T | { json?: T } };
+  };
+
   if (body?.error) {
-    throw new JourneyError(`${context}: ${body.error.message ?? "unknown error"}`);
+    const err = body.error;
+    const message = err.json?.message ?? err.message;
+    const code = err.json?.data?.code ?? err.data?.code;
+    // Zod failures are the common case when the wire format is wrong, and the
+    // detail is what tells you which field.
+    const zod = err.json?.data?.zodError;
+
+    const parts = [
+      `${context}: HTTP ${status}`,
+      code ? `[${code}]` : "",
+      message ?? "no message in the error body",
+      zod ? `\n      ${JSON.stringify(zod).slice(0, 300)}` : "",
+    ].filter(Boolean);
+
+    throw new JourneyError(parts.join(" "));
   }
-  return body?.result?.data as T;
+
+  if (status >= 400) {
+    throw new JourneyError(`${context}: HTTP ${status} with no error body — ${text.slice(0, 200)}`);
+  }
+
+  const data = body?.result?.data;
+  // superjson nests the payload one level deeper.
+  if (data && typeof data === "object" && "json" in (data as Record<string, unknown>)) {
+    return (data as { json: T }).json;
+  }
+  return data as T;
 }
 
 const stamp = Date.now();
