@@ -39,7 +39,7 @@
             <td>Identity, community structure, permissions. The only thing users
                 talk to.</td></tr>
         <tr><td><strong>PostgreSQL</strong></td>
-            <td>Accounts, servers, channels, message index, file metadata,
+            <td>Accounts, communities, channels, message index, file metadata,
                 roles, bans.</td></tr>
         <tr><td><strong>Dendrite</strong> (Matrix homeserver)</td>
             <td>Message transport. Every message is a real Matrix event. Stores
@@ -55,7 +55,28 @@
         one machine. Same architecture, different packaging.
       </p>
 
-      <h2>A server is a Matrix Space</h2>
+      <h2>Words used precisely</h2>
+      <p>These overlap badly if left loose, so throughout the docs:</p>
+      <table>
+        <tr><th>Term</th><th>Means</th></tr>
+        <tr><td><strong>Instance</strong></td>
+            <td>One deployment — app, database, homeserver, IPFS — on one
+                operator's hardware. The unit of sovereignty.</td></tr>
+        <tr><td><strong>Community</strong></td>
+            <td>A space <em>inside</em> an instance. What Discord calls a
+                server.</td></tr>
+        <tr><td><strong>Channel</strong></td>
+            <td>A room inside a community.</td></tr>
+      </table>
+      <p class="muted">
+        "Server" is avoided because it means both the machine and the
+        Discord-style community. The database still calls communities
+        <code>servers</code> — renaming tables is a migration with real risk and
+        no user-visible benefit, so the schema keeps the old name and the
+        documentation carries the distinction.
+      </p>
+
+      <h2>A community is a Matrix Space</h2>
       <p>
         Creating a community creates a Space on your homeserver. Every channel
         inside it is a Matrix room, linked as a child of that Space — starting
@@ -95,6 +116,46 @@
         The cost is honest: the app is now on the critical path for every
         message, and it can read them. See
         <a href="/docs/security.html">security</a> for what that means.
+      </p>
+
+      <h2>Instances negotiate before they connect</h2>
+      <p>
+        A client talks to several independent instances, each run by a different
+        person on a different upgrade schedule. So before offering a feature it
+        asks what the instance can actually do:
+      </p>
+<pre><code>GET /api/instance      what this instance is and can do
+GET /api/capabilities  the same, cheap to poll
+GET /api/version       versions, for humans
+GET /health            is the app alive?
+GET /ready             are its dependencies?</code></pre>
+      <p>
+        All unauthenticated, because a client connecting to an instance it has
+        never seen has no credentials yet. None of them expose members,
+        channels, or messages.
+      </p>
+      <p>
+        <strong>Every capability defaults to absent.</strong> An instance that
+        has never heard of a feature must read as "doesn't have it", never as
+        "probably fine" — optimistic defaults are how a client ends up offering
+        something that silently does nothing. When a capability is missing the
+        client explains why rather than hiding the button, because someone whose
+        friend's instance has no voice should learn that instead of wondering
+        where it went.
+      </p>
+      <p class="muted">
+        <code>/health</code> deliberately doesn't touch the database. A liveness
+        check that fails when Postgres fails can't distinguish "the app is down"
+        from "the database is down" — the first question at 3am — and it makes
+        orchestrators restart a perfectly healthy process.
+      </p>
+      <p>
+        The protocol is versioned <em>separately from the application</em>,
+        because requiring independently operated instances to move in lockstep
+        with our releases would make every one of them quietly dependent on us.
+        Compatibility is one rule: the same protocol major version. Application
+        versions never gate a connection.
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/PROTOCOL.md">The specification →</a>
       </p>
 
       <h2>Files</h2>

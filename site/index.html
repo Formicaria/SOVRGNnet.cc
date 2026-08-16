@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SOVRGNnet — Sovereign Communications</title>
-  <meta name="description" content="A self-hosted, Discord-style platform built on Matrix and IPFS. One command to install. No domain, no accounts, no landlord." />
-  <meta property="og:title" content="SOVRGNnet — Sovereign Communications" />
-  <meta property="og:description" content="A self-hosted, Discord-style platform built on Matrix and IPFS. One command to install. No domain, no accounts, no landlord." />
+  <title>SOVRGNnet — Independent communications infrastructure</title>
+  <meta name="description" content="Communications infrastructure you operate yourself. Messaging on Matrix, files on IPFS, on hardware you control. One command to install. No domain, no accounts, no landlord." />
+  <meta property="og:title" content="SOVRGNnet — Independent communications infrastructure" />
+  <meta property="og:description" content="Communications infrastructure you operate yourself. Messaging on Matrix, files on IPFS, on hardware you control. One command to install. No domain, no accounts, no landlord." />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://sovrgnnet.cc" />
   <meta name="theme-color" content="#0a0614" />
@@ -31,19 +31,42 @@
     <div class="hero">
       <div class="wrap">
         <span class="tag">SELF-HOSTED · OPEN PROTOCOLS · MIT</span>
-        <h1>Your community.<br /><span class="grad">Your hardware. Your rules.</span></h1>
+        <h1>Independent communications<br /><span class="grad">infrastructure you operate.</span></h1>
         <p class="sub">
-          A Discord-style platform you actually own — messaging on Matrix, files
-          on IPFS, running on a computer you control. One command to install. No
+          A network of independent instances. Each one is a complete
+          communications server — messaging, files, membership, moderation —
+          run by whoever owns the machine it's on. One command to install. No
           domain required, no account with anybody, no landlord.
         </p>
         <div class="cta">
           <a class="btn btn-primary" href="/docs/install.html">Install it</a>
           <a class="btn btn-ghost" href="https://github.com/Formicaria/SOVRGNnet.cc">View source</a>
         </div>
-        <p class="status-note">v0.1.0 alpha — chat, files, invites &amp; moderation work; voice and E2EE are next</p>
+        <p class="status-note">v0.4.0 alpha — messaging, files, invites, roles &amp; moderation work; end-to-end encryption is next</p>
       </div>
     </div>
+
+    <section id="test" class="stack">
+      <div class="wrap narrow">
+        <h2>What "sovereign" means here</h2>
+        <p class="lead lead-wide">
+          Not a slogan. A property you can test:
+        </p>
+        <div class="note">
+          <strong>If sovrgnnet.cc disappeared tomorrow, a correctly configured
+          instance keeps running.</strong>
+          Its members keep talking, its backups keep restoring, its operator
+          keeps control of the data.
+        </div>
+        <p class="muted">
+          Everything centralised is therefore optional and off by default. The
+          identity service, the instance directory, Cloudflare — none of them
+          are required, and an instance that uses none of them is a complete
+          instance. That constraint shapes the whole architecture rather than
+          sitting in the marketing.
+        </p>
+      </div>
+    </section>
 
     <section id="start">
       <div class="wrap">
@@ -68,49 +91,62 @@ cd sovrgnnet
 
     <section id="why" class="stack">
       <div class="wrap">
-        <h2>Why sovereign?</h2>
+        <h2>Why run your own?</h2>
         <p class="lead">
           Every major chat platform rents your community back to you. SOVRGNnet
-          takes the parts worth keeping — servers, channels, the flow of a good
-          conversation — and puts them on foundations nobody can take away.
+          takes the parts worth keeping — communities, channels, the flow of a
+          good conversation — and puts them on foundations nobody can take away.
         </p>
         <div class="grid">
           <div class="card">
             <div class="icon">⌂</div>
             <h3>Runs on your metal</h3>
             <p>Docker Compose or plain systemd services — your choice. A homelab
-               node, a Proxmox container, or a small VPS is all it takes.</p>
+               node, a Proxmox container, or a small VPS is all it takes.
+               Every infrastructure image is pinned, so two installs a month
+               apart are the same software.</p>
           </div>
           <div class="card">
             <div class="icon">⇄</div>
-            <h3>Open protocol underneath</h3>
-            <p>Every message is a Matrix event on your own homeserver. Federate
-               with the wider Matrix network — or don't. It ships closed.</p>
+            <h3>Open protocols underneath</h3>
+            <p>Every message is a Matrix event on your own homeserver. Files are
+               content-addressed on your own IPFS node. Neither is a format we
+               invented, and neither locks you in.</p>
           </div>
           <div class="card">
             <div class="icon">⚿</div>
             <h3>Identity you control</h3>
             <p>Accounts live in your database, not a third-party auth cloud.
-               Passwords are scrypt-hashed; sessions are httpOnly cookies.</p>
+               Single sign-on exists and is <em>off by default</em>; an instance
+               that never enables it never contacts us at all.</p>
           </div>
           <div class="card">
             <div class="icon">◈</div>
             <h3>Files without a middleman</h3>
             <p>Attachments pin to your own IPFS node and stream back through the
-               app with membership checks. No upload service, no dead links.</p>
+               app with membership checks. No upload service, no dead links, no
+               CIDs leaking outside a channel.</p>
           </div>
           <div class="card">
             <div class="icon">▣</div>
             <h3>Familiar where it counts</h3>
-            <p>Server rail, channel list, message pane, member list. Invites,
+            <p>Community rail, channel list, message pane, member list. Invites,
                roles, reactions, editing. You already know how to use it.</p>
           </div>
           <div class="card">
             <div class="icon">◱</div>
-            <h3>A desktop app for all of them</h3>
-            <p>Linux, macOS, and Windows. One window holds every server you're
-               in — your own and your friends' — each signed in separately.
-               Optional: everything works in a browser.</p>
+            <h3>One app, every instance</h3>
+            <p>A native desktop client for Linux, macOS, and Windows. One window
+               holds every instance you're in — your own and your friends' —
+               each signed in separately, credentials in the OS keychain.
+               Everything also works in a browser.</p>
+          </div>
+          <div class="card">
+            <div class="icon">⇱</div>
+            <h3>Leaving is a decision, not a loss</h3>
+            <p>Backups carry a manifest and a checksum per component, verified
+               before a restore touches anything. Move an instance to another
+               machine and its identity, rooms, and history come with it.</p>
           </div>
           <div class="card">
             <div class="icon">§</div>
@@ -126,27 +162,35 @@ cd sovrgnnet
       <div class="wrap">
         <h2>How it works</h2>
         <p class="lead">
-          A thin, opinionated layer over boring, proven pieces. The app owns
-          identity and community structure; Matrix owns message transport;
-          IPFS owns file content. Postgres indexes it all.
+          A thin, opinionated layer over boring, proven pieces. SOVRGN owns
+          instance identity, membership, roles, and moderation; Matrix owns
+          message transport; IPFS owns file content. Postgres indexes it all.
         </p>
         <div class="grid">
           <div class="card">
-            <h3>1 · A server is a Space</h3>
+            <h3>1 · A community is a Space</h3>
             <p>Creating a community creates a Matrix Space on your homeserver;
                every channel is a room inside it, starting with
                <code>#general</code>.</p>
           </div>
           <div class="card">
-            <h3>2 · The server is the client</h3>
+            <h3>2 · The instance proxies Matrix</h3>
             <p>The browser never touches Matrix directly. The app provisions a
                Matrix account per user and acts on their behalf — one identity,
-               permissions enforced server-side on every read and write.</p>
+               permissions enforced server-side on every read and write. This
+               inverts when end-to-end encryption lands.</p>
           </div>
           <div class="card">
             <h3>3 · Nothing listens on your router</h3>
             <p>Public access, when you want it, runs over an outbound-only
                tunnel. No forwarded ports, no exposed home IP.</p>
+          </div>
+          <div class="card">
+            <h3>4 · Instances negotiate</h3>
+            <p>A client asks any instance what it can do before offering a
+               feature, so an older instance degrades by explaining rather than
+               by breaking. The protocol is versioned separately from the
+               application, so instances upgrade on their own schedule.</p>
           </div>
         </div>
         <p class="mt-lg">
@@ -155,7 +199,27 @@ cd sovrgnnet
       </div>
     </section>
 
-    <section id="honest" class="stack">
+    <section id="protocol" class="stack">
+      <div class="wrap narrow">
+        <h2>Anyone can write another implementation</h2>
+        <p class="lead lead-wide">
+          Nothing about this codebase's language, framework, or database is
+          normative. What matters is the protocol — and there's a suite that
+          checks whether something speaks it.
+        </p>
+<pre><code>pnpm conformance https://any-instance.example</code></pre>
+        <p class="muted">
+          It verifies the descriptor, version compatibility, capability
+          negotiation, health endpoints, and self-consistency — including
+          whether an instance is claiming a security property its architecture
+          can't actually provide. No credentials needed, so it's safe to point
+          at an instance you don't operate.
+          <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/PROTOCOL.md">The protocol specification →</a>
+        </p>
+      </div>
+    </section>
+
+    <section id="honest">
       <div class="wrap narrow">
         <h2>What it isn't, yet</h2>
         <p class="lead lead-wide">
@@ -166,18 +230,24 @@ cd sovrgnnet
           They're stored as plain text on <em>your</em> homeserver. Anyone with
           administrator access to that machine can read them — for most people
           that's just you, which is rather the point. But it isn't Signal, and
-          E2EE is on the roadmap rather than in the product.
+          E2EE is the next architectural milestone rather than a shipped
+          feature. If you run an instance for other people, tell them.
         </div>
         <p class="muted">
-          Also missing today: voice and video channels, password reset by email,
-          and mobile apps. This is alpha software written in the open. The
+          Also missing today: voice and video, mobile apps, federation between
+          instances (possible, off by default, untested), an instance directory,
+          and session revocation — sessions are stateless and last a year. There
+          has been no independent security audit. This is alpha software written
+          in the open; the
+          <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/THREAT_MODEL.md">threat model</a>
+          and
           <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/ROADMAP.md">roadmap</a>
-          says what's coming and in what order.
+          state the gaps plainly rather than leaving them to be discovered.
         </p>
       </div>
     </section>
 
-    <section id="stack">
+    <section id="stack" class="stack">
       <div class="wrap">
         <h2>The stack</h2>
         <p class="lead">Chosen for longevity and self-hostability, not fashion.</p>
@@ -188,10 +258,10 @@ cd sovrgnnet
           <span class="chip">Drizzle ORM</span>
           <span class="chip">Matrix · Dendrite</span>
           <span class="chip">IPFS · Kubo</span>
+          <span class="chip">Tauri 2 (desktop)</span>
           <span class="chip">Docker Compose</span>
           <span class="chip">systemd (no-Docker install)</span>
           <span class="chip">Cloudflare Tunnel (optional)</span>
-          <span class="chip">Tauri (desktop, planned)</span>
         </div>
       </div>
     </section>
