@@ -4,7 +4,8 @@
    The site ships a strict Content-Security-Policy: default-src 'none';
    style-src 'self'; img-src 'self' data:; font-src 'self'. That means no
    inline style attributes, no external fonts, no third-party anything.
-   Fonts are vendored under /assets/fonts (both SIL OFL 1.1); textures are
+   Fonts are vendored under /assets/fonts (Oxanium + JetBrains Mono, both
+   SIL OFL 1.1); textures are
    data: URIs, which img-src allows.
 
    Order: fonts, tokens, reset, background, header, buttons, hero,
@@ -13,11 +14,21 @@
 /* ------------------------------------------------------------------ fonts */
 
 @font-face {
-  font-family: "Archivo Black";
+  font-family: "Oxanium";
   font-style: normal;
-  font-weight: 400;
+  font-weight: 700;
   font-display: swap;
-  src: url("/assets/fonts/archivo-black-latin-400-normal.woff2") format("woff2");
+  src: url("/assets/fonts/oxanium-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Oxanium";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/assets/fonts/oxanium-latin-800-normal.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
     U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
     U+FEFF, U+FFFD;
@@ -90,8 +101,7 @@
   /* type families */
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo,
     Consolas, monospace;
-  --display: "Archivo Black", "Arial Black", "Helvetica Neue", system-ui,
-    sans-serif;
+  --display: "Oxanium", "Eurostile", "Bahnschrift", system-ui, sans-serif;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
     sans-serif;
 
@@ -264,6 +274,7 @@ body::after {
 }
 .brand-name {
   font-family: var(--display);
+  font-weight: 800;
   font-size: 1.32rem;
   letter-spacing: 0.02em;
   line-height: 1;
@@ -483,6 +494,7 @@ body::after {
    browser without background-clip:text still shows solid text. */
 .wordmark {
   font-family: var(--display);
+  font-weight: 800;
   font-size: clamp(3.6rem, 11vw, 7.4rem);
   line-height: 0.88;
   letter-spacing: 0.005em;
@@ -1153,6 +1165,7 @@ body::after {
 }
 .arch .core-l {
   font-family: var(--display);
+  font-weight: 800;
   font-size: 24px;
   fill: var(--text);
 }
@@ -1362,9 +1375,10 @@ h2,
 h3,
 h4 {
   color: var(--text);
+  font-family: var(--display);
   font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.2;
+  letter-spacing: -0.005em;
+  line-height: 1.22;
 }
 section h2 {
   font-size: clamp(1.6rem, 2.6vw, 2.1rem);
@@ -1597,7 +1611,7 @@ td code {
 }
 .doc h1 {
   font-family: var(--display);
-  font-weight: 400;
+  font-weight: 800;
   font-size: clamp(1.8rem, 3.6vw, 2.35rem);
   letter-spacing: -0.005em;
   margin-bottom: 14px;
@@ -1729,15 +1743,6 @@ td code {
   color: var(--text-2);
   padding-left: 0.34em;
 }
-.foot-tagline {
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-  color: var(--accent);
-  opacity: 0.75;
-  padding-left: 0.28em;
-}
 .foot {
   display: flex;
   flex-wrap: wrap;
@@ -1771,6 +1776,7 @@ td code {
   gap: 9px;
   color: var(--text-2);
   font-family: var(--display);
+  font-weight: 800;
   font-size: 0.95rem;
   letter-spacing: 0.03em;
 }
@@ -1784,6 +1790,7 @@ td code {
 
 .logo {
   font-family: var(--display);
+  font-weight: 800;
   font-size: 1.05rem;
   letter-spacing: 0.03em;
   color: var(--text);
@@ -1989,11 +1996,7 @@ a.logo:hover {
     font-size: 1.1rem;
     letter-spacing: 0.24em;
   }
-  .foot-tagline {
-    font-size: 0.62rem;
-    letter-spacing: 0.18em;
   }
-}
 
 @media (max-width: 400px) {
   .app-body {
