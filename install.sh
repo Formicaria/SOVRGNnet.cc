@@ -333,18 +333,31 @@ write_dendrite_config() {
 
   install -d -m 0755 "$REPO_DIR/dendrite"
 
+  # Docker creates a *directory* when a bind-mount source is missing, and both
+  # of these are bind-mounted. A leftover directory makes Dendrite fail to start
+  # for a reason that looks nothing like the cause.
+  for stray in "$REPO_DIR/dendrite/dendrite.yaml" "$REPO_DIR/dendrite/matrix_key.pem"; do
+    [ -d "$stray" ] && rm -rf "$stray"
+  done
+
   local key="$REPO_DIR/dendrite/matrix_key.pem"
   if [ ! -f "$key" ]; then
-    if $DOCKER_COMPOSE run --rm --no-deps --entrypoint /usr/bin/generate-keys matrix \
-        --private-key /etc/dendrite/matrix_key.pem >/dev/null 2>&1; then
-      ok "Generated the homeserver signing key"
-    else
-      # Fall back to openssl: generate-keys needs the image pulled, and on a
-      # first run that hasn't happened yet.
-      openssl genpkey -algorithm ed25519 -out "$key" 2>/dev/null
-      ok "Generated the homeserver signing key"
+    # Dendrite's own generator, via the pinned image. Both previous approaches
+    # here were broken, and neither said so:
+    #
+    #   `compose run --private-key /etc/dendrite/matrix_key.pem` writes to a
+    #   read-only bind mount whose source doesn't exist yet, so it cannot work.
+    #
+    #   `openssl genpkey -algorithm ed25519` produces a valid PKCS#8 key that
+    #   Dendrite rejects — it wants a MATRIX PRIVATE KEY block with a Key-ID
+    #   header. The homeserver then refuses to start with an error that says
+    #   nothing about where the key came from.
+    #
+    # scripts/generate-matrix-key.sh verifies the format it produced.
+    if ! "$REPO_DIR/scripts/generate-matrix-key.sh" "$key"; then
+      fail "Couldn't generate the homeserver signing key. Is Docker running?"
     fi
-    chmod 600 "$key"
+    ok "Generated the homeserver signing key"
   else
     ok "Keeping the existing homeserver signing key"
   fi
