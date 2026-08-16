@@ -157,6 +157,8 @@ this project exists to avoid.
       of "is a SOVRGNnet instance"
 - [x] **Device-scoped Matrix sessions** — named, listable, individually
       revocable; the instance's own session is visible rather than hidden
+- [x] **Reachable homeserver** — `.well-known` delegation served by the app;
+      `clientMatrix` derived from a real probe rather than a set variable
 - [ ] **Client-side Matrix** — the client owns the Matrix session ([ADR 0008](adr/0008-client-side-matrix.md))
 - [ ] **E2EE** via Olm/Megolm, with device verification and key backup
 
