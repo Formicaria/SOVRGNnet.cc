@@ -76,7 +76,7 @@
       <p>
         This is the one claim everything else has to survive. It rules out the
         usual architecture, where a "self-hosted" product still phones home for
-        licensing, identity, or discovery. Every centralised service we operate
+        licensing, identity, or discovery. Every centralized service we operate
         is therefore optional and off by default — and an instance that uses
         none of them is not a degraded instance, it is a complete one.
       </p>
@@ -146,11 +146,13 @@
 
       <h2>6 · State the gaps before someone discovers them</h2>
       <div class="warning">
-        <strong>Messages are not end-to-end encrypted.</strong>
-        They are stored as plain text on <em>your</em> homeserver. Anyone with
+        <strong>Messages are not end-to-end encrypted yet.</strong>
+        They are stored as plaintext on <em>your</em> homeserver. Anyone with
         administrator access to that machine can read them — for most operators
-        that is only themselves, which is rather the point. But it isn't Signal.
-        If you run an instance for other people, tell them.
+        that is only themselves, which is rather the point. E2EE is the next
+        architectural milestone, and until it ships this belongs on the
+        homepage rather than in a changelog. If you run an instance for other
+        people, tell them.
       </div>
       <p class="muted">
         Also missing today: voice and video, mobile apps, federation between
@@ -191,7 +193,6 @@
           <img src="/assets/formicaria.svg" width="34" height="34" alt="" />
           <span class="foot-name">Formicaria</span>
         </div>
-        <p class="foot-tagline">Software development startup</p>
       </div>
       <div class="foot">
         <span class="logo">
