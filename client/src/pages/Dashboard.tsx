@@ -20,12 +20,13 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy, Pencil, SmilePlus, X, Globe } from "lucide-react";
+import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy, Pencil, SmilePlus, X, Globe, Settings } from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import MemberList from "@/components/MemberList";
 import AddServerDialog from "@/components/AddServerDialog";
+import ServerSettings from "@/components/ServerSettings";
 import { useConnections } from "@/contexts/ConnectionsContext";
 
 /** Reactions people actually reach for, without shipping an emoji picker. */
@@ -75,6 +76,7 @@ export default function Dashboard() {
   const { user, loading, logout } = useAuth();
   const { connections, current, multiplexes } = useConnections();
   const [addServerOpen, setAddServerOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [, setLocation] = useLocation();
 
   const [selectedServerId, setSelectedServerId] = useState<number | null>(null);
@@ -479,6 +481,24 @@ export default function Dashboard() {
           <TooltipContent side="right">Add another server</TooltipContent>
         </Tooltip>
         <AddServerDialog open={addServerOpen} onOpenChange={setAddServerOpen} />
+
+        {/* Instance administration, for whoever runs this server. */}
+        {user.role === "admin" && (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 hover:rounded-xl flex items-center justify-center transition-all"
+                >
+                  <Settings className="w-5 h-5 text-slate-400" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Server settings</TooltipContent>
+            </Tooltip>
+            <ServerSettings open={settingsOpen} onOpenChange={setSettingsOpen} />
+          </>
+        )}
 
         <div className="mt-auto">
           <Tooltip>

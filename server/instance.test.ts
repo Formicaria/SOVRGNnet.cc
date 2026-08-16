@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { instanceInfo, instanceId, normalizeJoinPolicy } from "./instance";
+import { canRegister, instanceInfo, instanceId, normalizeJoinPolicy } from "./instance";
 
 const ENV_KEYS = [
   "INSTANCE_NAME",
@@ -133,6 +133,75 @@ describe("instanceInfo", () => {
 
   it("never returns an empty name", () => {
     expect(instanceInfo("0.1.0").name.length).toBeGreaterThan(0);
+  });
+});
+
+describe("canRegister", () => {
+  describe("the very first account", () => {
+    // The bootstrap case. A fresh install defaults to invite-only, so without
+    // this exception the owner would need an invite to a community that does
+    // not exist yet — the server could never be set up at all.
+    it("is allowed no matter what the policy says", () => {
+      for (const policy of ["open", "invite", "closed"] as const) {
+        expect(
+          canRegister({ policy, isFirstAccount: true, hasValidInvite: false })
+        ).toEqual({ allowed: true, reason: "bootstrap" });
+      }
+    });
+  });
+
+  describe("open", () => {
+    it("lets anyone in", () => {
+      expect(
+        canRegister({ policy: "open", isFirstAccount: false, hasValidInvite: false })
+      ).toMatchObject({ allowed: true });
+    });
+  });
+
+  describe("invite", () => {
+    it("accepts someone holding a valid invite", () => {
+      expect(
+        canRegister({ policy: "invite", isFirstAccount: false, hasValidInvite: true })
+      ).toEqual({ allowed: true, reason: "invite" });
+    });
+
+    it("turns away someone without one", () => {
+      const verdict = canRegister({
+        policy: "invite",
+        isFirstAccount: false,
+        hasValidInvite: false,
+      });
+      expect(verdict.allowed).toBe(false);
+      expect(verdict).toHaveProperty("message", expect.stringMatching(/invite/i));
+    });
+  });
+
+  describe("closed", () => {
+    it("turns everyone away", () => {
+      expect(
+        canRegister({ policy: "closed", isFirstAccount: false, hasValidInvite: false })
+      ).toMatchObject({ allowed: false });
+    });
+
+    it("turns away even someone holding a valid invite", () => {
+      // Closed means closed. An old invite link shouldn't reopen a server the
+      // owner deliberately shut.
+      expect(
+        canRegister({ policy: "closed", isFirstAccount: false, hasValidInvite: true })
+      ).toMatchObject({ allowed: false });
+    });
+  });
+
+  it("explains itself when refusing", () => {
+    for (const policy of ["invite", "closed"] as const) {
+      const verdict = canRegister({
+        policy,
+        isFirstAccount: false,
+        hasValidInvite: false,
+      });
+      if (verdict.allowed) throw new Error("expected a refusal");
+      expect(verdict.message.length).toBeGreaterThan(10);
+    }
   });
 });
 
