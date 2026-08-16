@@ -1,7 +1,12 @@
 # ADR 0002 — The Windows app installs a server, and it runs on WSL2
 
-**Status:** Accepted · August 2026
+**Status:** **Superseded** by [ADR 0005](0005-desktop-hosts-a-server.md) · August 2026
 **Builds on:** [ADR 0001](0001-multi-server-client.md)
+
+> Retained rather than deleted. WSL2 was a defensible answer to a real
+> constraint — Conduit shipped Linux binaries only — and the reasoning below is
+> what made the cost legible when ADR 0005 reversed it. Deleting this would
+> leave 0005 looking like an arbitrary preference rather than a correction.
 
 ## Context
 
