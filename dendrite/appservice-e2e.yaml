@@ -26,11 +26,11 @@ url: "http://app:3000"
 
 # Instance → homeserver. Unused today; reserved for appservice-authenticated
 # calls later.
-as_token: "6383a7e39b07500772dc9d5f354d439ef55fa358fa7586e9ef42963827ea52f5"
+as_token: "e802ac57a06436aa4188eaa6e975fac33966b250f898019903a503dc4d360367"
 
 # Homeserver → instance. Checked on every transaction push; a wrong token is
 # a 403 and a log line.
-hs_token: "d3f13c3f0b4d29de96a30a44a8a37bd598a06c6a5cf144e2e8903cd9779d029b"
+hs_token: "33a825c7651cf22834cd28671b138b5ed9ebbb3772345890efa91dba9b578981"
 
 # A dedicated service identity. It observes; it never posts.
 sender_localpart: sovrgnnet_service

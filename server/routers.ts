@@ -750,12 +750,9 @@ export const appRouter = router({
   // Soundboard operations
   soundboard: router({
     listByServer: protectedProcedure
-      .input(z.object({
-        serverId: z.number(),
-        includeNitroOnly: z.boolean().default(false),
-      }))
+      .input(z.object({ serverId: z.number() }))
       .query(async ({ input }) => {
-        return await db.getSoundboardClipsByServer(input.serverId, input.includeNitroOnly);
+        return await db.getSoundboardClipsByServer(input.serverId);
       }),
 
     create: protectedProcedure
@@ -764,7 +761,6 @@ export const appRouter = router({
         name: z.string(),
         ipfsHash: z.string(),
         duration: z.number(),
-        isNitroOnly: z.boolean().default(false),
       }))
       .mutation(async ({ ctx, input }) => {
         return await db.createSoundboardClip(
@@ -772,8 +768,7 @@ export const appRouter = router({
           input.name,
           input.ipfsHash,
           input.duration,
-          ctx.user.id,
-          input.isNitroOnly
+          ctx.user.id
         );
       }),
   }),
@@ -849,32 +844,6 @@ export const appRouter = router({
         }
 
         return { signedOut: input.deviceId } as const;
-      }),
-  }),
-
-  // Nitro subscription operations
-  nitro: router({
-    getSubscription: protectedProcedure.query(async ({ ctx }) => {
-      return await db.getNitroSubscriptionByUser(ctx.user.id);
-    }),
-
-    createSubscription: protectedProcedure
-      .input(z.object({
-        walletAddress: z.string(),
-        nftContractAddress: z.string(),
-        nftTokenId: z.string(),
-        tier: z.enum(['basic', 'pro', 'ultra']).default('basic'),
-        expiresAt: z.date().optional(),
-      }))
-      .mutation(async ({ ctx, input }) => {
-        return await db.createNitroSubscription(
-          ctx.user.id,
-          input.walletAddress,
-          input.nftContractAddress,
-          input.nftTokenId,
-          input.tier,
-          input.expiresAt
-        );
       }),
   }),
 

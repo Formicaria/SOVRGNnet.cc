@@ -4,7 +4,6 @@ import { relations } from "drizzle-orm";
 // Define enums at module level
 export const roleEnum = pgEnum("role", ["user", "admin"]);
 export const channelTypeEnum = pgEnum("channel_type", ["text", "voice", "video"]);
-export const nitroTierEnum = pgEnum("nitro_tier", ["basic", "pro", "ultra"]);
 export const serverMemberRoleEnum = pgEnum("server_member_role", ["owner", "admin", "moderator", "member"]);
 
 /**
@@ -141,29 +140,11 @@ export const soundboardClips = pgTable("soundboardClips", {
   ipfsHash: varchar("ipfsHash", { length: 255 }).notNull(),
   duration: integer("duration").notNull(), // milliseconds
   uploadedBy: integer("uploadedBy").notNull(),
-  isNitroOnly: boolean("isNitroOnly").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export type SoundboardClip = typeof soundboardClips.$inferSelect;
 export type InsertSoundboardClip = typeof soundboardClips.$inferInsert;
-
-// NFT Nitro Subscriptions
-export const nitroSubscriptions = pgTable("nitroSubscriptions", {
-  id: serial("id").primaryKey(),
-  userId: integer("userId").notNull(),
-  walletAddress: varchar("walletAddress", { length: 255 }).notNull(),
-  nftContractAddress: varchar("nftContractAddress", { length: 255 }).notNull(),
-  nftTokenId: varchar("nftTokenId", { length: 255 }).notNull(),
-  expiresAt: timestamp("expiresAt"),
-  tier: nitroTierEnum("tier").default("basic").notNull(),
-  isActive: boolean("isActive").default(true).notNull(),
-  createdAt: timestamp("createdAt").defaultNow().notNull(),
-  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
-});
-
-export type NitroSubscription = typeof nitroSubscriptions.$inferSelect;
-export type InsertNitroSubscription = typeof nitroSubscriptions.$inferInsert;
 
 // Server Members
 export const serverMembers = pgTable("serverMembers", {
@@ -231,7 +212,6 @@ export type InsertInstanceSettings = typeof instanceSettings.$inferInsert;
 export const usersRelations = relations(users, ({ many }) => ({
   profiles: many(userProfiles),
   servers: many(servers),
-  subscriptions: many(nitroSubscriptions),
   messages: many(messages),
 }));
 
@@ -265,10 +245,6 @@ export const fileSharesRelations = relations(fileShares, ({ one }) => ({
 export const soundboardClipsRelations = relations(soundboardClips, ({ one }) => ({
   server: one(servers, { fields: [soundboardClips.serverId], references: [servers.id] }),
   uploadedByUser: one(users, { fields: [soundboardClips.uploadedBy], references: [users.id] }),
-}));
-
-export const nitroSubscriptionsRelations = relations(nitroSubscriptions, ({ one }) => ({
-  user: one(users, { fields: [nitroSubscriptions.userId], references: [users.id] }),
 }));
 
 export const serverMembersRelations = relations(serverMembers, ({ one }) => ({

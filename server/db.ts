@@ -1,7 +1,7 @@
 import { eq, and, sql, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { InsertUser, users, servers, channels, messages, fileShares, soundboardClips, nitroSubscriptions, serverMembers, serverBans, userProfiles, instanceSettings } from "../drizzle/schema";
+import { InsertUser, users, servers, channels, messages, fileShares, soundboardClips, serverMembers, serverBans, userProfiles, instanceSettings } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -722,7 +722,7 @@ export async function getFileShareByCid(cid: string) {
 }
 
 // Soundboard functions
-export async function createSoundboardClip(serverId: number, name: string, ipfsHash: string, duration: number, uploadedBy: number, isNitroOnly: boolean = false) {
+export async function createSoundboardClip(serverId: number, name: string, ipfsHash: string, duration: number, uploadedBy: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -732,43 +732,14 @@ export async function createSoundboardClip(serverId: number, name: string, ipfsH
     ipfsHash,
     duration,
     uploadedBy,
-    isNitroOnly,
   });
 }
 
-export async function getSoundboardClipsByServer(serverId: number, includeNitroOnly: boolean = false) {
+export async function getSoundboardClipsByServer(serverId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  if (includeNitroOnly) {
-    return await db.select().from(soundboardClips).where(eq(soundboardClips.serverId, serverId));
-  }
-
-  return await db.select().from(soundboardClips).where(and(eq(soundboardClips.serverId, serverId), eq(soundboardClips.isNitroOnly, false)));
-}
-
-// Nitro subscription functions
-export async function createNitroSubscription(userId: number, walletAddress: string, nftContractAddress: string, nftTokenId: string, tier: 'basic' | 'pro' | 'ultra' = 'basic', expiresAt?: Date) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  return await db.insert(nitroSubscriptions).values({
-    userId,
-    walletAddress,
-    nftContractAddress,
-    nftTokenId,
-    tier,
-    expiresAt,
-    isActive: true,
-  });
-}
-
-export async function getNitroSubscriptionByUser(userId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const result = await db.select().from(nitroSubscriptions).where(eq(nitroSubscriptions.userId, userId)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
+  return await db.select().from(soundboardClips).where(eq(soundboardClips.serverId, serverId));
 }
 
 // User profile functions

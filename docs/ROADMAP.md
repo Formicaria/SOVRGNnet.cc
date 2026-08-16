@@ -318,8 +318,10 @@ don't operate.
 Voice (MatrixRTC signalling with a LiveKit SFU — needs a TURN relay for hostile
 NAT, a real ongoing bandwidth cost to decide on deliberately). Screen sharing.
 Plugins and integrations. Optional wallet linking and ENS display names. The
-soundboard. A decision on the old "Nitro" tables — reimagined as token-gated
-membership, or removed.
+soundboard. The scaffold's speculative NFT-subscription tables are gone
+(migration 0007) — they carried a third party's product name, and nothing
+ever used them; if paid membership ever becomes a real decision it starts
+from a design, not leftovers.
 
 ---
 
