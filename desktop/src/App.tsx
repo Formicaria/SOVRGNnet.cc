@@ -14,7 +14,13 @@ import {
   webviewLabel,
 } from "@/lib/bridge";
 import AddServer from "@/components/AddServer";
+import FirstRun from "@/components/FirstRun";
 import Rail from "@/components/Rail";
+import SignIn from "@/components/SignIn";
+import UpdatePrompt from "@/components/UpdatePrompt";
+import { appVersion, credentials } from "@/lib/bridge";
+
+const IDENTITY_URL = "https://sovrgnnet.cc";
 
 /**
  * The desktop shell.
@@ -44,8 +50,10 @@ export default function App() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [version, setVersion] = useState<string | null>(null);
 
   // Held in a ref as well as state so the deep-link handler — which is
   // registered once — always sees the current list rather than a stale
@@ -64,9 +72,63 @@ export default function App() {
     await showServer(serverBaseUrl(connection), webviewLabel(connection.id));
   }, []);
 
+  /**
+   * After signing in, add the servers this account has previously used.
+   *
+   * The identity provider records a grant per server someone signed into, so
+   * a new computer can pick up where the last one left off. Servers that
+   * can't be reached are skipped quietly rather than failing the sign-in —
+   * a friend's machine being off shouldn't look like a broken login.
+   */
+  const adoptServersFrom = useCallback(
+    async (sessionToken: string) => {
+      try {
+        await credentials.store("sovrgnnet.cc", sessionToken);
+
+        const res = await fetch(`${IDENTITY_URL}/api/grants`, {
+          headers: { Authorization: `Bearer ${sessionToken}` },
+        });
+        if (!res.ok) throw new Error(`Couldn't read your servers (${res.status})`);
+
+        const grants = (await res.json()) as Array<{
+          instanceName?: string | null;
+          address?: string | null;
+          revoked?: boolean;
+        }>;
+
+        let added = 0;
+        for (const grant of grants) {
+          if (grant.revoked || !grant.address) continue;
+          try {
+            await manager.connect(grant.address);
+            added += 1;
+          } catch {
+            // Unreachable right now; it stays out of the rail until added
+            // manually. Not worth failing the whole sign-in over.
+          }
+        }
+
+        const list = await reload();
+        if (list.length > 0) await open(list[0]);
+
+        setNotice(
+          added > 0
+            ? `Signed in — added ${added} server${added === 1 ? "" : "s"}.`
+            : "Signed in. You're not in any servers yet — add one to get started."
+        );
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : "Signed in, but couldn't load servers.");
+      }
+    },
+    [manager, reload, open]
+  );
+
   useEffect(() => {
     void (async () => {
       await startListeningForDeepLinks();
+      // Asked for on launch: the app bundles components whose security fixes
+      // are ours to ship, so a version nobody installs is a fix nobody gets.
+      appVersion().then(setVersion).catch(() => setVersion(null));
       const list = await reload();
       if (list.length > 0) await open(list[0]);
       setReady(true);
@@ -124,17 +186,22 @@ export default function App() {
       <main className="stage">
         {/* The webview the shell creates sits over this region. What shows
             through is only ever the empty state. */}
-        {connections.length === 0 && ready && (
-          <div className="empty">
-            <h1>No servers yet</h1>
-            <p>
-              Paste an invite link, or the address of a server someone runs.
-              If you host your own, it's the address that machine shows you.
-            </p>
-            <button className="primary" onClick={() => setAddOpen(true)}>
-              Add a server
-            </button>
-          </div>
+        {connections.length === 0 && ready && !signingIn && (
+          <FirstRun
+            onAddServer={() => setAddOpen(true)}
+            onSignIn={() => setSigningIn(true)}
+          />
+        )}
+
+        {signingIn && (
+          <SignIn
+            identityUrl={IDENTITY_URL}
+            onCancel={() => setSigningIn(false)}
+            onSignedIn={async token => {
+              setSigningIn(false);
+              await adoptServersFrom(token);
+            }}
+          />
         )}
 
         {active && (
@@ -149,6 +216,8 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {version && <UpdatePrompt currentVersion={version} />}
 
       {notice && (
         <div className="notice" role="status">

@@ -11,7 +11,7 @@ SOVRGNnet is a thin, opinionated layer over open protocols. The app owns identit
                         └───────┬────────────────────┬───────────────┘
                                 │                    │
                     ┌───────────▼──────────┐  ┌──────▼───────┐
-                    │  SOVRGNnet app       │  │   Conduit    │
+                    │  SOVRGNnet app       │  │   Dendrite    │
                     │  Express + tRPC      │──▶  (Matrix     │
                     │  serves React client │  │  homeserver) │
                     └───┬──────────────┬───┘  └──────────────┘
@@ -36,11 +36,11 @@ SOVRGNnet concepts map onto Matrix primitives, with our Postgres as the index:
 | Message | Room event | `messages.matrixEventId` |
 | File share | IPFS CID referenced in an event | `fileShares.ipfsHash` |
 
-Postgres is the source of truth for app-level structure (membership, roles, metadata, fast listing); Matrix is the source of truth for message content and delivery. The server keeps them consistent — the browser never talks to Conduit directly.
+Postgres is the source of truth for app-level structure (membership, roles, metadata, fast listing); Matrix is the source of truth for message content and delivery. The server keeps them consistent — the browser never talks to Dendrite directly.
 
 ## Request flow
 
-The React client speaks only tRPC (`/api/trpc`). Protected procedures resolve the session cookie / bearer token to a DB user in `createContext`. Matrix operations are proxied: the server holds each user's Matrix access token and acts on their behalf against Conduit over the internal Docker network. Live updates flow back to clients through a server-side sync bridge (WebSocket/SSE) — planned in Phase 2.
+The React client speaks only tRPC (`/api/trpc`). Protected procedures resolve the session cookie / bearer token to a DB user in `createContext`. Matrix operations are proxied: the server holds each user's Matrix access token and acts on their behalf against Dendrite over the internal Docker network. Live updates flow back to clients through a server-side sync bridge (WebSocket/SSE) — planned in Phase 2.
 
 ## Key server modules
 
@@ -52,4 +52,4 @@ The React client speaks only tRPC (`/api/trpc`). Protected procedures resolve th
 
 **Why keep Postgres at all if Matrix stores messages?** Listing "my servers," role checks, profiles, and file metadata are relational queries Matrix answers poorly. The index also lets us swap or upgrade the homeserver without losing app structure.
 
-**Why Conduit over Synapse?** Single Rust binary, tiny footprint, fits the self-hosted/ARM64 (Pi 5) target. Synapse remains a drop-in alternative if we hit feature ceilings (e.g., appservice quirks).
+**Why Dendrite over Synapse?** Single Rust binary, tiny footprint, fits the self-hosted/ARM64 (Pi 5) target. Synapse remains a drop-in alternative if we hit feature ceilings (e.g., appservice quirks).

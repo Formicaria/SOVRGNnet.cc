@@ -7,6 +7,7 @@
     "core:default",
     "core:window:allow-set-focus",
     "core:window:allow-start-dragging",
-    "deep-link:default"
+    "deep-link:default",
+    "opener:allow-open-url"
   ]
 }

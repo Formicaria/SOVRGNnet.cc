@@ -134,6 +134,29 @@ async fn close_server(app: tauri::AppHandle, label: String) -> Result<(), String
     Ok(())
 }
 
+/// Open a URL in the user's own browser.
+///
+/// Release downloads and sign-in belong in the browser someone already trusts,
+/// not in an app webview. Scheme-checked because the frontend could be asked
+/// to open a link that arrived from outside.
+#[tauri::command]
+fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let parsed = url::Url::parse(&url).map_err(|e| e.to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!("Refusing to open a {} URL", parsed.scheme()));
+    }
+    tauri_plugin_opener::OpenerExt::opener(&app)
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+/// The running version, so the update check compares against something real
+/// rather than a number the frontend was told at build time.
+#[tauri::command]
+fn app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
 /// Hand a sovrgn:// URL to the frontend, which knows how to parse it.
 ///
 /// Parsing lives in TypeScript (shared/invite.ts) so there is exactly one
@@ -148,6 +171,7 @@ fn forward_deep_link(app: &tauri::AppHandle, urls: Vec<String>) {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // A second launch — usually someone clicking an invite while the
@@ -184,7 +208,9 @@ fn main() {
             read_credential,
             forget_credential,
             show_server,
-            close_server
+            close_server,
+            open_external,
+            app_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running SOVRGNnet");

@@ -41,8 +41,10 @@
         <tr><td><strong>PostgreSQL</strong></td>
             <td>Accounts, servers, channels, message index, file metadata,
                 roles, bans.</td></tr>
-        <tr><td><strong>Conduit</strong> (Matrix homeserver)</td>
-            <td>Message transport. Every message is a real Matrix event.</td></tr>
+        <tr><td><strong>Dendrite</strong> (Matrix homeserver)</td>
+            <td>Message transport. Every message is a real Matrix event. Stores
+                its rooms in the same PostgreSQL instance, so there's one
+                database to back up rather than two.</td></tr>
         <tr><td><strong>Kubo</strong> (IPFS)</td>
             <td>The actual bytes of every shared file.</td></tr>
         <tr><td><strong>cloudflared</strong> <span class="muted">(optional)</span></td>
@@ -108,6 +110,37 @@
         50 MB.
       </p>
 
+      <h2>Accounts: local, or one across every server</h2>
+      <p>
+        Every server issues its own accounts, and always will — a server with
+        no connection to sovrgnnet.cc works completely.
+      </p>
+      <p>
+        Optionally, an operator can also accept <strong>sovrgnnet.cc
+        accounts</strong>, so one sign-in works across every server that opts
+        in. That is centralisation, in the part of a system where it matters
+        most, and it's worth being plain about the trade rather than selling it:
+      </p>
+      <ul>
+        <li>Servers verify sign-ins against a <strong>cached public key</strong>.
+            sovrgnnet.cc being unreachable blocks new sign-ins; it does not log
+            anyone out and does not take a single server offline.</li>
+        <li>Every token names <strong>one server</strong> and works only there,
+            so whoever runs one server can't replay their users' sign-ins
+            against another.</li>
+        <li>Sign-in itself goes through Google, Microsoft, GitHub, or Discord —
+            they have already verified the email address, and it means no
+            password store to breach.</li>
+        <li>An operator who wants none of this sets
+            <code>INSTANCE_ALLOW_SSO=false</code> and the server is entirely
+            unaffected.</li>
+      </ul>
+      <p class="muted">
+        One identity doesn't mean one face: each server keeps its own nickname
+        and avatar, so the same account can be "Zach" in one community and
+        "chronus" in another.
+      </p>
+
       <h2>Authority, in two layers</h2>
       <p>
         SOVRGNnet keeps its own roles — owner, admin, moderator, member — in
@@ -135,10 +168,12 @@
 
       <h2>What's deliberately not here</h2>
       <ul>
-        <li><strong>No third-party auth.</strong> No Google sign-in, no Auth0,
-            no Supabase. Accounts are rows in your database, passwords hashed
-            with scrypt, sessions are httpOnly cookies.</li>
-        <li><strong>No telemetry.</strong> The app phones nobody.</li>
+        <li><strong>No third-party auth is ever required.</strong> Local
+            accounts are rows in your database, passwords hashed with scrypt,
+            sessions in httpOnly cookies. Third-party sign-in exists as an
+            option an operator switches on, never as the only way in.</li>
+        <li><strong>No telemetry.</strong> The app phones nobody. The desktop
+            client checks for updates on launch, and that's the extent of it.</li>
         <li><strong>No required blockchain.</strong> Wallet identity is a
             possible future option, never a requirement.</li>
         <li><strong>No federation by default.</strong> Your homeserver talks to

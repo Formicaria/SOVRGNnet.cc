@@ -43,6 +43,8 @@ const STYLE = `
   .note{margin-top:18px;font-size:.8rem;color:var(--muted);border-top:1px solid var(--border);padding-top:14px}
   .codes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0;font-family:var(--mono);font-size:.9rem}
   .codes span{background:#0d0818;border:1px solid var(--border);border-radius:6px;padding:7px;text-align:center}
+  .linky{background:none;border:0;color:var(--muted);font-size:.85rem;cursor:pointer;text-decoration:underline;padding:0}
+  .linky:hover{color:var(--text)}
   .warn{margin-top:14px;padding:11px 13px;border-radius:8px;font-size:.85rem;
         background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:var(--warn)}
 `;
@@ -265,6 +267,118 @@ export function recoveryCodesPage(returnUrl: string): string {
     });`;
 
   return shell("Recovery codes", body, script);
+}
+
+/**
+ * Approving a desktop sign-in.
+ *
+ * The person is already signed in here; all this asks is whether the code on
+ * their screen is really the one the app is showing. That question is the
+ * entire security of the device flow, so it's asked plainly and the code is
+ * shown large enough to compare.
+ */
+export function devicePage(prefilled: string, email: string): string {
+  const body = `
+  <div class="logo">SOVRGN<b>net</b></div>
+  <h1>Connect the desktop app</h1>
+  <p class="sub">Signed in as ${escapeHtml(email)}</p>
+
+  <form id="f">
+    <label for="code">Enter the code shown in the app</label>
+    <input id="code" name="code" value="${escapeHtml(prefilled)}"
+           placeholder="ABCD-EFGH" autocomplete="off" spellcheck="false"
+           style="text-transform:uppercase;letter-spacing:3px;text-align:center;font-size:1.1rem" required autofocus>
+    <button type="submit" id="go">Connect</button>
+  </form>
+  <div id="err"></div>
+
+  <p class="note">
+    Only continue if you started this yourself. Approving connects that app to
+    your account and the servers you've joined — if a code appeared that you
+    didn't ask for, close this page.
+  </p>
+  <p class="alt"><button type="button" id="deny" class="linky">I didn't start this</button></p>`;
+
+  const script = `
+    const form = document.getElementById('f');
+    const errBox = document.getElementById('err');
+    const send = async (approve) => {
+      errBox.innerHTML = '';
+      try {
+        const res = await fetch('/api/device/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            user_code: document.getElementById('code').value,
+            approve,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'That did not work');
+        document.querySelector('.card').innerHTML = approve
+          ? '<div class="logo">SOVRGN<b>net</b></div><h1>Connected</h1>' +
+            '<p class="sub">You can close this page and go back to the app.</p>'
+          : '<div class="logo">SOVRGN<b>net</b></div><h1>Refused</h1>' +
+            '<p class="sub">Nothing was connected. You can close this page.</p>';
+      } catch (error) {
+        errBox.innerHTML = '<div class="err"></div>';
+        errBox.firstChild.textContent = error.message;
+      }
+    };
+    form.addEventListener('submit', (e) => { e.preventDefault(); send(true); });
+    document.getElementById('deny').addEventListener('click', () => send(false));`;
+
+  return shell("Connect the desktop app", body, script);
+}
+
+/** Sign in first, then return to approving the desktop app. */
+export function deviceSignInPage(returnPath: string, code: string): string {
+  const body = `
+  <div class="logo">SOVRGN<b>net</b></div>
+  <h1>Sign in</h1>
+  <p class="sub">to connect the desktop app${code ? ` (code ${escapeHtml(code)})` : ""}</p>
+
+  <form id="f">
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" type="password" autocomplete="current-password" required>
+    <button type="submit" id="go">Continue</button>
+  </form>
+  <div id="err"></div>`;
+
+  const script = `
+    const form = document.getElementById('f');
+    const errBox = document.getElementById('err');
+    const button = document.getElementById('go');
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      button.disabled = true;
+      errBox.innerHTML = '';
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Sign-in failed');
+        }
+        window.location.href = ${JSON.stringify(returnPath)};
+      } catch (error) {
+        errBox.innerHTML = '<div class="err"></div>';
+        errBox.firstChild.textContent = error.message;
+        button.disabled = false;
+      }
+    });`;
+
+  return shell("Sign in", body, script);
 }
 
 export function errorPage(title: string, message: string): string {

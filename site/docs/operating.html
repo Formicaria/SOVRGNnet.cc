@@ -53,9 +53,10 @@
       <h2>Backups</h2>
       <p>
         <code>sovrgnnet backup</code> writes a single archive into
-        <code>backups/</code> containing four things: a dump of the database
-        (accounts, servers, channels, messages), the Matrix homeserver's own
-        store, the actual bytes of every shared file, and your settings.
+        <code>backups/</code> containing: a dump of the app's database
+        (accounts, servers, channels, messages), a dump of the homeserver's
+        database (rooms and events), the homeserver's signing key, the actual
+        bytes of every shared file, and your settings.
       </p>
       <div class="warning">
         <strong>Copy it somewhere else</strong>
@@ -63,6 +64,11 @@
         a USB drive, another computer, a different Proxmox node — anywhere but
         there. The archive contains your secrets; treat it like a password file.
       </div>
+      <p class="muted">
+        The signing key in there is small and matters more than its size
+        suggests: restore everything else without it and your server is a
+        different server to everyone it has federated with.
+      </p>
       <p>Nightly, at 3am:</p>
 <pre><code>crontab -e
 <span class="c"># then add:</span>
@@ -149,7 +155,7 @@ sovrgnnet logs       <span class="c"># what is it saying?</span></code></pre>
       <h3>Messages send but nobody receives them</h3>
       <p>
         That's the Matrix homeserver. On the LXC install:
-        <code>journalctl -u conduit -n 50</code>. On Docker:
+        <code>journalctl -u dendrite -n 50</code>. On Docker:
         <code>./sovrgnnet logs matrix</code>.
       </p>
 

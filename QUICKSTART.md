@@ -190,7 +190,7 @@ Five pieces, each in its own container:
 
 - **app** — the website you log into
 - **db** — PostgreSQL, holding accounts and message history
-- **matrix** — a Conduit homeserver; the actual chat protocol
+- **matrix** — a Dendrite homeserver; the actual chat protocol
 - **ipfs** — stores the files people share
 - **cloudflared** — only if you chose option 2 or 3; carries traffic in from
   the internet without opening any ports on your router

@@ -91,8 +91,9 @@
         </tr>
         <tr>
           <td>Homeserver registration</td>
-          <td>Gated behind a generated token, so your Matrix server isn't an
-              open signup target.</td>
+          <td>Disabled outright. Accounts are created by the app using a shared
+              secret that never leaves the server process, so nobody who finds
+              your homeserver directly can sign up on it.</td>
         </tr>
         <tr>
           <td>Traffic in transit</td>
@@ -134,6 +135,33 @@
         building on. It just shouldn't happen by accident.
       </p>
 
+      <h2>If you use a sovrgnnet.cc account</h2>
+      <p>
+        Signing in with a sovrgnnet.cc account is optional — every server also
+        issues its own local accounts, and an operator can refuse the shared
+        ones entirely. If you do use one, this is what it means:
+      </p>
+      <ul>
+        <li><strong>The sign-in itself goes through Google, Microsoft, GitHub,
+            or Discord.</strong> sovrgnnet.cc holds no password for you, only a
+            record that a given provider account maps to your identity.</li>
+        <li><strong>A server learns your name and email, not your password</strong>
+            — it never sees one.</li>
+        <li><strong>Each sign-in token names one server</strong> and works only
+            there, so whoever runs a server can't reuse yours elsewhere.</li>
+        <li><strong>sovrgnnet.cc can see which servers you sign into</strong>,
+            because it issues the tokens. It cannot see your messages, your
+            channels, or who you talk to.</li>
+        <li><strong>Losing the provider account loses the servers</strong> unless
+            you've linked a second provider. Worth doing.</li>
+      </ul>
+      <p class="muted">
+        The desktop app signs in with a device code you approve in your own
+        browser, rather than a redirect back into the app — a redirect would
+        hand a sign-in token to whichever application had registered that link
+        type, which isn't something any operating system verifies.
+      </p>
+
       <h2>What you're responsible for</h2>
       <p>
         Self-hosting means the security boundary is yours. Concretely:
@@ -141,9 +169,11 @@
       <ul>
         <li><strong>Keep the machine updated.</strong> <code>apt upgrade</code>
             covers the system; <code>sovrgnnet update</code> covers the app.
-            Conduit and IPFS are static binaries on the LXC install and update
-            separately — Conduit-family servers shipped coordinated security
-            fixes in early 2026, so watch that project's releases.</li>
+            Dendrite and IPFS don't come from your package manager on the LXC
+            install and update separately. Dendrite's release cadence is slow,
+            which is a real consideration: watch
+            <a href="https://github.com/element-hq/dendrite/releases">its releases</a>
+            rather than assuming updates arrive.</li>
         <li><strong>Guard your backups.</strong> Each archive contains your
             secrets and everyone's messages. Encrypt them if they leave your
             control.</li>

@@ -107,7 +107,7 @@ cd sovrgnnet
       <h2>Without Docker: the LXC install</h2>
       <p>
         There's a second installer that uses no Docker at all — PostgreSQL,
-        Conduit, Kubo, and the app as ordinary systemd services. On Proxmox
+        Dendrite, Kubo, and the app as ordinary systemd services. On Proxmox
         this is the lighter option: an LXC container shares the host kernel, so
         you skip both the VM overhead and the Docker layer.
       </p>
@@ -146,10 +146,10 @@ git clone https://github.com/Formicaria/SOVRGNnet.cc.git /opt/sovrgnnet
         Worth knowing, even though you didn't have to do any of it:
       </p>
       <ul>
-        <li>Generated a session secret, a database password, and a Matrix
-            registration token — written to <code>.env</code> with permissions
-            <code>600</code>.</li>
-        <li>Started PostgreSQL, a Conduit Matrix homeserver, and an IPFS node,
+        <li>Generated a session secret, a database password, and the shared
+            secret the app uses to create Matrix accounts — written to
+            <code>.env</code> with permissions <code>600</code>.</li>
+        <li>Started PostgreSQL, a Dendrite Matrix homeserver, and an IPFS node,
             all bound to loopback where they should be.</li>
         <li>Built the app and started it. <strong>It creates its own database
             tables on first boot</strong> — there's no migration step to run,

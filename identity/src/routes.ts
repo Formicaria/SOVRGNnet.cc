@@ -7,7 +7,21 @@ import {
   hashRecoveryCode,
   issueToken,
 } from "@shared/identity";
-import { accounts, emailTokens, grants, recoveryCodes, sessions } from "../schema";
+import {
+  DEVICE_CODE_TTL_SECONDS,
+  DEVICE_POLL_INTERVAL_SECONDS,
+  generateDeviceCode,
+  generateUserCode,
+  userCodesMatch,
+} from "@shared/deviceFlow";
+import {
+  accounts,
+  deviceAuthorizations,
+  emailTokens,
+  grants,
+  recoveryCodes,
+  sessions,
+} from "../schema";
 import {
   generateOpaqueToken,
   generateSubject,
@@ -19,7 +33,14 @@ import {
 import { buildReturnRedirect, resolveReturnTarget } from "@shared/ssoFlow";
 import { getDb } from "./db";
 import { jwks, loadKeys } from "./keys";
-import { errorPage, recoveryCodesPage, registerPage, signInPage } from "./pages";
+import {
+  devicePage,
+  deviceSignInPage,
+  errorPage,
+  recoveryCodesPage,
+  registerPage,
+  signInPage,
+} from "./pages";
 import {
   emailEnabled,
   passwordResetEmail,
@@ -435,6 +456,144 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
 
   app.get("/recovery-codes", (req, res) => {
     res.send(recoveryCodesPage(String(req.query.return ?? "")));
+  });
+
+  // ------------------------------------------------------------- device flow
+
+  /**
+   * Start a desktop sign-in.
+   *
+   * Returns a secret the app polls with and a short code the person types in
+   * their browser. Unauthenticated by necessity — nobody is signed in yet —
+   * which is safe because a code is worthless until somebody who *is* signed
+   * in approves it.
+   */
+  app.post("/api/device/code", async (_req, res) => {
+    const db = await getDb();
+
+    const deviceCode = generateDeviceCode();
+    const userCode = generateUserCode();
+    const expiresAt = new Date(Date.now() + DEVICE_CODE_TTL_SECONDS * 1000);
+
+    await db.insert(deviceAuthorizations).values({
+      deviceCodeHash: hashOpaqueToken(deviceCode),
+      userCode,
+      expiresAt,
+    });
+
+    res.json({
+      device_code: deviceCode,
+      user_code: userCode,
+      verification_uri: `${baseUrl()}/device`,
+      expires_in: DEVICE_CODE_TTL_SECONDS,
+      interval: DEVICE_POLL_INTERVAL_SECONDS,
+    });
+  });
+
+  /**
+   * The app asking whether its code has been approved yet.
+   *
+   * Answers in the shape the device-flow spec uses, because the client
+   * interprets those error strings — see shared/deviceFlow.ts.
+   */
+  app.post("/api/device/token", async (req, res) => {
+    const deviceCode = String(req.body?.device_code ?? "");
+    if (!deviceCode) return res.status(400).json({ error: "invalid_request" });
+
+    const db = await getDb();
+    const [pending] = await db
+      .select()
+      .from(deviceAuthorizations)
+      .where(eq(deviceAuthorizations.deviceCodeHash, hashOpaqueToken(deviceCode)))
+      .limit(1);
+
+    if (!pending) return res.status(400).json({ error: "expired_token" });
+
+    if (pending.expiresAt.getTime() <= Date.now()) {
+      await db.delete(deviceAuthorizations).where(eq(deviceAuthorizations.id, pending.id));
+      return res.status(400).json({ error: "expired_token" });
+    }
+
+    // Polling faster than asked gets a back-off rather than a ban.
+    const since = pending.lastPolledAt ? Date.now() - pending.lastPolledAt.getTime() : Infinity;
+    if (since < (DEVICE_POLL_INTERVAL_SECONDS - 1) * 1000) {
+      return res.status(400).json({ error: "slow_down", interval: DEVICE_POLL_INTERVAL_SECONDS + 5 });
+    }
+    await db
+      .update(deviceAuthorizations)
+      .set({ lastPolledAt: new Date(), polls: pending.polls + 1 })
+      .where(eq(deviceAuthorizations.id, pending.id));
+
+    if (pending.status === "denied") {
+      await db.delete(deviceAuthorizations).where(eq(deviceAuthorizations.id, pending.id));
+      return res.status(400).json({ error: "access_denied" });
+    }
+    if (pending.status !== "approved" || !pending.accountId) {
+      return res.status(400).json({ error: "authorization_pending" });
+    }
+
+    // Approved. Mint the session, hand it over once, and delete the request —
+    // a device code must never be redeemable twice.
+    const session = generateOpaqueToken();
+    await db.insert(sessions).values({
+      accountId: pending.accountId,
+      tokenHash: session.hash,
+      userAgent: "SOVRGNnet desktop",
+      expiresAt: new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000),
+    });
+    await db.delete(deviceAuthorizations).where(eq(deviceAuthorizations.id, pending.id));
+
+    res.json({ session_token: session.token });
+  });
+
+  /** The page someone lands on to approve a desktop sign-in. */
+  app.get("/device", async (req, res) => {
+    const account = await currentAccount(req);
+    if (!account) {
+      // Sign in first, then come back here — the code survives in the URL.
+      const back = `/device${req.query.code ? `?code=${encodeURIComponent(String(req.query.code))}` : ""}`;
+      return res.send(
+        deviceSignInPage(back, typeof req.query.code === "string" ? req.query.code : "")
+      );
+    }
+    res.send(devicePage(typeof req.query.code === "string" ? req.query.code : "", account.email));
+  });
+
+  /** Approving or refusing a desktop sign-in, from the browser. */
+  app.post("/api/device/approve", async (req, res) => {
+    const account = await currentAccount(req);
+    if (!account) return res.status(401).json({ error: "Not signed in." });
+
+    const parsed = z
+      .object({ user_code: z.string().min(1).max(16), approve: z.boolean() })
+      .safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: "Enter the code from the app." });
+
+    const db = await getDb();
+    const candidates = await db
+      .select()
+      .from(deviceAuthorizations)
+      .where(eq(deviceAuthorizations.status, "pending"));
+
+    // Compared after normalising, so a code typed lowercase or without its
+    // dash still matches what the app displayed.
+    const match = candidates.find(
+      row => userCodesMatch(parsed.data.user_code, row.userCode) &&
+        row.expiresAt.getTime() > Date.now()
+    );
+    if (!match) {
+      return res.status(400).json({ error: "That code isn't valid, or it expired." });
+    }
+
+    await db
+      .update(deviceAuthorizations)
+      .set({
+        status: parsed.data.approve ? "approved" : "denied",
+        accountId: parsed.data.approve ? account.id : null,
+      })
+      .where(eq(deviceAuthorizations.id, match.id));
+
+    res.json({ ok: true, approved: parsed.data.approve });
   });
 
   // ------------------------------------------------------------------ grants

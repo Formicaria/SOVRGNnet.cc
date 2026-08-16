@@ -63,9 +63,27 @@ config key was renamed is exactly the class of bug that ADR-driven work is
 meant to catch early. **Do not ship this migration until registration is
 verified closed.**
 
-**One benefit worth naming:** Dendrite is maintained by Element, the company
-behind Matrix itself, and had coordinated security releases handled through the
-Matrix.org security process. Conduit's development has been more sporadic.
+**Upstream is stagnant, and we are taking that on.** An earlier draft of this
+ADR claimed Dendrite benefits from active maintenance by Element. That was
+wrong, and checking the release page is all it took to find out: the most
+recent release is v0.15.2, published August 2025 — a year before this decision.
+It also publishes **no binaries at all**, only source tarballs.
+
+This was re-examined rather than glossed over, and Dendrite still wins, for one
+reason: **no homeserver upstream ships Windows binaries.** Conduit doesn't.
+conduwuit was archived in January 2026. Continuwuity — the active community
+continuation, releasing every week or two — is Rust over RocksDB, which is
+precisely why Conduit has no Windows build. Under ADR 0005 we compile the
+homeserver ourselves on every platform regardless, so "does upstream publish
+binaries" stops mattering and "can this be built for Windows at all" becomes
+decisive. Dendrite is Go and cross-compiles cleanly with `CGO_ENABLED=0` on the
+PostgreSQL backend.
+
+The cost is real and should be stated: if a Matrix protocol security issue
+lands, we may be waiting on a project that ships once a year, or patching it
+ourselves. That is a genuine risk accepted with open eyes, not an oversight.
+Continuwuity remains the fallback if Windows hosting is ever dropped or solved
+another way.
 
 ## What has to change
 
