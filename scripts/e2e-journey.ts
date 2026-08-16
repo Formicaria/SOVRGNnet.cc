@@ -114,20 +114,34 @@ class Session {
     throw new JourneyError(`${what} was allowed, and should not have been.`);
   }
 
+  /**
+   * Upload takes the raw bytes as the body, with channelId and filename as
+   * query parameters — not multipart/form-data.
+   *
+   * tRPC is the wrong tool for moving bytes, so these two routes are plain
+   * REST and shaped accordingly: express.raw on the body, everything else on
+   * the query string.
+   */
   async upload(channelId: number, filename: string, bytes: Buffer): Promise<unknown> {
-    const form = new FormData();
-    form.set("channelId", String(channelId));
-    form.set("file", new Blob([new Uint8Array(bytes)]), filename);
+    const url = new URL("/api/upload", BASE);
+    url.searchParams.set("channelId", String(channelId));
+    url.searchParams.set("filename", filename);
 
-    const response = await fetch(new URL("/api/upload", BASE), {
+    const response = await fetch(url, {
       method: "POST",
-      headers: { cookie: this.cookieHeader() },
-      body: form,
+      headers: {
+        cookie: this.cookieHeader(),
+        // Stored as the share's mimeType, so send something honest.
+        "content-type": "text/plain",
+      },
+      body: new Uint8Array(bytes),
     });
 
     const text = await response.text();
     if (!response.ok) {
-      throw new JourneyError(`${this.label} upload failed (${response.status}): ${text.slice(0, 200)}`);
+      throw new JourneyError(
+        `${this.label} upload failed (${response.status}): ${text.slice(0, 300)}`
+      );
     }
     return JSON.parse(text);
   }
