@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createSyncEngine, type SyncEvent, type SyncState } from "@shared/matrixSyncCore";
+import {
+  createSyncEngine,
+  type CryptoSignals,
+  type SyncEvent,
+  type SyncState,
+} from "@shared/matrixSyncCore";
 
 /**
  * The engine is a loop, so tests drive it with a scripted fetch and wait for
@@ -148,6 +153,80 @@ describe("Matrix sync engine", () => {
     expect(states).toContain("reconnecting");
     expect(states.filter(s => s === "live").length).toBeGreaterThanOrEqual(1);
     expect(events[0].eventId).toBe("$after-recovery");
+  });
+
+  it("delivers crypto signals from the initial batch — queued room keys must not be dropped", async () => {
+    const signals: CryptoSignals[] = [];
+    const events: SyncEvent[] = [];
+
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        // The initial response: timeline history (ignored) alongside queued
+        // to-device messages (must be delivered).
+        return jsonResponse(200, {
+          next_batch: "s1",
+          ...message("!room:test", "$history", "old"),
+          to_device: {
+            events: [
+              {
+                type: "m.room_key",
+                sender: "@alice:test",
+                content: { algorithm: "m.megolm.v1.aes-sha2" },
+              },
+            ],
+          },
+          device_one_time_keys_count: { signed_curve25519: 12 },
+        });
+      }
+      return new Promise<Response>(() => {});
+    });
+
+    const engine = createSyncEngine({
+      baseUrl: "https://matrix.test",
+      accessToken: "tok",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      onEvent: e => events.push(e),
+      onCryptoSignals: s => signals.push(s),
+    });
+
+    await until(() => (signals.length > 0 ? true : undefined));
+    engine.stop();
+
+    // Timeline history stayed suppressed; the crypto queue did not.
+    expect(events).toHaveLength(0);
+    expect(signals[0].toDevice).toHaveLength(1);
+    expect(signals[0].toDevice[0].type).toBe("m.room_key");
+    expect(signals[0].oneTimeKeyCounts).toEqual({ signed_curve25519: 12 });
+  });
+
+  it("surfaces device-list changes", async () => {
+    const signals: CryptoSignals[] = [];
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        return jsonResponse(200, { next_batch: "s1" });
+      }
+      if (fetchMock.mock.calls.length === 2) {
+        return jsonResponse(200, {
+          next_batch: "s2",
+          device_lists: { changed: ["@bob:test"], left: ["@gone:test"] },
+        });
+      }
+      return new Promise<Response>(() => {});
+    });
+
+    const engine = createSyncEngine({
+      baseUrl: "https://matrix.test",
+      accessToken: "tok",
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      onEvent: () => {},
+      onCryptoSignals: s => signals.push(s),
+    });
+
+    await until(() => (signals.length > 0 ? true : undefined));
+    engine.stop();
+
+    expect(signals[0].deviceListsChanged).toEqual(["@bob:test"]);
+    expect(signals[0].deviceListsLeft).toEqual(["@gone:test"]);
   });
 
   it("keeps the stream lean: filter excludes presence and ephemeral", async () => {

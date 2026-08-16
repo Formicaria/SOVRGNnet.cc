@@ -20,6 +20,28 @@ export interface SyncEvent {
   content: Record<string, unknown>;
 }
 
+/**
+ * The signals an Olm/Megolm engine needs from every sync response, surfaced
+ * whether or not anything downstream consumes them yet. Delivering them is
+ * transport work and belongs here; interpreting them is stage 4's crypto
+ * machine. An engine that only hears about room timelines can never receive a
+ * room key, notice a new device, or know when to replenish one-time keys.
+ */
+export interface CryptoSignals {
+  /** Encrypted-channel plumbing: room keys, verification requests, etc. */
+  toDevice: Array<{
+    type: string;
+    sender: string;
+    content: Record<string, unknown>;
+  }>;
+  /** Users whose device lists changed — their keys must be re-queried. */
+  deviceListsChanged: string[];
+  /** Users no longer sharing an encrypted room — their keys can be dropped. */
+  deviceListsLeft: string[];
+  /** Server-side count of our unclaimed one-time keys, when reported. */
+  oneTimeKeyCounts: Record<string, number> | null;
+}
+
 export type SyncState =
   | "starting"   // first request in flight
   | "live"       // long-polling, events flowing
@@ -32,6 +54,13 @@ export interface SyncEngineOptions {
   baseUrl: string;
   accessToken: string;
   onEvent: (event: SyncEvent) => void;
+  /**
+   * Crypto-relevant signals from each sync response. Optional: a consumer
+   * without a crypto machine simply doesn't listen, and the filter keeps
+   * excluding nothing that was already excluded — to-device delivery cannot
+   * be filtered away, only ignored.
+   */
+  onCryptoSignals?: (signals: CryptoSignals) => void;
   onStateChange?: (state: SyncState, detail?: string) => void;
   /** Test seam; defaults to global fetch. */
   fetchImpl?: typeof fetch;
@@ -74,6 +103,15 @@ interface SyncResponse {
       }
     >;
   };
+  to_device?: {
+    events?: Array<{
+      type?: string;
+      sender?: string;
+      content?: Record<string, unknown>;
+    }>;
+  };
+  device_lists?: { changed?: string[]; left?: string[] };
+  device_one_time_keys_count?: Record<string, number>;
 }
 
 export interface SyncEngine {
@@ -141,6 +179,38 @@ export function createSyncEngine(options: SyncEngineOptions): SyncEngine {
     since = body.next_batch;
     backoffMs = 1_000;
     setState("live");
+
+    // Crypto signals are delivered on EVERY response, including the first:
+    // to-device messages are a queue the homeserver drains as the client's
+    // position advances, so "ignore the initial batch" — correct for
+    // timeline history — would silently discard queued room keys, and the
+    // messages they unlock would be undecryptable forever.
+    if (options.onCryptoSignals) {
+      const toDevice = (body.to_device?.events ?? [])
+        .filter(e => e.type && e.sender)
+        .map(e => ({
+          type: e.type as string,
+          sender: e.sender as string,
+          content: e.content ?? {},
+        }));
+      const deviceListsChanged = body.device_lists?.changed ?? [];
+      const deviceListsLeft = body.device_lists?.left ?? [];
+      const oneTimeKeyCounts = body.device_one_time_keys_count ?? null;
+
+      if (
+        toDevice.length > 0 ||
+        deviceListsChanged.length > 0 ||
+        deviceListsLeft.length > 0 ||
+        oneTimeKeyCounts !== null
+      ) {
+        options.onCryptoSignals({
+          toDevice,
+          deviceListsChanged,
+          deviceListsLeft,
+          oneTimeKeyCounts,
+        });
+      }
+    }
 
     if (!emit) return;
 

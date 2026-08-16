@@ -564,6 +564,16 @@ export const appRouter = router({
         if (!channel) {
           throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
         }
+        if (channel.encrypted) {
+          // Sending plaintext into an encrypted room is technically legal and
+          // honestly indefensible: it would quietly undermine the encryption
+          // for everyone in it. Refused until this app can compose Megolm.
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "This channel is end-to-end encrypted. This app can't compose encrypted messages yet, so it won't send plaintext into it.",
+          });
+        }
         await requireServerMembership(channel.serverId, ctx.user.id);
 
         const creds = await ensureMatrixCredentials(ctx.user.id);

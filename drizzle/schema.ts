@@ -85,6 +85,12 @@ export const channels = pgTable("channels", {
   matrixRoomId: varchar("matrixRoomId", { length: 255 }).notNull().unique(),
   type: channelTypeEnum("type").default("text").notNull(),
   isPrivate: boolean("isPrivate").default(false).notNull(),
+  /**
+   * True when the Matrix room carries m.room.encryption. Learned from the
+   * appservice push when any client enables it; the API refuses to send
+   * plaintext into such a room rather than quietly undermining it.
+   */
+  encrypted: boolean("encrypted").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

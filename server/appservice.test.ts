@@ -11,6 +11,7 @@ const getUserIdByMatrixId = vi.fn();
 const ingestMessage = vi.fn();
 const applyEditByEventId = vi.fn();
 const deleteMessageByEventId = vi.fn();
+const markChannelEncrypted = vi.fn();
 
 vi.mock("./db", () => ({
   getChannelByMatrixRoomId: (...args: unknown[]) => getChannelByMatrixRoomId(...args),
@@ -18,6 +19,7 @@ vi.mock("./db", () => ({
   ingestMessage: (...args: unknown[]) => ingestMessage(...args),
   applyEditByEventId: (...args: unknown[]) => applyEditByEventId(...args),
   deleteMessageByEventId: (...args: unknown[]) => deleteMessageByEventId(...args),
+  markChannelEncrypted: (...args: unknown[]) => markChannelEncrypted(...args),
 }));
 
 const HS_TOKEN = "test-hs-token";
@@ -196,6 +198,22 @@ describe("appservice transactions — ingest", () => {
     // Wholesale acknowledgement — the homeserver must not retry forever.
     expect(response.status).toBe(200);
     expect(ingestMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("m.room.encryption marks the channel encrypted", async () => {
+    markChannelEncrypted.mockResolvedValue(true);
+    const response = await txn([
+      {
+        type: "m.room.encryption",
+        event_id: "$enc_state",
+        sender: "@sovrgn_1:test",
+        room_id: "!general:test",
+        content: { algorithm: "m.megolm.v1.aes-sha2" },
+      },
+    ]);
+    expect(response.status).toBe(200);
+    expect(markChannelEncrypted).toHaveBeenCalledWith("!general:test");
+    expect(ingestMessage).not.toHaveBeenCalled();
   });
 
   it("file notices are not double-recorded as messages", async () => {

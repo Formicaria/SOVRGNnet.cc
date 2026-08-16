@@ -124,6 +124,16 @@ for instances that have not completed stage 2, selected by capability.
 **4 — Olm/Megolm.** Encryption, cross-signing, device verification, and key
 backup. `e2ee` flips only when all of it works, including recovery.
 
+*In progress.* The transport and index groundwork is done: sync delivers the
+crypto signal set (to-device messages — including from the initial batch,
+where queued room keys live — device-list changes, one-time-key counts), the
+appservice records `m.room.encryption` state so the index knows which rooms
+are encrypted, encrypted events are stored content-blind, clients render them
+as explicitly unreadable, and both send paths refuse plaintext into encrypted
+rooms rather than quietly undermining them. What remains is the crypto machine
+itself: Olm/Megolm sessions, verification, backup, recovery. `e2ee` stays
+false until all of it — including recovery — works.
+
 Stages 1 and 2 are worth having on their own merits even if 3 and 4 slipped.
 That is the test for whether a staged plan is real.
 
