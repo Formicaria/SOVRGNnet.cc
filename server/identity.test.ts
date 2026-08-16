@@ -1,7 +1,9 @@
+import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   TOKEN_ISSUER,
   TokenError,
+  privateKeyFromPem,
   consumeRecoveryCode,
   generateKeypair,
   generateRecoveryCode,
@@ -204,6 +206,59 @@ describe("key rotation", () => {
     expect(() =>
       verifyToken(signedWithRetired, { keys: keysOf(provider), audience: SERVER })
     ).toThrow(/unknown signing key/i);
+  });
+});
+
+describe("the whole chain, as it actually runs", () => {
+  it("goes from a generated PEM to a server verifying a token", () => {
+    // Every step an operator and a server actually perform, in order. Each
+    // piece is unit-tested above; this catches the joins between them —
+    // notably that a PEM from `pnpm keygen` survives the round trip.
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const pem = String(privateKey.export({ type: "pkcs8", format: "pem" }));
+
+    // The identity service loads its signing key from the environment.
+    const keypair = privateKeyFromPem(pem);
+
+    // It publishes the public half at /.well-known/jwks.json.
+    const published = { keys: [publicKeyToJwk(keypair.publicKey)] };
+
+    // A server fetches that once and caches it.
+    const serverKeys = new Map(published.keys.map(jwk => [jwk.kid, jwkToPublicKey(jwk)]));
+
+    // Someone signed in at sovrgnnet.cc asks for a token for that server.
+    const minted = issueToken(keypair, {
+      subject: "acct_deadbeef",
+      audience: SERVER,
+      name: "chronus",
+      email: "z@example.com",
+      emailVerified: true,
+    });
+
+    // The server verifies it without contacting anyone.
+    const claims = verifyToken(minted, { keys: serverKeys, audience: SERVER });
+    expect(claims).toMatchObject({
+      sub: "acct_deadbeef",
+      name: "chronus",
+      email_verified: true,
+    });
+  });
+
+  it("survives a PEM stored with escaped newlines", () => {
+    // .env files routinely flatten a PEM onto one line; keys.ts unescapes it,
+    // and getting that wrong makes the service fail to boot.
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const flattened = String(privateKey.export({ type: "pkcs8", format: "pem" })).replace(
+      /\n/g,
+      "\\n"
+    );
+
+    const keypair = privateKeyFromPem(flattened.replace(/\\n/g, "\n"));
+    const claims = verifyToken(
+      issueToken(keypair, { subject: "acct_1", audience: SERVER }),
+      { keys: new Map([[keypair.kid, keypair.publicKey]]), audience: SERVER }
+    );
+    expect(claims.sub).toBe("acct_1");
   });
 });
 
