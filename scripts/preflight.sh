@@ -58,6 +58,35 @@ printf '\n%sPreflight%s %s(%s)%s\n' "$BOLD" "$RESET" "$DIM" \
 
 # ---------------------------------------------------------------- cheap first
 
+step "Dependencies installed"
+
+# Checked before anything else because the failure is otherwise reported by
+# whichever tool happens to be missing — `sh: 1: tsc: not found` at step 3 tells
+# you nothing about the actual problem, which is that the lockfile moved and
+# node_modules didn't.
+missing=""
+for tool in tsc vitest esbuild vite tsx; do
+  [ -x "node_modules/.bin/$tool" ] || missing="$missing $tool"
+done
+
+if [ -n "$missing" ]; then
+  printf '  %smissing:%s%s\n\n' "$DIM" "$missing" "$RESET"
+  printf '  %sRun:%s pnpm install\n' "$BOLD" "$RESET"
+  printf '  %sDependencies changed in v0.4.0 — 17 packages were removed and the%s\n' "$DIM" "$RESET"
+  printf '  %slockfile regenerated, so an older node_modules is out of date.%s\n' "$DIM" "$RESET"
+  fail "dependencies not installed"
+fi
+pass "toolchain present"
+
+# The lockfile is the thing CI installs from, so a mismatch here is a mismatch
+# there. --frozen-lockfile fails rather than silently resolving something else.
+if ! pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1; then
+  printf '  %sThe lockfile and package.json disagree, or a package is missing.%s\n' "$DIM" "$RESET"
+  printf '  %sRun:%s pnpm install\n' "$BOLD" "$RESET"
+  fail "lockfile out of sync — CI installs with --frozen-lockfile and would fail too"
+fi
+pass "lockfile matches package.json"
+
 step "Versions agree"
 run "six files on one version" ./scripts/check-versions.sh
 
@@ -93,17 +122,33 @@ run "production bundle" pnpm build
 
 # ------------------------------------------------------------- other packages
 
+# Runs a command inside a directory without a subshell.
+#
+# `( cd x && run ... )` looks equivalent and is not: `fail` calls exit, which
+# in a subshell exits only the subshell. A failing desktop typecheck would have
+# been reported and then ignored, which is worse than not checking it.
+run_in() {
+  local dir="$1" what="$2"; shift 2
+  local output
+  if output="$(cd "$dir" && "$@" 2>&1)"; then
+    pass "$what"
+  else
+    printf '%s\n' "$output" | tail -25
+    fail "$what"
+  fi
+}
+
 step "Desktop"
 if [ -d desktop/node_modules ]; then
-  ( cd desktop && run "typecheck" pnpm exec tsc --noEmit )
-  ( cd desktop && run "bundle" pnpm exec vite build )
+  run_in desktop "typecheck" pnpm exec tsc --noEmit
+  run_in desktop "bundle" pnpm exec vite build
 else
   skip "desktop dependencies not installed (cd desktop && pnpm install)"
 fi
 
 step "Identity provider"
 if [ -d identity/node_modules ]; then
-  ( cd identity && run "typecheck" pnpm exec tsc --noEmit )
+  run_in identity "typecheck" pnpm exec tsc --noEmit
 else
   skip "identity dependencies not installed (cd identity && pnpm install)"
 fi
