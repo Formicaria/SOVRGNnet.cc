@@ -12,6 +12,7 @@ import { ConnectionsProvider } from "./contexts/ConnectionsContext";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import Invite from "./pages/Invite";
+import SsoCallback from "./pages/SsoCallback";
 import { WagmiProvider } from "wagmi";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { config } from "./lib/wagmi";
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/invite/:code" component={Invite} />
+      <Route path="/sso/callback" component={SsoCallback} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

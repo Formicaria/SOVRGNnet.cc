@@ -16,8 +16,10 @@ import {
   normalizeEmail,
   verifyPassword,
 } from "./accounts";
+import { buildReturnRedirect, resolveReturnTarget } from "@shared/ssoFlow";
 import { getDb } from "./db";
 import { jwks, loadKeys } from "./keys";
+import { errorPage, recoveryCodesPage, registerPage, signInPage } from "./pages";
 import {
   emailEnabled,
   passwordResetEmail,
@@ -326,6 +328,101 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
     }
 
     res.json({ token });
+  });
+
+  // --------------------------------------------------------------- authorize
+
+  /**
+   * The hand-off a server sends people to.
+   *
+   *   GET /authorize?return=https://chat.example.com/sso/callback
+   *
+   * Note what is *not* a parameter: which server the token is for. That's
+   * resolved by asking the return origin what instance it is, so a token can
+   * only ever be minted for the server actually receiving it. Accepting the
+   * audience from the caller would let anyone request a token for someone
+   * else's server and have it delivered to a URL they control.
+   */
+  app.get("/authorize", async (req, res) => {
+    const returnUrl = String(req.query.return ?? "");
+
+    const target = await resolveReturnTarget(returnUrl, fetch);
+    if (!target.ok) {
+      return res.status(400).send(errorPage("Can't continue", target.message));
+    }
+
+    const account = await currentAccount(req);
+    if (!account) {
+      return res.send(
+        signInPage({
+          returnUrl,
+          instanceName: target.instanceName,
+          instanceHost: new URL(target.origin).host,
+        })
+      );
+    }
+
+    const db = await getDb();
+    const [existing] = await db
+      .select()
+      .from(grants)
+      .where(and(eq(grants.accountId, account.id), eq(grants.instanceId, target.instanceId)))
+      .limit(1);
+
+    if (existing?.revokedAt) {
+      return res
+        .status(403)
+        .send(
+          errorPage(
+            "Access revoked",
+            "You previously revoked this server's access to your account. Restore it from your account settings if you meant to sign in again."
+          )
+        );
+    }
+
+    const token = issueToken(loadKeys().active, {
+      subject: account.subject,
+      audience: target.instanceId,
+      name: account.displayName ?? undefined,
+      email: account.email,
+      emailVerified: account.emailVerified,
+    });
+
+    if (existing) {
+      await db
+        .update(grants)
+        .set({ lastUsedAt: new Date(), instanceName: target.instanceName })
+        .where(eq(grants.id, existing.id));
+    } else {
+      await db.insert(grants).values({
+        accountId: account.id,
+        instanceId: target.instanceId,
+        instanceName: target.instanceName,
+      });
+    }
+
+    // Fragment, not query: fragments never reach a server, stay out of access
+    // logs, and don't leak through Referer.
+    res.redirect(302, buildReturnRedirect(returnUrl, token));
+  });
+
+  app.get("/register", async (req, res) => {
+    const returnUrl = String(req.query.return ?? "");
+    const target = await resolveReturnTarget(returnUrl, fetch);
+    if (!target.ok) {
+      return res.status(400).send(errorPage("Can't continue", target.message));
+    }
+    res.send(
+      registerPage({
+        returnUrl,
+        instanceName: target.instanceName,
+        emailDisabled: !emailEnabled(),
+      })
+    );
+  });
+
+  app.get("/recovery-codes", (req, res) => {
+    res.send(recoveryCodesPage(String(req.query.return ?? "")));
   });
 
   // ------------------------------------------------------------------ grants

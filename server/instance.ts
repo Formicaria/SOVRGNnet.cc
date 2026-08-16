@@ -37,6 +37,11 @@ export type InstanceInfo = {
   encryption: boolean;
   /** Whether this instance is listed in the sovrgnnet.cc directory. */
   listed: boolean;
+  /**
+   * Whether this server accepts sovrgnnet.cc accounts, and where from.
+   * Public so a client can decide whether to offer the button at all.
+   */
+  sso: { enabled: boolean; issuer: string | null };
   software: { name: string; version: string };
 };
 
@@ -155,6 +160,13 @@ export function instanceInfo(version: string, stored: StoredSettings = null): In
     joinPolicy: normalizeJoinPolicy(stored?.joinPolicy ?? process.env.INSTANCE_JOIN_POLICY),
     encryption: E2EE_AVAILABLE,
     listed: stored?.listed ?? process.env.INSTANCE_LISTED === "true",
+    sso: {
+      enabled: process.env.INSTANCE_ALLOW_SSO === "true",
+      issuer:
+        process.env.INSTANCE_ALLOW_SSO === "true"
+          ? process.env.IDENTITY_ISSUER?.trim() || "https://sovrgnnet.cc"
+          : null,
+    },
     software: { name: "sovrgnnet", version },
   };
 }

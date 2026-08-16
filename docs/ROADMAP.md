@@ -122,7 +122,13 @@ The service is built: accounts, sessions, the token endpoint, JWKS, grants a per
 
 **It runs without email**, which is a chosen configuration rather than a missing feature, and makes two things permanently true: no address is verified, so servers never auto-link an identity to an existing local account; and recovery codes are the only way back. Both are stated at startup, at signup, and in the reset endpoint, which returns "this service doesn't send email" rather than the much crueller "check your inbox." Codes can be regenerated with the current password, and their count is queryable so a client can nag before it matters.
 
-**Remaining:** the sign-in UI on sovrgnnet.cc, and the client-side flow that asks for a token and hands it to a server.
+The hand-off is built and is the part worth reviewing. A server sends someone to `/authorize?return=<its own callback>` — and, deliberately, **does not say which server the token is for.** The provider fetches `/api/instance` from the return origin and uses the id that origin reports. Taking the audience as a parameter would let anyone request a token for someone else's server and have it delivered to a URL they control; a token names one server, but that is exactly enough to sign in as that person there. Deriving it means obtaining a token for a server requires already controlling that server. 20 tests cover it, including `javascript:` and `file:` schemes, plain http on the public internet, and destinations that aren't SOVRGNnet servers.
+
+The token comes back in the URL **fragment**, never the query string — fragments aren't sent to servers, don't reach access logs, and don't leak through `Referer`. The callback page reads it, clears it from the address bar, and exchanges it for an ordinary session.
+
+Sign-in, registration, and a recovery-codes screen are served by the identity service itself, same-origin with its API. The codes screen is a deliberate full stop with a checkbox, because in codes-only mode someone who clicks past it and later forgets their password has lost the account outright. The sign-in page names the server being signed in to, since that's the actual decision being made.
+
+**Remaining:** turning it on. `INSTANCE_ALLOW_SSO` is off everywhere, so none of this is reachable yet.
 
 ## Phase 8 — Client-side Matrix
 

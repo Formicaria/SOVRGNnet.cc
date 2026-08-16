@@ -28,6 +28,7 @@ export type InstanceInfo = {
   joinPolicy: "open" | "invite" | "closed";
   encryption: boolean;
   listed: boolean;
+  sso?: { enabled: boolean; issuer: string | null };
   software: { name: string; version: string };
 };
 
