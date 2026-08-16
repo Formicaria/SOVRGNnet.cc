@@ -98,14 +98,14 @@ export async function ingestEvent(event: AppserviceEvent): Promise<keyof IngestO
     const channel = await db.getChannelByMatrixRoomId(roomId);
     if (!channel) return "skipped";
     const userId = await db.getUserIdByMatrixId(sender);
-    if (userId == null) return "skipped";
     const inserted = await db.ingestMessage(
       channel.id,
       userId,
       "",
       eventId,
       true,
-      event.origin_server_ts
+      event.origin_server_ts,
+      sender
     );
     return inserted ? "encrypted" : "skipped";
   }
@@ -129,8 +129,13 @@ export async function ingestEvent(event: AppserviceEvent): Promise<keyof IngestO
 
   const channel = await db.getChannelByMatrixRoomId(roomId);
   if (!channel) return "skipped";
+
+  // A sender with a local account gets both ids; one without gets only the
+  // Matrix id — that is what a federated member of this room looks like, and
+  // dropping them would leave silent holes in the conversation (ADR 0010).
+  // Unknown *rooms* are still skipped: federation doesn't change whose rooms
+  // this index covers.
   const userId = await db.getUserIdByMatrixId(sender);
-  if (userId == null) return "skipped";
 
   const inserted = await db.ingestMessage(
     channel.id,
@@ -138,7 +143,8 @@ export async function ingestEvent(event: AppserviceEvent): Promise<keyof IngestO
     body,
     eventId,
     false,
-    event.origin_server_ts
+    event.origin_server_ts,
+    sender
   );
   return inserted ? "inserted" : "skipped";
 }

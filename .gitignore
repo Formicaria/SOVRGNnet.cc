@@ -132,3 +132,4 @@ temp/
 .webdev/
 dendrite/matrix_key.pem
 dendrite/dendrite.yaml
+dendrite/appservice-e2e.yaml

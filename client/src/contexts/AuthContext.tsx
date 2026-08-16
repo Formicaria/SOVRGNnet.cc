@@ -14,7 +14,12 @@ interface AuthContextType {
   user: AuthUser;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name?: string) => Promise<void>;
+  register: (
+    email: string,
+    password: string,
+    name?: string,
+    inviteCode?: string
+  ) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -36,17 +41,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     utils.auth.me.setData(undefined, user);
   };
 
-  const register = async (email: string, password: string, name?: string) => {
+  const register = async (
+    email: string,
+    password: string,
+    name?: string,
+    inviteCode?: string
+  ) => {
     // An invite-only instance needs the code at registration, not just at the
-    // point of joining a server. The invite page stashes it here before
-    // sending an unauthenticated visitor off to sign up.
-    const inviteCode = sessionStorage.getItem("pending_invite") ?? undefined;
+    // point of joining a server. A code typed into the form wins; otherwise
+    // the one an invite link stashed before sending the visitor to sign up.
+    const code =
+      inviteCode?.trim() || sessionStorage.getItem("pending_invite") || undefined;
 
     const user = await registerMutation.mutateAsync({
       email,
       password,
       name,
-      inviteCode,
+      inviteCode: code,
     });
     utils.auth.me.setData(undefined, user);
   };

@@ -124,19 +124,34 @@ describe("appservice transactions — ingest", () => {
       "hello from the client",
       event.event_id,
       false,
-      1_700_000_000_000
+      1_700_000_000_000,
+      "@sovrgn_1:test"
     );
   });
 
-  it("skips rooms and senders this instance doesn't know", async () => {
+  it("skips rooms this instance doesn't know — federation doesn't change whose rooms these are", async () => {
     getChannelByMatrixRoomId.mockResolvedValue(undefined);
     expect((await txn([message()])).status).toBe(200);
-
-    getChannelByMatrixRoomId.mockResolvedValue({ id: 42, serverId: 7 });
-    getUserIdByMatrixId.mockResolvedValue(null);
-    expect((await txn([message()])).status).toBe(200);
-
     expect(ingestMessage).not.toHaveBeenCalled();
+  });
+
+  it("records a federated sender: known room, no local account (ADR 0010)", async () => {
+    getUserIdByMatrixId.mockResolvedValue(null);
+    const event = message({ sender: "@ana:their.server" });
+
+    const response = await txn([event]);
+    expect(response.status).toBe(200);
+    // userId null, Matrix id carried — a silent hole in the conversation is
+    // exactly what this exists to prevent.
+    expect(ingestMessage).toHaveBeenCalledWith(
+      42,
+      null,
+      "hello from the client",
+      event.event_id,
+      false,
+      1_700_000_000_000,
+      "@ana:their.server"
+    );
   });
 
   it("applies redactions", async () => {
@@ -182,7 +197,8 @@ describe("appservice transactions — ingest", () => {
       "",
       event.event_id,
       true,
-      1_700_000_000_000
+      1_700_000_000_000,
+      "@sovrgn_1:test"
     );
   });
 

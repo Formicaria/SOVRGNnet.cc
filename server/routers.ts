@@ -593,7 +593,8 @@ export const appRouter = router({
           ctx.user.id,
           input.content,
           eventId,
-          false
+          false,
+          creds.userId
         );
       }),
 
@@ -714,8 +715,11 @@ export const appRouter = router({
         }
 
         // Redact as the author when possible, else as the acting moderator.
+        // A federated sender has no local credentials (ADR 0010): the
+        // moderator's own session does the redacting, and Matrix power
+        // levels — already bound at the room layer — decide whether it lands.
         const creds = await db.getMatrixCredentials(
-          isAuthor ? ctx.user.id : message.userId
+          isAuthor || message.userId == null ? ctx.user.id : message.userId
         ) ?? await db.getMatrixCredentials(ctx.user.id);
         if (creds) {
           try {

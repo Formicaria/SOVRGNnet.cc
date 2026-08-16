@@ -198,11 +198,20 @@ this project exists to avoid.
 - [x] Instance health surfaced in the UI — a Health tab with live dependency
       status, direct-sync and ingest state, uptime, and totals, refreshing
       while watched
-- [ ] Onboarding polish
+- [x] Onboarding polish — the sign-in page reads the instance's name,
+      description, and join policy and shapes itself around them: invite-only
+      instances get an invite-code field with an explanation instead of a
+      doomed form and a 403; closed instances say so; the first account lands
+      on an administrator's welcome that says what to do next
 
 ## 0.7 — Network
 
-- [ ] Federation, tested rather than merely possible
+- [ ] Federation, tested rather than merely possible — the index can now
+      represent federated senders ([ADR 0010](adr/0010-federated-senders.md):
+      nullable local account + Matrix id on every message, ingest records
+      remote members of known rooms instead of leaving silent holes); the
+      checkbox closes when a two-instance harness proves messages, senders,
+      and redactions cross for real
 - [ ] Optional instance directory — opt-in, addresses only
 - [ ] Portable cryptographic identity
 

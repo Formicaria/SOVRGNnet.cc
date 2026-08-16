@@ -101,7 +101,14 @@ export type InsertChannel = typeof channels.$inferInsert;
 export const messages = pgTable("messages", {
   id: serial("id").primaryKey(),
   channelId: integer("channelId").notNull(),
-  userId: integer("userId").notNull(),
+  /**
+   * The local account, when the sender has one. Null for federated senders —
+   * members of the same room whose accounts live on another homeserver
+   * (ADR 0010). senderMatrixId identifies them either way.
+   */
+  userId: integer("userId"),
+  /** The full Matrix id (@user:server) that authored the event. */
+  senderMatrixId: varchar("senderMatrixId", { length: 255 }),
   content: text("content").notNull(),
   matrixEventId: varchar("matrixEventId", { length: 255 }).notNull().unique(),
   encrypted: boolean("encrypted").default(true).notNull(),

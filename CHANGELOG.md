@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+**Onboarding that reads the room (0.6).** The sign-in page now fetches the
+instance's name, description, and join policy and shapes itself around them:
+invite-only instances show an invite-code field with an explanation instead of
+letting a visitor type a doomed signup and learn the policy from a 403; closed
+instances say they're closed; a code typed into the form or carried by an
+invite link both feed registration. The first account — the person who just
+set the instance up — lands on an administrator's welcome that says what to do
+next instead of a generic empty state.
+
+**The index can represent federated senders (ADR 0010, the 0.7 brick).**
+`messages.userId` is nullable and every message carries its full Matrix
+sender id (migration 0008). The ingest records remote members of known rooms
+— previously it skipped them, which under federation would have meant
+conversations with silent holes. Display falls back to the Matrix id
+(`@ana:their.server`): honest, unambiguous, no invented profiles. Moderation
+of federated messages rides the moderator's own session and room power
+levels. The 0.7 checkbox stays open until a two-instance harness proves
+messages, senders, and redactions actually cross.
+
 **Third-party trademark removed.** The scaffold's speculative NFT-subscription
 feature carried the name of a competitor's paid tier through a table, an enum,
 a router, and a soundboard flag. All of it is gone — migration 0007 drops the
