@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+**Matrix becomes the source of record (ADR 0009).** The instance registers as
+an application service with its homeserver and ingests pushed events into the
+database — which turns the database from a ledger written beside Matrix into
+an index built from it. Ingest is hs_token-authenticated (403 + log on
+failure, 404 while unconfigured), idempotent by event id, acknowledges
+transactions wholesale so one bad event can't wedge the queue, and stores
+`m.room.encrypted` as a content-blind row — E2EE's shape, implemented and
+tested before any ciphertext exists. A new `eventIngest` capability reports
+it, and clients author messages over their own Matrix session only when
+`clientMatrix && eventIngest`, falling back to the API path otherwise —
+because a directly-sent message an instance can't record would be invisible
+to members on the polling fallback. Registration template in
+`dendrite/appservice.yaml.template`; threat model gains T19 (forged
+transactions) with its mitigations.
+
 **Direct Matrix sync (ADR 0008 stage 3).** On instances that advertise
 `clientMatrix`, the client now obtains its own device-scoped Matrix session
 over the authenticated instance API and long-polls `/sync` directly — messages

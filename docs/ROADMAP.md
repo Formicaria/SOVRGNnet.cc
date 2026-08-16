@@ -161,8 +161,14 @@ this project exists to avoid.
       `clientMatrix` derived from a real probe rather than a set variable
 - [x] **Client-side Matrix** — device-scoped sessions, reachable homeserver,
       and direct `/sync` for message and file liveness ([ADR 0008](adr/0008-client-side-matrix.md),
-      stages 1–3; sending stays on the instance API where permissions live)
-- [ ] **E2EE** via Olm/Megolm, with device verification and key backup
+      stages 1–3)
+- [x] **Matrix as source of record** — appservice ingest turns the database
+      into an index built from homeserver pushes; clients author messages over
+      their own session when `clientMatrix && eventIngest`; encrypted events
+      already stored content-blind ([ADR 0009](adr/0009-appservice-ingest.md))
+- [ ] **E2EE** via Olm/Megolm, with device verification and key backup — the
+      architecture beneath it is now in place; what remains is the crypto
+      itself, which is client work (keys, verification, backup, recovery)
 
 ## 0.5 — Portable infrastructure
 

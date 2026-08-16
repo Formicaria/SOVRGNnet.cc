@@ -105,7 +105,7 @@ export default function Dashboard() {
   // offers it (ADR 0008 stage 3); the intervals below stay as the fallback
   // for instances whose homeserver isn't publicly reachable.
   const roomToChannelRef = useRef<Map<string, number>>(new Map());
-  const { live: syncLive } = useDirectSync(!!user, event => {
+  const { live: syncLive, canAuthor, sendText } = useDirectSync(!!user, event => {
     const channelId = roomToChannelRef.current.get(event.roomId);
     if (channelId == null) return;
 
@@ -338,6 +338,20 @@ export default function Dashboard() {
     if (!content || selectedChannelId == null || sendMessage.isPending) return;
     typingSentAt.current = 0;
     setTyping.mutate({ channelId: selectedChannelId, typing: false });
+
+    // Author over the client's own Matrix session when the instance both
+    // offers direct sync and records homeserver pushes (ADR 0009). The row
+    // appears via the appservice ingest and the echo returns through /sync.
+    // Any failure falls back to the API path — the message must not be lost
+    // to an architectural preference.
+    const roomId = channels.find(c => c.id === selectedChannelId)?.matrixRoomId;
+    if (canAuthor && roomId) {
+      setMessageInput("");
+      void sendText(roomId, content).catch(() => {
+        sendMessage.mutate({ channelId: selectedChannelId, content });
+      });
+      return;
+    }
     sendMessage.mutate({ channelId: selectedChannelId, content });
   };
 

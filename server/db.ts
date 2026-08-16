@@ -458,6 +458,94 @@ export async function getMatrixCredentials(userId: number) {
   return { userId: row.matrixUserId, accessToken: row.matrixAccessToken };
 }
 
+/** Reverse of getMatrixCredentials: which of our users is this Matrix id? */
+export async function getUserIdByMatrixId(matrixUserId: string): Promise<number | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select({ userId: userProfiles.userId })
+    .from(userProfiles)
+    .where(eq(userProfiles.matrixUserId, matrixUserId))
+    .limit(1);
+  return rows[0]?.userId ?? null;
+}
+
+export async function getChannelByMatrixRoomId(matrixRoomId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select()
+    .from(channels)
+    .where(eq(channels.matrixRoomId, matrixRoomId))
+    .limit(1);
+  return rows.length > 0 ? rows[0] : undefined;
+}
+
+/**
+ * Record an event pushed by the homeserver (ADR 0009). Idempotent by event id:
+ * during migration the API path and the appservice both write, and whoever
+ * lands second must be a no-op rather than an error.
+ *
+ * Returns true when a row was inserted, false when it already existed.
+ */
+export async function ingestMessage(
+  channelId: number,
+  userId: number,
+  content: string,
+  matrixEventId: string,
+  encrypted: boolean,
+  originServerTs?: number
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .insert(messages)
+    .values({
+      channelId,
+      userId,
+      content,
+      matrixEventId,
+      encrypted,
+      // The homeserver's timestamp, not ingest time — ordering must agree
+      // with what synced clients saw, or history reads differently per path.
+      ...(originServerTs ? { createdAt: new Date(originServerTs) } : {}),
+    })
+    .onConflictDoNothing({ target: messages.matrixEventId })
+    .returning({ id: messages.id });
+  return result.length > 0;
+}
+
+/** Apply an m.replace (edit) that arrived from the homeserver. */
+export async function applyEditByEventId(
+  targetEventId: string,
+  newContent: string
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .update(messages)
+    .set({ content: newContent, editedAt: new Date(), updatedAt: new Date() })
+    .where(eq(messages.matrixEventId, targetEventId))
+    .returning({ id: messages.id });
+  return result.length > 0;
+}
+
+/** Apply a redaction that arrived from the homeserver. */
+export async function deleteMessageByEventId(matrixEventId: string): Promise<boolean> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .delete(messages)
+    .where(eq(messages.matrixEventId, matrixEventId))
+    .returning({ id: messages.id });
+  return result.length > 0;
+}
+
 export async function saveMatrixCredentials(
   userId: number,
   matrixUserId: string,

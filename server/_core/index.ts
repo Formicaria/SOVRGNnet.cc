@@ -5,6 +5,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 // First-party auth: session cookie resolved in createContext
 import { appRouter } from "../routers";
+import { registerAppserviceRoutes } from "../appservice";
 import { registerFileRoutes } from "../fileRoutes";
 import { registerInstanceRoutes } from "../instanceRoutes";
 import { runMigrations, waitForDatabase } from "../migrate";
@@ -57,6 +58,8 @@ async function startServer() {
   // what it is. Registered before auth-bearing routes because none of it
   // requires a session.
   registerInstanceRoutes(app);
+  // Homeserver event pushes (ADR 0009) — hs_token-gated, 404 when unconfigured
+  registerAppserviceRoutes(app);
   // File upload/download (bytes go through REST, metadata through tRPC)
   registerFileRoutes(app);
   // Auth endpoints live in the tRPC auth router

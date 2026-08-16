@@ -15,6 +15,7 @@ function descriptor(overrides: Record<string, unknown> = {}) {
       sso: false,
       publicRegistration: false,
       clientMatrix: false,
+      eventIngest: false,
       portableBackup: true,
     },
     matrix: { serverName: "test.example", baseUrl: null },

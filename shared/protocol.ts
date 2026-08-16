@@ -60,6 +60,13 @@ export interface Capabilities {
   publicRegistration: boolean;
   /** Whether the client may talk to Matrix directly rather than via the app. */
   clientMatrix: boolean;
+  /**
+   * Whether the instance records events pushed by its homeserver (ADR 0009).
+   * Clients only author events over their own Matrix session when this is
+   * true, because a sent message the instance never records is invisible to
+   * every member still on the API fallback.
+   */
+  eventIngest: boolean;
   /** Whether this instance can produce and consume portable backups. */
   portableBackup: boolean;
 }
@@ -76,6 +83,7 @@ export const DEFAULT_CAPABILITIES: Capabilities = {
   sso: false,
   publicRegistration: false,
   clientMatrix: false,
+  eventIngest: false,
   portableBackup: false,
 };
 
@@ -302,6 +310,7 @@ export function explainMissing(capability: CapabilityName): string {
     sso: "This instance only accepts accounts created on it directly.",
     publicRegistration: "This instance is invite-only.",
     clientMatrix: "This instance routes messages through its own server rather than letting clients connect to Matrix directly.",
+    eventIngest: "This instance doesn't record events sent directly to its homeserver, so messages are sent through its API instead.",
     portableBackup: "This instance doesn't support portable backups.",
   };
   return reasons[capability];

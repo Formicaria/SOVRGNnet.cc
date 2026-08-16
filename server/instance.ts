@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { PROTOCOL_VERSION, type InstanceDescriptor } from "@shared/protocol";
 import { ENV } from "./_core/env";
+import { appserviceConfigured } from "./appservice";
 import { directSync } from "./matrixPublic";
 
 /**
@@ -183,6 +184,10 @@ export function instanceDescriptor(
       // claim. A client acts on capabilities, so one that lies is worse than
       // one that's absent.
       clientMatrix: directSync().available,
+      // True only when the appservice registration is wired (ADR 0009).
+      // Clients must not author events an instance cannot record, so this
+      // gates client-side sending the same way clientMatrix gates sync.
+      eventIngest: appserviceConfigured(),
       portableBackup: true,
     },
     matrix: {
