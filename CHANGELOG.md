@@ -1,6 +1,31 @@
 # Changelog
 
-## Unreleased
+## v0.5.0 — 2026-08-16
+
+Portable infrastructure, completed — and the architecture that end-to-end
+encryption requires, in place before the encryption itself.
+
+**Encrypted backups at rest.** Set `SOVRGN_BACKUP_PASSPHRASE` and the backup
+archive is sealed in an authenticated envelope (scrypt, N=2^15, + AES-256-GCM
+with the format magic as authenticated data). The plaintext inside is a
+byte-for-byte ordinary archive, so every existing validation and restore path
+works unchanged after the envelope opens. Wrong passphrase and corrupt file
+fail loudly at open — GCM cannot tell them apart, and the error says so.
+Restore detects encryption by content, not filename.
+
+**Prometheus metrics.** `GET /metrics` in text exposition format: build info,
+uptime, memory, and up/down gauges for database, homeserver, and IPFS — each
+probed at scrape time with a 2-second bound, because monitoring that hangs
+with the incident is decoration. Instance totals (users, communities,
+messages) are included only when the database can actually answer; totals
+only, no per-user cardinality. `METRICS_TOKEN` makes the endpoint
+bearer-gated.
+
+**Documented, deterministic upgrades.** `docs/UPGRADING.md` — previously
+referenced by the threat model and missing — now exists: what `sovrgnnet
+update` actually does, what deterministic means here (pinned images, frozen
+lockfile, journaled linear migrations), why downgrade is restore, and the
+version-specific notes including the T18 room-state repair options.
 
 **E2EE groundwork (ADR 0008 stage 4, first slice).** The sync engine now
 delivers the crypto signal set — to-device messages (from the initial batch

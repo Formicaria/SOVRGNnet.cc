@@ -47,7 +47,7 @@ fi
 BACKUP_SOURCE="${ARGS[0]:-}"
 
 if [ -z "$BACKUP_SOURCE" ]; then
-  mapfile -t FOUND < <(ls -1t "$BACKUP_DIR"/*.tar.gz "$BACKUP_DIR"/*.sovbackup 2>/dev/null || true)
+  mapfile -t FOUND < <(ls -1t "$BACKUP_DIR"/*.tar.gz "$BACKUP_DIR"/*.sovbackup "$BACKUP_DIR"/*.enc 2>/dev/null || true)
   if [ "${#FOUND[@]}" -eq 0 ]; then
     echo -e "${RED}No backups found in $BACKUP_DIR${NC}"
     echo -e "${DIM}Copy your backup file there first, then run this again.${NC}"
@@ -65,20 +65,44 @@ if [ -z "$BACKUP_SOURCE" ]; then
   [ -n "$BACKUP_SOURCE" ] || { echo -e "${RED}That wasn't one of the options.${NC}"; exit 1; }
 fi
 
-# Accept a bare name, a path, or an archive in either extension.
+# Accept a bare name, a path, or an archive in any extension.
 for candidate in "$BACKUP_SOURCE" "$BACKUP_DIR/$BACKUP_SOURCE" \
-                 "$BACKUP_DIR/$BACKUP_SOURCE.tar.gz" "$BACKUP_DIR/$BACKUP_SOURCE.sovbackup"; do
+                 "$BACKUP_DIR/$BACKUP_SOURCE.tar.gz" "$BACKUP_DIR/$BACKUP_SOURCE.sovbackup" \
+                 "$BACKUP_DIR/$BACKUP_SOURCE.tar.gz.enc"; do
   [ -e "$candidate" ] && { BACKUP_SOURCE="$candidate"; break; }
 done
 [ -e "$BACKUP_SOURCE" ] || { echo -e "${RED}Can't find $BACKUP_SOURCE${NC}"; exit 1; }
 
+# --- Encrypted backups -------------------------------------------------------
+# Detected by content, not filename — a renamed envelope still opens. The
+# decrypted archive lands next to the original with restrictive permissions
+# and is removed after extraction.
+DECRYPTED=""
+if [ -f "$BACKUP_SOURCE" ] && npx tsx scripts/backup-crypt.ts check "$BACKUP_SOURCE" 2>/dev/null; then
+  echo -e "${BOLD}This backup is encrypted.${NC}"
+  if [ -z "${SOVRGN_BACKUP_PASSPHRASE:-}" ]; then
+    read -r -s -p "  Passphrase: " SOVRGN_BACKUP_PASSPHRASE </dev/tty
+    echo ""
+    export SOVRGN_BACKUP_PASSPHRASE
+  fi
+  DECRYPTED="${BACKUP_SOURCE%.enc}"
+  DECRYPTED="${DECRYPTED%.tar.gz}.decrypted.tar.gz"
+  if ! npx tsx scripts/backup-crypt.ts decrypt "$BACKUP_SOURCE" "$DECRYPTED"; then
+    echo -e "${RED}Couldn't decrypt — wrong passphrase, or the file is damaged.${NC}"
+    exit 1
+  fi
+  chmod 600 "$DECRYPTED"
+  BACKUP_SOURCE="$DECRYPTED"
+fi
+
 EXTRACTED=0
 if [ -f "$BACKUP_SOURCE" ]; then
-  BACKUP_NAME="$(basename "$BACKUP_SOURCE" | sed 's/\.tar\.gz$//; s/\.sovbackup$//')"
+  BACKUP_NAME="$(basename "$BACKUP_SOURCE" | sed 's/\.decrypted\.tar\.gz$//; s/\.tar\.gz$//; s/\.sovbackup$//')"
   mkdir -p "$BACKUP_DIR"
   tar xzf "$BACKUP_SOURCE" -C "$BACKUP_DIR"
   BACKUP_PATH="$BACKUP_DIR/$BACKUP_NAME"
   EXTRACTED=1
+  [ -n "$DECRYPTED" ] && rm -f "$DECRYPTED"
 else
   BACKUP_PATH="$BACKUP_SOURCE"
 fi

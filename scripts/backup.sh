@@ -251,13 +251,38 @@ tar czf "$BACKUP_DIR/${BACKUP_NAME}.tar.gz" -C "$BACKUP_DIR" "$BACKUP_NAME"
 rm -rf "$DEST"
 chmod 600 "$BACKUP_DIR/${BACKUP_NAME}.tar.gz"
 
-SIZE=$(du -h "$BACKUP_DIR/${BACKUP_NAME}.tar.gz" | cut -f1)
+ARCHIVE="$BACKUP_DIR/${BACKUP_NAME}.tar.gz"
+
+# --- Encryption at rest ------------------------------------------------------
+# With SOVRGN_BACKUP_PASSPHRASE set, the archive is sealed in an authenticated
+# envelope (scrypt + AES-256-GCM — shared/backupCrypto.ts) and the plaintext
+# is removed. Restore prompts for the same passphrase. Without it, behaviour
+# is exactly as before.
+if [ -n "${SOVRGN_BACKUP_PASSPHRASE:-}" ]; then
+  echo -e "${YELLOW}Encrypting...${NC}"
+  if npx tsx scripts/backup-crypt.ts encrypt "$ARCHIVE" "$ARCHIVE.enc"; then
+    rm -f "$ARCHIVE"
+    ARCHIVE="$ARCHIVE.enc"
+    chmod 600 "$ARCHIVE"
+  else
+    echo -e "${RED}Encryption failed — the unencrypted archive was kept.${NC}"
+    exit 1
+  fi
+fi
+
+SIZE=$(du -h "$ARCHIVE" | cut -f1)
 
 echo ""
 echo -e "${GREEN}Done — $SIZE${NC}"
-echo -e "  $(pwd)/$BACKUP_DIR/${BACKUP_NAME}.tar.gz"
+echo -e "  $(pwd)/$ARCHIVE"
 echo ""
-echo -e "${DIM}That file contains your passwords. Copy it somewhere safe and private —${NC}"
-echo -e "${DIM}an external drive or another computer. A backup on the same machine${NC}"
-echo -e "${DIM}doesn't help when that machine is the thing that fails.${NC}"
+if [ -n "${SOVRGN_BACKUP_PASSPHRASE:-}" ]; then
+  echo -e "${DIM}Encrypted. Without the passphrase this file is noise — and so is your${NC}"
+  echo -e "${DIM}backup if the passphrase is lost. Store the passphrase separately.${NC}"
+else
+  echo -e "${DIM}That file contains your passwords. Copy it somewhere safe and private —${NC}"
+  echo -e "${DIM}an external drive or another computer. A backup on the same machine${NC}"
+  echo -e "${DIM}doesn't help when that machine is the thing that fails.${NC}"
+  echo -e "${DIM}Set SOVRGN_BACKUP_PASSPHRASE to encrypt the next one.${NC}"
+fi
 echo ""

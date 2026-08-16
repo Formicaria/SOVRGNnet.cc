@@ -176,9 +176,15 @@ this project exists to avoid.
 - [x] **Validation before restore** — refuses a corrupt archive, a schema from
       the future, or a server-name mismatch that would silently detach history
 - [x] Machine-to-machine migration preserving instance identity, Docker or native
-- [ ] Encrypted backups at rest
-- [ ] Server health metrics, Prometheus-compatible
-- [ ] Documented, deterministic upgrade process
+- [x] Encrypted backups at rest — scrypt + AES-256-GCM envelope around the
+      unchanged archive; `SOVRGN_BACKUP_PASSPHRASE` opts in; wrong passphrase
+      and corruption fail loudly at open, not quietly at restore
+- [x] Server health metrics, Prometheus-compatible — `/metrics`, probed at
+      scrape time with bounded checks, totals only (no per-user cardinality),
+      optional bearer token
+- [x] Documented, deterministic upgrade process — [UPGRADING.md](UPGRADING.md):
+      pinned images, frozen lockfile, journaled linear migrations, backup as
+      the only supported way back
 
 ## 0.6 — Native client
 
