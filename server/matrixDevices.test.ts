@@ -147,7 +147,9 @@ describe("clientDeviceId", () => {
 
 describe("listDevices", () => {
   it("reads the user's own sessions with their token", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { devices: [] }));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { devices: [] }))
+      .mockResolvedValueOnce(jsonResponse(200, { user_id: "@a:x", device_id: "D" }));
 
     await listDevices("user-token");
 
@@ -158,15 +160,70 @@ describe("listDevices", () => {
     expect(String(url)).not.toContain("/_synapse/admin");
   });
 
+  it("recognises a homeserver-named device as the server's own", async () => {
+    // The real failure. Shared-secret registration returns a token on a device
+    // the homeserver names — Dendrite uses `shared_secret_registration` — so
+    // comparing against SERVER_DEVICE_ID never matched for a fresh account.
+    // Device id and display name below are verbatim from a live run.
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          devices: [
+            {
+              device_id: "shared_secret_registration",
+              display_name: "sovrgn_1",
+              last_seen_ip: "172.18.0.5",
+              last_seen_ts: 1786868632900,
+            },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, { user_id: "@sovrgn_1:x", device_id: "shared_secret_registration" })
+      );
+
+    const [device] = await listDevices("server-token");
+    expect(device.isServer).toBe(true);
+  });
+
+  it("asks the homeserver which device the token is on", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { devices: [] }))
+      .mockResolvedValueOnce(jsonResponse(200, { user_id: "@a:x", device_id: "D" }));
+
+    await listDevices("t");
+
+    const called = fetchMock.mock.calls.map(c => String(c[0]));
+    expect(called.some(u => u.includes("/account/whoami"))).toBe(true);
+  });
+
+  it("still lists devices when whoami fails", async () => {
+    // A homeserver that can't answer whoami can still enumerate devices, and
+    // losing the whole listing over the flag would be the wrong trade.
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, { devices: [{ device_id: "SOVRGN_ABC", display_name: "Laptop" }] })
+      )
+      .mockResolvedValueOnce(jsonResponse(500, { errcode: "M_UNKNOWN" }));
+
+    const devices = await listDevices("t");
+    expect(devices).toHaveLength(1);
+    expect(devices[0].isServer).toBe(false);
+  });
+
   it("marks the server's session as such", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, {
-        devices: [
-          { device_id: SERVER_DEVICE_ID, display_name: SERVER_DEVICE_NAME },
-          { device_id: "SOVRGN_ABC", display_name: "Laptop" },
-        ],
-      })
-    );
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          devices: [
+            { device_id: SERVER_DEVICE_ID, display_name: SERVER_DEVICE_NAME },
+            { device_id: "SOVRGN_ABC", display_name: "Laptop" },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, { user_id: "@a:x", device_id: SERVER_DEVICE_ID })
+      );
 
     const devices = await listDevices("t");
     expect(devices.find(d => d.deviceId === SERVER_DEVICE_ID)?.isServer).toBe(true);
@@ -174,9 +231,9 @@ describe("listDevices", () => {
   });
 
   it("normalises missing fields to null rather than undefined", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, { devices: [{ device_id: "D" }] })
-    );
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { devices: [{ device_id: "D" }] }))
+      .mockResolvedValueOnce(jsonResponse(200, { user_id: "@a:x", device_id: "OTHER" }));
 
     const [device] = await listDevices("t");
     expect(device).toEqual({
@@ -189,18 +246,22 @@ describe("listDevices", () => {
   });
 
   it("returns an empty list when the homeserver omits the field", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, {}))
+      .mockResolvedValueOnce(jsonResponse(200, { user_id: "@a:x", device_id: "D" }));
     expect(await listDevices("t")).toEqual([]);
   });
 
   it("surfaces last seen details when present", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(200, {
-        devices: [
-          { device_id: "D", display_name: "Phone", last_seen_ip: "1.2.3.4", last_seen_ts: 1000 },
-        ],
-      })
-    );
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          devices: [
+            { device_id: "D", display_name: "Phone", last_seen_ip: "1.2.3.4", last_seen_ts: 1000 },
+          ],
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { user_id: "@a:x", device_id: "OTHER" }));
 
     const [device] = await listDevices("t");
     expect(device.lastSeenIp).toBe("1.2.3.4");
@@ -214,33 +275,56 @@ describe("deleteDevice", () => {
   it("refuses to sign out the server's own session", async () => {
     // Removing it breaks every operation the server performs on the user's
     // behalf, and they'd experience it as the account silently failing.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { user_id: "@a:x", device_id: SERVER_DEVICE_ID })
+    );
     await expect(deleteDevice("t", SERVER_DEVICE_ID, auth)).rejects.toThrow(MatrixError);
-    expect(fetchMock).not.toHaveBeenCalled();
+    // whoami only — no DELETE was issued.
+    expect(fetchMock.mock.calls.every(c => c[1]?.method !== "DELETE")).toBe(true);
+  });
+
+  it("refuses a homeserver-named server device too", async () => {
+    // The hole: shared-secret registration produces a device the constant
+    // doesn't match, so this refusal never fired and the session was
+    // removable — silently breaking the account it belonged to.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { user_id: "@a:x", device_id: "shared_secret_registration" })
+    );
+    await expect(
+      deleteDevice("t", "shared_secret_registration", auth)
+    ).rejects.toThrow(MatrixError);
+    expect(fetchMock.mock.calls.every(c => c[1]?.method !== "DELETE")).toBe(true);
   });
 
   it("sends user-interactive auth, which the endpoint requires", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { user_id: "@a:x", device_id: "OTHER" }))
+      .mockResolvedValueOnce(jsonResponse(200, {}));
 
     await deleteDevice("t", "SOVRGN_ABC", auth);
 
-    const body = bodyOf() as { auth: Record<string, unknown> };
+    const body = bodyOf(1) as { auth: Record<string, unknown> };
     expect(body.auth.type).toBe("m.login.password");
     expect(body.auth.password).toBe("derived");
-    expect(fetchMock.mock.calls[0][1].method).toBe("DELETE");
+    expect(fetchMock.mock.calls[1][1].method).toBe("DELETE");
   });
 
   it("escapes the device id in the path", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, {}));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { user_id: "@a:x", device_id: "OTHER" }))
+      .mockResolvedValueOnce(jsonResponse(200, {}));
 
     await deleteDevice("t", "weird/../id", auth);
 
     // A device id is server-supplied, but path-injecting through it should not
     // be possible regardless.
-    expect(String(fetchMock.mock.calls[0][0])).toContain("weird%2F..%2Fid");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("weird%2F..%2Fid");
   });
 
   it("propagates a homeserver refusal", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(401, { errcode: "M_FORBIDDEN" }));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(200, { user_id: "@a:x", device_id: "OTHER" }))
+      .mockResolvedValueOnce(jsonResponse(401, { errcode: "M_FORBIDDEN" }));
     await expect(deleteDevice("t", "SOVRGN_ABC", auth)).rejects.toThrow(MatrixError);
   });
 });

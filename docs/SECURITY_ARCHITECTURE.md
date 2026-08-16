@@ -107,7 +107,14 @@ anonymous device per recovery.
 
 Sessions are listable and individually revocable from account settings, through
 the user's own token rather than the admin API, so the list reflects what that
-user can actually see and act on. The instance's session is shown and flagged,
+user can actually see and act on.
+
+Which device belongs to the instance is determined by asking the homeserver
+(`/account/whoami`) rather than by comparing against a known id. Accounts
+created through shared-secret registration land on a device the homeserver
+names itself, so a fixed constant only ever matched accounts that had gone
+through the login path — and for everyone else the instance's session was
+neither flagged nor protected. The instance's session is shown and flagged,
 not hidden: the server does hold one, and concealing it would be the dishonest
 option. Signing it out is refused, because it would break every operation the
 server performs on that user's behalf and would present as the account silently

@@ -233,27 +233,57 @@ export async function login(
 }
 
 /**
+ * Which device the instance's own token belongs to.
+ *
+ * Asked rather than assumed. SERVER_DEVICE_ID is only applied on the *login*
+ * path, which runs when an account already exists. A fresh account is created
+ * by shared-secret registration, and that returns a token on a device the
+ * homeserver names itself — Dendrite calls it `shared_secret_registration`.
+ *
+ * So for most accounts the constant never matched, `isServer` was false on the
+ * instance's own session, and deleteDevice would happily sign it out. That
+ * breaks every operation the server performs for that user, and presents as the
+ * account mysteriously failing.
+ *
+ * whoami is authoritative: whichever device this token belongs to *is* the
+ * server's session, whatever anyone named it.
+ */
+async function serverDeviceId(accessToken: string): Promise<string | null> {
+  try {
+    return (await whoami(accessToken)).deviceId;
+  } catch {
+    // Fall back to the constant rather than failing the whole listing — a
+    // homeserver that can't answer whoami can still enumerate devices.
+    return SERVER_DEVICE_ID;
+  }
+}
+
+/**
  * Every session on this account.
  *
  * Needs the user's own token — this is deliberately not an admin API call, so
  * it reports what that user can actually see and act on.
  */
 export async function listDevices(accessToken: string): Promise<MatrixDevice[]> {
-  const res = await matrixRequest<{
-    devices?: Array<{
-      device_id: string;
-      display_name?: string | null;
-      last_seen_ip?: string | null;
-      last_seen_ts?: number | null;
-    }>;
-  }>("GET", "/_matrix/client/v3/devices", undefined, accessToken);
+  const [res, ownDevice] = await Promise.all([
+    matrixRequest<{
+      devices?: Array<{
+        device_id: string;
+        display_name?: string | null;
+        last_seen_ip?: string | null;
+        last_seen_ts?: number | null;
+      }>;
+    }>("GET", "/_matrix/client/v3/devices", undefined, accessToken),
+    serverDeviceId(accessToken),
+  ]);
 
   return (res.devices ?? []).map(device => ({
     deviceId: device.device_id,
     displayName: device.display_name ?? null,
     lastSeenIp: device.last_seen_ip ?? null,
     lastSeenAt: device.last_seen_ts ?? null,
-    isServer: device.device_id === SERVER_DEVICE_ID,
+    // Either the device this token is on, or one the server explicitly named.
+    isServer: device.device_id === ownDevice || device.device_id === SERVER_DEVICE_ID,
   }));
 }
 
@@ -274,7 +304,13 @@ export async function deleteDevice(
   deviceId: string,
   auth: { user: string; password: string }
 ): Promise<void> {
-  if (deviceId === SERVER_DEVICE_ID) {
+  // Ask which device this token is on rather than comparing to a constant.
+  // The constant only ever matched accounts created by the login path; every
+  // account registered through the shared secret had a homeserver-named device,
+  // so this refusal never fired for them and the session was removable.
+  const ownDevice = await serverDeviceId(accessToken);
+
+  if (deviceId === ownDevice || deviceId === SERVER_DEVICE_ID) {
     throw new MatrixError(
       "That session belongs to the server itself and can't be signed out from here.",
       400,
