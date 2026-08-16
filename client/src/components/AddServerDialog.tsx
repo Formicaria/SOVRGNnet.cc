@@ -152,13 +152,16 @@ export default function AddServerDialog({
 
             {/* Encryption status is stated plainly, every time. Someone about
                 to type a password deserves to know which kind of server this
-                is before they do. */}
+                is before they do. `encryption` means the instance can offer
+                E2EE — channels still start plaintext, so the true branch must
+                not read as "everything here is encrypted". */}
             <div className="flex items-start gap-2 text-xs">
               {found.info.encryption ? (
                 <>
                   <ShieldCheck className="w-4 h-4 text-green-400 shrink-0 mt-0.5" />
                   <span className="text-slate-300">
-                    Messages here are end-to-end encrypted.
+                    Channels here can be end-to-end encrypted. Plaintext ones —
+                    the default — are readable by whoever runs this server.
                   </span>
                 </>
               ) : (

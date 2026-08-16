@@ -125,10 +125,11 @@ export default function AddServer({
             </p>
 
             {/* Stated every time. Someone about to type a password deserves
-                to know which kind of server they're looking at. */}
+                to know which kind of server they're looking at. `encryption`
+                means E2EE can be offered — channels still start plaintext. */}
             <p className={found.info.encryption ? "ok" : "warn"}>
               {found.info.encryption
-                ? "Messages here are end-to-end encrypted."
+                ? "Channels here can be end-to-end encrypted. Plaintext ones — the default — are readable by whoever runs this server."
                 : "Not end-to-end encrypted — whoever runs this server can read messages on it."}
             </p>
 

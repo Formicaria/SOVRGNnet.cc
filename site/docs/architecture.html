@@ -269,12 +269,14 @@ GET /ready             are its dependencies?</code></pre>
 
       <h2>What's honestly missing</h2>
       <ul>
-        <li><strong>End-to-end encryption.</strong> Messages are plaintext on
-            your homeserver. This is the big one — see
+        <li><strong>Encryption has limits.</strong> It's per channel and off by
+            default, metadata is never encrypted anywhere, and the instance can
+            mint a Matrix device for any of its accounts — the device gets no
+            keys until a person verifies it, but the person has to. See
             <a href="/docs/security.html">security</a>.</li>
-        <li><strong>Live updates are polling.</strong> The client polls every
-            three seconds rather than holding a push connection. It works; it
-            isn't elegant. A sync bridge replaces it later.</li>
+        <li><strong>Live updates poll on some instances.</strong> Clients sync
+            directly with the homeserver where it's reachable; where it isn't,
+            they fall back to polling the instance API every few seconds.</li>
         <li><strong>Presence is single-process.</strong> Typing indicators and
             online status live in one app process's memory. Correct for one
             container; running several would need Redis.</li>

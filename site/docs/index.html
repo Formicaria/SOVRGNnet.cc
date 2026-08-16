@@ -153,17 +153,19 @@ cd sovrgnnet
         <strong>v0.5.1 alpha.</strong> Working today: accounts, communities,
         channels, text chat over a real Matrix homeserver, file sharing on your
         own IPFS node, invite links, roles and moderation, message editing,
-        reactions, typing indicators. A native desktop client connects to
+        reactions, typing indicators. Channels can be end-to-end encrypted —
+        off by default, permanent once on. A native desktop client connects to
         several independent instances at once. Backups are portable, verified
         before restore, and can be encrypted at rest. A Prometheus-compatible
         metrics endpoint watches the whole stack.
       </p>
       <p class="muted">
-        Not yet: end-to-end encryption, voice and video, mobile apps, federation
-        between instances, an instance directory, and session revocation —
-        sessions are stateless and last a year. There has been no independent
-        security audit. See <a href="/docs/security.html">security</a> for what
-        that means in practice.
+        Not yet: voice and video, mobile apps, federation between instances, an
+        instance directory, and session revocation — sessions are stateless and
+        last a year. Metadata is never encrypted, even in encrypted channels,
+        and there has been no independent security audit. See
+        <a href="/docs/security.html">security</a> for what that means in
+        practice.
       </p>
 
       <h2>Getting help</h2>

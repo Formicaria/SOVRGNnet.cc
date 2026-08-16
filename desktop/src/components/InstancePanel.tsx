@@ -178,10 +178,15 @@ export default function InstancePanel({
                     </li>
                   ))}
                 </ul>
-                {health.capabilities.e2ee === false && (
+                {health.capabilities.e2ee === false ? (
                   <p className="panel-warn">
                     Messages are not end-to-end encrypted. Whoever runs this
                     instance can read them.
+                  </p>
+                ) : (
+                  <p className="panel-note">
+                    Encryption is per channel and off by default. Plaintext
+                    channels are readable by whoever runs this instance.
                   </p>
                 )}
               </section>

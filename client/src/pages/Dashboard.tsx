@@ -20,15 +20,17 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy, Pencil, SmilePlus, X, Globe, Settings } from "lucide-react";
+import { Loader2, Plus, Send, LogOut, Hash, Compass, AlertCircle, Paperclip, Download, UserPlus, Trash2, DoorOpen, Check, Copy, Pencil, SmilePlus, X, Globe, Settings, KeyRound, Lock } from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import MemberList from "@/components/MemberList";
 import AddServerDialog from "@/components/AddServerDialog";
 import ServerSettings from "@/components/ServerSettings";
+import { EncryptionPanel } from "@/components/EncryptionPanel";
 import { useConnections } from "@/contexts/ConnectionsContext";
-import { useDirectSync } from "@/hooks/useDirectSync";
+import { useMatrixSession } from "@/hooks/useMatrixSession";
+import type { MessageCryptoState } from "@shared/e2ee";
 
 /** Reactions people actually reach for, without shipping an emoji picker. */
 const QUICK_REACTIONS = ["👍", "😂", "🔥", "❤️", "👀", "🎉"] as const;
@@ -60,8 +62,14 @@ type TimelineItem =
       senderName: string | null;
       createdAt: Date;
       content: string;
-      /** True for events this client cannot read — rendered as such. */
-      encrypted: boolean;
+      /**
+       * How this message stands with the crypto machine. Never just
+       * "encrypted": a message that decrypted and one whose key never arrived
+       * are the same row in the index and must not look the same on screen.
+       */
+      cryptoState: MessageCryptoState;
+      /** What to show instead of content when there is no content to show. */
+      cryptoDetail: string;
       editedAt: Date | null;
       reactions: ReactionMap;
     }
@@ -104,27 +112,41 @@ export default function Dashboard() {
     { serverId: selectedServerId! },
     { enabled: selectedServerId != null }
   );
-  // Live updates over the client's own Matrix session where the instance
-  // offers it (ADR 0008 stage 3); the intervals below stay as the fallback
-  // for instances whose homeserver isn't publicly reachable.
+  // Live updates and encryption over the client's own Matrix session where the
+  // instance offers it (ADR 0008 stages 3 and 4); the intervals below stay as
+  // the fallback for instances whose homeserver isn't publicly reachable.
   const roomToChannelRef = useRef<Map<string, number>>(new Map());
-  const { live: syncLive, canAuthor, sendText } = useDirectSync(!!user, event => {
+  const {
+    live: syncLive,
+    canAuthor,
+    encryptionAvailable,
+    session: cryptoSession,
+    cryptoReady,
+    revision: cryptoRevision,
+    pendingVerification,
+    clearPendingVerification,
+    send: sendOverMatrix,
+    lookup: lookupPlaintext,
+    backfill,
+  } = useMatrixSession(!!user, event => {
     const channelId = roomToChannelRef.current.get(event.roomId);
     if (channelId == null) return;
 
-    const isFileNotice =
-      event.type === "m.room.message" &&
-      ("cc.sovrgnnet.file" in event.content ||
-        (event.content as { msgtype?: string }).msgtype === "m.file");
-
-    if (isFileNotice) {
-      void utils.fileShares.listByChannel.invalidate({ channelId });
-      return;
-    }
-    if (event.type === "m.room.message" || event.type === "m.room.redaction") {
+    // Stage 3 read the content to tell a file notice from a text message and
+    // refetched only the list that changed. In an encrypted room the wire type
+    // is `m.room.encrypted` and there is no content to read — the whole point
+    // — so the split can't survive. Both lists are refetched instead: one
+    // wasted request beats a file share that never appears.
+    if (
+      event.type === "m.room.message" ||
+      event.type === "m.room.encrypted" ||
+      event.type === "m.room.redaction"
+    ) {
       void utils.messages.listByChannel.invalidate({ channelId });
+      void utils.fileShares.listByChannel.invalidate({ channelId });
     }
   });
+  const [encryptionPanelOpen, setEncryptionPanelOpen] = useState(false);
 
   const messagesQuery = trpc.messages.listByChannel.useQuery(
     { channelId: selectedChannelId!, limit: 50 },
@@ -158,6 +180,16 @@ export default function Dashboard() {
       setSelectedChannelId(chan.id);
       setChannelDialogOpen(false);
       setNewChannelName("");
+    },
+    onError: e => setError(e.message),
+  });
+  const enableEncryption = trpc.channels.enableEncryption.useMutation({
+    onSuccess: async () => {
+      await utils.channels.listByServer.invalidate({ serverId: selectedServerId! });
+      // Opened straight afterwards because encrypting a channel is the moment
+      // a recovery key stops being optional, and the person who just did it is
+      // the one who most needs to be told.
+      setEncryptionPanelOpen(true);
     },
     onError: e => setError(e.message),
   });
@@ -274,20 +306,48 @@ export default function Dashboard() {
     }
   }, [channels]);
 
+  /**
+   * Where the index meets the plaintext.
+   *
+   * ADR 0009 made the instance's database an index built from Matrix, and
+   * stage 4's groundwork made it store `m.room.encrypted` content-blind. Both
+   * were right, and together they mean the index can order an encrypted
+   * conversation, name its senders and timestamp it, while being structurally
+   * incapable of rendering a word of it. That is not a gap to close — an index
+   * that could render it would be an index the operator can read.
+   *
+   * So content for an encrypted row comes from the crypto machine, joined on
+   * the Matrix event id the index does keep. When the machine has no plaintext
+   * the row still exists and says why, which is the difference between a
+   * conversation with a hole in it and a conversation that silently skips a
+   * message.
+   */
   const timeline: TimelineItem[] = useMemo(() => {
     const items: TimelineItem[] = [
-      ...messages.map(m => ({
-        kind: "message" as const,
-        id: `m${m.id}`,
-        dbId: m.id,
-        senderId: m.userId,
-        senderName: m.senderName,
-        createdAt: new Date(m.createdAt),
-        content: m.content,
-        encrypted: m.encrypted,
-        editedAt: m.editedAt ? new Date(m.editedAt) : null,
-        reactions: (m.reactions as ReactionMap | null) ?? {},
-      })),
+      ...messages.map(m => {
+        const decrypted = m.encrypted ? lookupPlaintext(m.matrixEventId) : undefined;
+        return {
+          kind: "message" as const,
+          id: `m${m.id}`,
+          dbId: m.id,
+          senderId: m.userId,
+          senderName: m.senderName,
+          createdAt: new Date(m.createdAt),
+          content: m.encrypted ? (decrypted?.body ?? "") : m.content,
+          cryptoState: !m.encrypted
+            ? ("plaintext" as const)
+            : (decrypted?.verdict.state ?? ("pending" as const)),
+          cryptoDetail: !m.encrypted
+            ? ""
+            : (decrypted?.verdict.detail ??
+              // No entry at all means the event hasn't reached this client's
+              // timeline yet, which is a different thing from a decryption
+              // failure and resolves itself within a sync.
+              "Waiting for this message to reach this device."),
+          editedAt: m.editedAt ? new Date(m.editedAt) : null,
+          reactions: (m.reactions as ReactionMap | null) ?? {},
+        };
+      }),
       ...files.map(f => ({
         kind: "file" as const,
         id: `f${f.id}`,
@@ -300,9 +360,24 @@ export default function Dashboard() {
       })),
     ];
     return items.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-  }, [messages, files]);
+    // `cryptoRevision` is the dependency that matters: a room key arriving
+    // changes what `lookupPlaintext` returns without changing `messages`.
+  }, [messages, files, lookupPlaintext, cryptoRevision]);
   const selectedServer = servers.find(s => s.id === selectedServerId) ?? null;
   const selectedChannel = channels.find(c => c.id === selectedChannelId) ?? null;
+
+  /**
+   * Pull the room's own timeline when an encrypted channel is opened.
+   *
+   * The index knows an encrypted message exists; only the timeline carries the
+   * ciphertext to decrypt. Without this, opening an encrypted channel shows
+   * rows that say "waiting" for everything older than this session's first
+   * sync — permanently, because nothing would ever go and fetch them.
+   */
+  useEffect(() => {
+    if (!selectedChannel?.encrypted || !selectedChannel.matrixRoomId) return;
+    void backfill(selectedChannel.matrixRoomId);
+  }, [selectedChannel?.id, selectedChannel?.encrypted, selectedChannel?.matrixRoomId, backfill]);
 
   // Pick sensible defaults as data arrives.
   useEffect(() => {
@@ -341,14 +416,31 @@ export default function Dashboard() {
     const content = messageInput.trim();
     if (!content || selectedChannelId == null || sendMessage.isPending) return;
 
-    // Refused honestly rather than sent quietly: plaintext into an encrypted
-    // room undermines the encryption for everyone in it. Lifted when this
-    // app can compose Megolm (ADR 0008 stage 4).
     const selected = channels.find(c => c.id === selectedChannelId);
+    const roomId = selected?.matrixRoomId;
+
+    // An encrypted channel has exactly one send path, and no fallback.
+    //
+    // Everywhere else in this function a failure falls back to the API, on the
+    // principle that a message shouldn't be lost to an architectural
+    // preference. Here that principle inverts: the API path composes plaintext
+    // server-side, and falling back to it would put cleartext into a room
+    // whose members believe it is encrypted. Refusing is the safe failure.
     if (selected?.encrypted) {
-      setError(
-        "This channel is end-to-end encrypted. This app can't compose encrypted messages yet."
-      );
+      if (!canAuthor || !roomId) {
+        setError(
+          "This channel is encrypted, and this client isn't holding its own Matrix " +
+            "session. Reload, or open it on a device that can."
+        );
+        return;
+      }
+      typingSentAt.current = 0;
+      setTyping.mutate({ channelId: selectedChannelId, typing: false });
+      setMessageInput("");
+      void sendOverMatrix(roomId, content).catch(() => {
+        setMessageInput(content);
+        setError("That message wasn't sent. Nothing was sent unencrypted.");
+      });
       return;
     }
 
@@ -360,10 +452,9 @@ export default function Dashboard() {
     // appears via the appservice ingest and the echo returns through /sync.
     // Any failure falls back to the API path — the message must not be lost
     // to an architectural preference.
-    const roomId = channels.find(c => c.id === selectedChannelId)?.matrixRoomId;
     if (canAuthor && roomId) {
       setMessageInput("");
-      void sendText(roomId, content).catch(() => {
+      void sendOverMatrix(roomId, content).catch(() => {
         sendMessage.mutate({ channelId: selectedChannelId, content });
       });
       return;
@@ -561,7 +652,27 @@ export default function Dashboard() {
           </>
         )}
 
-        <div className="mt-auto">
+        <div className="mt-auto flex flex-col gap-2">
+          {encryptionAvailable && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={() => setEncryptionPanelOpen(true)}
+                  className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 hover:rounded-xl flex items-center justify-center transition-all relative"
+                >
+                  <KeyRound className="w-4 h-4 text-slate-400" />
+                  {/* Shown only when setup is actually incomplete. A badge
+                      that is always on is a badge nobody reads, and this one
+                      is the only prompt to do the thing the whole stage
+                      depends on people doing. */}
+                  {cryptoReady === false && (
+                    <span className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Encryption</TooltipContent>
+            </Tooltip>
+          )}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -732,6 +843,54 @@ export default function Dashboard() {
             <>
               <Hash className="w-4 h-4 text-slate-500" />
               <span className="font-semibold">{selectedChannel.name}</span>
+              {selectedChannel.encrypted ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="flex items-center gap-1 text-xs text-emerald-400">
+                      <Lock className="w-3.5 h-3.5" />
+                      Encrypted
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    Messages here are readable only on the devices of people in this
+                    channel. Whoever runs this instance stores them, and can't read them.
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                canManageServer &&
+                encryptionAvailable && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="ml-auto h-7 text-xs text-slate-400 hover:text-slate-100"
+                    disabled={enableEncryption.isPending}
+                    onClick={() => {
+                      // Irreversible, so it asks. Matrix has no way to
+                      // un-encrypt a room and the messages sent afterwards
+                      // stay ciphertext forever.
+                      if (
+                        !window.confirm(
+                          `Encrypt #${selectedChannel.name}?\n\n` +
+                            "This can't be undone. Messages sent afterwards are readable " +
+                            "only on members' own devices — this instance will store them " +
+                            "and be unable to read them. Anyone whose client can't hold " +
+                            "keys will stop being able to read the channel."
+                        )
+                      ) {
+                        return;
+                      }
+                      enableEncryption.mutate({ channelId: selectedChannel.id });
+                    }}
+                  >
+                    {enableEncryption.isPending ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Lock className="w-3.5 h-3.5" />
+                    )}
+                    Encrypt this channel
+                  </Button>
+                )
+              )}
             </>
           ) : (
             <span className="text-slate-500">No channel selected</span>
@@ -924,9 +1083,26 @@ export default function Dashboard() {
                         <X className="w-3.5 h-3.5" />
                       </Button>
                     </div>
-                  ) : item.kind === "message" && item.encrypted ? (
-                    <p className="text-sm italic text-slate-500">
-                      🔒 Encrypted message — this app can't decrypt yet
+                  ) : item.kind === "message" && item.cryptoState !== "plaintext" && !item.content ? (
+                    // Encrypted and not readable here. The three states are
+                    // rendered differently on purpose: "pending" resolves by
+                    // itself, "recoverable" is something the reader can act
+                    // on, and "lost" is a hole they should stop waiting for.
+                    <p
+                      className={`flex items-center gap-1.5 text-sm italic ${
+                        item.cryptoState === "recoverable" ? "text-amber-500" : "text-slate-500"
+                      }`}
+                    >
+                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                      <span>{item.cryptoDetail}</span>
+                      {item.cryptoState === "recoverable" && (
+                        <button
+                          onClick={() => setEncryptionPanelOpen(true)}
+                          className="not-italic underline underline-offset-2 hover:text-amber-400"
+                        >
+                          Fix
+                        </button>
+                      )}
                     </p>
                   ) : (
                     <>
@@ -1057,6 +1233,17 @@ export default function Dashboard() {
           onError={setError}
         />
       )}
+
+      {/* Mounted regardless of the button, because a verification request from
+          another device has to be able to open it on its own. */}
+      <EncryptionPanel
+        open={encryptionPanelOpen}
+        onOpenChange={setEncryptionPanelOpen}
+        session={cryptoSession}
+        revision={cryptoRevision}
+        incoming={pendingVerification}
+        onIncomingHandled={clearPendingVerification}
+      />
     </div>
   );
 }

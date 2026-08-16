@@ -21,11 +21,11 @@ control rather than renting space inside somebody else's product.
 Maintained by [Formicaria](https://formicaria.us) · reference instance at
 [sovrgnnet.cc](https://sovrgnnet.cc)
 
-> **Status: v0.4.0 alpha.** Messaging, files, invites, roles, and moderation
+> **Status: v0.5.1 alpha.** Messaging, files, invites, roles, and moderation
 > work end-to-end. The desktop client connects to multiple independent
-> instances. Backups are portable and verified before restore. **Messages are
-> not yet end-to-end encrypted** — see [SECURITY.md](SECURITY.md). Full history
-> in [CHANGELOG.md](CHANGELOG.md).
+> instances. Backups are portable and verified before restore. **Channels can
+> now be end-to-end encrypted**, off by default and with real limits — see
+> [SECURITY.md](SECURITY.md). Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ## What "sovereign" means here, technically
 
@@ -133,19 +133,35 @@ non-authoritative so key-based identity can be added without it becoming so.
 
 > SOVRGNnet can provide identity services. SOVRGNnet must not own your identity.
 
-## How encryption works — and doesn't, yet
+## How encryption works — and where it stops
 
 Traffic to your instance is HTTPS. Between internal services it stays on
 loopback. Files are streamed with membership checks rather than from a public
 gateway.
 
-**Message contents are not end-to-end encrypted.** They're plaintext in the
-instance's database and homeserver, readable by whoever operates it. That's the
-honest state, it's stated in the interface where people can see it, and it's
-the next architectural milestone — client-side Matrix sessions with Olm/Megolm,
-so the server holds ciphertext it cannot read.
+**A channel is plaintext unless somebody turned encryption on.** That's the
+default and it doesn't change silently. In a plaintext channel, messages are
+readable by whoever operates the instance — stated in the interface, not just
+here.
 
-[SECURITY.md](SECURITY.md) · [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md)
+An administrator can encrypt a channel, permanently. From then on it's Megolm:
+keys live on members' devices, the homeserver and the instance's own index hold
+ciphertext, and the operator cannot read it. Setting up encryption gives you a
+recovery key, backs your message keys up to the server encrypted, and lets your
+devices verify each other by comparing emoji.
+
+Three things that are true and worth knowing before relying on it:
+
+- **Metadata isn't encrypted anywhere.** Who's in a channel, who spoke, when.
+- **The operator can still mint a device on your account** — Matrix passwords
+  here are derived from the app secret. It receives no keys until one of your
+  devices signs it, so the defence is real, and it ends in you reading a dialog.
+- **Encryption needs a reachable homeserver.** On a loopback-only deployment
+  the `e2ee` capability is false and the option isn't offered, because there'd
+  be nowhere for your keys to live but the server.
+
+[SECURITY.md](SECURITY.md) · [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) ·
+[ADR 0011](docs/adr/0011-crypto-machine.md)
 
 ## Stack
 
@@ -167,13 +183,16 @@ deterministic, and upgrades are deliberate.
 
 Stated up front rather than discovered later:
 
-- **No end-to-end encryption.** The instance operator can read messages.
+- **Encryption is off by default and per channel.** Plaintext channels are
+  readable by the operator, and metadata is readable in every channel.
+- **The instance can log in as any of its users.** Derived Matrix passwords;
+  the mitigation under encryption is device verification, which needs you.
 - **No session revocation.** Sessions are stateless and last a year.
 - **No voice or video.**
 - **No federation between instances** by default, and it's untested.
 - **The instance directory doesn't exist** — you join via invite links.
 - **No mobile apps.**
-- **Live updates are polling**, not a push stream.
+- **Live updates are polling** on instances that can't offer direct sync.
 - **Presence is single-process** — correct for one instance, would need Redis
   to run several app processes.
 - **No independent security audit.**

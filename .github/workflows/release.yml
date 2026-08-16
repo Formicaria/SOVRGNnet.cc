@@ -180,7 +180,10 @@ jobs:
             connects to servers other people run — it is not required to use a
             SOVRGNnet server, which works in any browser.
 
-            **Messages are not end-to-end encrypted.** They are stored as plain
-            text on whichever server you're using, and whoever runs that server
-            can read them. See `docs/adr/0001-multi-server-client.md`.
+            **A channel is plaintext unless somebody turned encryption on.**
+            In plaintext channels — the default — whoever runs the server can
+            read the messages. An administrator can permanently encrypt a
+            channel: keys then live on members' devices and the server stores
+            ciphertext it cannot read. The limits that come with that, visible
+            metadata among them, are stated plainly in `SECURITY.md`.
           generate_release_notes: true

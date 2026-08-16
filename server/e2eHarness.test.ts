@@ -72,7 +72,9 @@ describe("the journey calls procedures that exist", () => {
   });
 
   it.each(calledPaths())("%s exists on the router", path => {
-    expect(available.has(path), `${path} is not a procedure on appRouter`).toBe(true);
+    expect(available.has(path), `${path} is not a procedure on appRouter`).toBe(
+      true
+    );
   });
 });
 
@@ -128,7 +130,8 @@ describe("the harness cannot touch a real instance", () => {
   it("routes every compose call through one function", () => {
     // The point is that -p cannot be forgotten on the command that deletes
     // volumes. Any bare `docker compose` would sidestep that.
-    const bare = harness.match(/^\s*(docker compose|docker-compose|\$DC) /gm) ?? [];
+    const bare =
+      harness.match(/^\s*(docker compose|docker-compose|\$DC) /gm) ?? [];
     // $DC appears legitimately inside the compose() wrapper and in messages.
     expect(bare.filter(line => !line.includes("$DC")).length).toBe(0);
   });
@@ -200,7 +203,12 @@ describe("the harness backup matches the format the verifier reads", () => {
   });
 
   it("names the same components the verifier expects", () => {
-    for (const file of ["database.sql", "dendrite.sql", "ipfs_data.tar.gz", "env.backup"]) {
+    for (const file of [
+      "database.sql",
+      "dendrite.sql",
+      "ipfs_data.tar.gz",
+      "env.backup",
+    ]) {
       expect(backup, `${file} missing from the manifest`).toContain(file);
     }
   });
@@ -226,5 +234,52 @@ describe("restore verification checks what actually matters", () => {
 
   it("checks the administrator kept their role", () => {
     expect(journey).toMatch(/lost their role in the restore/);
+  });
+});
+
+/**
+ * The cross-signing probe is the only thing in this repository that tests ADR
+ * 0011's central assumption — that a homeserver records a completed UIA stage
+ * against the session rather than against the request that carried it. If the
+ * probe ever softens into a warning, or stops asserting, the harness goes
+ * green while the design underneath it is broken, and nothing else in the
+ * suite would notice. These guard the probe itself.
+ */
+describe("the journey proves the cross-signing auth path, not just runs it", () => {
+  const code = withoutComments(journey);
+
+  it("starts the flow unauthenticated and expects a challenge", () => {
+    expect(code).toMatch(/device_signing\/upload/);
+    expect(code).toMatch(/unauthenticated\.status !== 401/);
+  });
+
+  it("requires a password stage in the advertised flows", () => {
+    // Completing some other stage would prove nothing about what the client's
+    // re-submission actually needs satisfied.
+    expect(code).toMatch(/m\.login\.password/);
+  });
+
+  it("has the instance complete the stage, rather than doing it here", () => {
+    // The derived password must not appear in this process any more than it
+    // appears in a browser — that is the whole point of the design.
+    expect(code).toMatch(/matrix\.completeCrossSigningAuth/);
+    expect(code).not.toMatch(/deriveMatrixPassword/);
+  });
+
+  it("re-submits carrying the session id and nothing else", () => {
+    expect(code).toMatch(/auth:\s*\{\s*session:\s*challenge\.session\s*\}/);
+  });
+
+  it("throws on a 401 to the re-submission rather than warning", () => {
+    // The failure that matters. A soft landing here would let the assumption
+    // be false and the run still pass.
+    expect(code).toMatch(/resubmitted\.status === 401/);
+    expect(code).toMatch(/throw new JourneyError/);
+  });
+
+  it("reads the key back rather than trusting the 200", () => {
+    // "Accepted" and "stored" are different claims.
+    expect(code).toMatch(/keys\/query/);
+    expect(code).toMatch(/master_keys/);
   });
 });

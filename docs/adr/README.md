@@ -14,6 +14,10 @@ was tried and what it cost.
 | [0005](0005-desktop-hosts-a-server.md) | The desktop app hosts a server, bundled, no WSL2 | Accepted |
 | [0006](0006-dendrite-replaces-conduit.md) | Dendrite everywhere; Conduit removed | Accepted |
 | [0007](0007-protocol-versioning.md) | The protocol is versioned separately from the application | Accepted |
+| [0008](0008-client-side-matrix.md) | The client owns its Matrix session, in four stages — reverses the proxy chosen in 0001 | Accepted, all four shipped |
+| [0009](0009-appservice-ingest.md) | Matrix becomes the source of record; the database becomes an index built from it | Accepted |
+| [0010](0010-federated-senders.md) | The index holds senders with no local account | Accepted |
+| [0011](0011-crypto-machine.md) | matrix-js-sdk owns the client session; cross-signing setup goes through the instance | Accepted |
 
 ## The through-line
 

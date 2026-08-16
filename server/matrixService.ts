@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 
 import { nanoid } from "nanoid";
+import { encryptionStateContent } from "@shared/e2ee";
 import { ENV } from "./_core/env";
 
 /**
@@ -774,5 +775,87 @@ export async function isHomeserverReachable(timeoutMs = 3000): Promise<boolean> 
     return false;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * Switch a room to end-to-end encrypted — ADR 0008 stage 4.
+ *
+ * One direction only. Matrix has no way to un-encrypt a room, because the
+ * messages already sent are ciphertext and no state event makes them readable
+ * again; a client that saw `m.room.encryption` removed would be a client
+ * quietly downgraded. The absence of a `disableRoomEncryption` here is the
+ * design, not an omission.
+ *
+ * Sent by the instance rather than the client because the instance is the room
+ * admin — it created the room and holds the power level. It sets the state and
+ * then learns about its own event back through the appservice, which is what
+ * marks the channel encrypted in the index.
+ */
+export async function enableRoomEncryption(
+  accessToken: string,
+  roomId: string
+): Promise<string> {
+  const res = await matrixRequest<{ event_id: string }>(
+    "PUT",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.encryption/`,
+    encryptionStateContent(),
+    accessToken
+  );
+  return res.event_id;
+}
+
+/**
+ * Satisfy the password stage of a user-interactive-auth session, without the
+ * password ever reaching the browser — ADR 0011.
+ *
+ * Uploading cross-signing keys is UIA-gated, and on this instance the account
+ * passwords are derived from the app secret: the server knows all of them and
+ * the client knows none. Rather than hand one to the browser — permanent,
+ * unrotatable, authorises everything, and one XSS away from an attacker — the
+ * browser starts the flow, gets a 401 carrying a session id, and asks the
+ * instance to complete this one stage against that session. It then re-submits
+ * its own request with only the session id, and the homeserver, seeing the
+ * flow satisfied, processes keys it generated and still holds privately.
+ *
+ * The interesting case is the response. A UIA stage is recorded against the
+ * session as soon as the credentials check out, *before* the endpoint looks at
+ * the rest of the body — so this request, which carries no keys, can complete
+ * the stage and then be rejected for having nothing to upload. That rejection
+ * is success here. Only 401 and 403 mean the password was not accepted, and
+ * only those are reported as failure; anything else means the stage is done
+ * and the client's own request will now go through.
+ */
+export async function completeUiaPasswordStage(
+  localpart: string,
+  password: string,
+  session: string
+): Promise<void> {
+  const res = await fetchImpl(`${baseUrl()}/_matrix/client/v3/keys/device_signing/upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      auth: {
+        type: "m.login.password",
+        identifier: { type: "m.id.user", user: localpart },
+        password,
+        session,
+      },
+    }),
+  });
+
+  if (res.status === 401 || res.status === 403) {
+    const text = await res.text();
+    let errcode: string | undefined;
+    try {
+      errcode = JSON.parse(text)?.errcode;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new MatrixError(
+      "The homeserver did not accept this instance's credentials for the account.",
+      res.status,
+      errcode
+    );
   }
 }

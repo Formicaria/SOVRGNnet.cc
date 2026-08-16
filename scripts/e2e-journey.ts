@@ -16,6 +16,7 @@
  * is what makes "the backup works" a claim rather than a hope.
  */
 
+import { generateKeyPairSync } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -48,7 +49,9 @@ function assert(condition: unknown, message: string): asserts condition {
 
 function assertEqual<T>(actual: T, expected: T, message: string): void {
   if (actual !== expected) {
-    throw new JourneyError(`${message}\n      expected: ${expected}\n      actual:   ${actual}`);
+    throw new JourneyError(
+      `${message}\n      expected: ${expected}\n      actual:   ${actual}`
+    );
   }
 }
 
@@ -63,20 +66,27 @@ class Session {
   private cookieHeader(): string {
     // Array.from rather than spreading the Map: the root tsconfig targets a
     // low ES level, and iterating a Map directly needs downlevelIteration.
-    return Array.from(this.cookies, ([name, value]) => `${name}=${value}`).join("; ");
+    return Array.from(this.cookies, ([name, value]) => `${name}=${value}`).join(
+      "; "
+    );
   }
 
   private absorb(response: Response): void {
     // Node exposes multiple Set-Cookie headers through getSetCookie().
     const raw =
-      typeof (response.headers as { getSetCookie?: () => string[] }).getSetCookie === "function"
+      typeof (response.headers as { getSetCookie?: () => string[] })
+        .getSetCookie === "function"
         ? (response.headers as { getSetCookie: () => string[] }).getSetCookie()
         : [response.headers.get("set-cookie") ?? ""].filter(Boolean);
 
     for (const entry of raw) {
       const [pair] = entry.split(";");
       const index = pair.indexOf("=");
-      if (index > 0) this.cookies.set(pair.slice(0, index).trim(), pair.slice(index + 1).trim());
+      if (index > 0)
+        this.cookies.set(
+          pair.slice(0, index).trim(),
+          pair.slice(index + 1).trim()
+        );
     }
   }
 
@@ -87,25 +97,43 @@ class Session {
     // procedure receives undefined and fails validation — and the error comes
     // back wrapped too, which is why this first surfaced as "unknown error"
     // rather than as anything diagnosable.
-    if (input !== undefined) url.searchParams.set("input", JSON.stringify({ json: input }));
+    if (input !== undefined)
+      url.searchParams.set("input", JSON.stringify({ json: input }));
 
-    const response = await fetch(url, { headers: { cookie: this.cookieHeader() } });
+    const response = await fetch(url, {
+      headers: { cookie: this.cookieHeader() },
+    });
     this.absorb(response);
-    return unwrap<T>(await response.text(), response.status, `${this.label} GET ${path}`);
+    return unwrap<T>(
+      await response.text(),
+      response.status,
+      `${this.label} GET ${path}`
+    );
   }
 
   async mutate<T>(path: string, input?: unknown): Promise<T> {
     const response = await fetch(new URL(`/api/trpc/${path}`, BASE), {
       method: "POST",
-      headers: { "content-type": "application/json", cookie: this.cookieHeader() },
+      headers: {
+        "content-type": "application/json",
+        cookie: this.cookieHeader(),
+      },
       body: JSON.stringify({ json: input ?? {} }),
     });
     this.absorb(response);
-    return unwrap<T>(await response.text(), response.status, `${this.label} POST ${path}`);
+    return unwrap<T>(
+      await response.text(),
+      response.status,
+      `${this.label} POST ${path}`
+    );
   }
 
   /** Expect a call to be refused. Returns the message, so it can be asserted on. */
-  async expectDenied(path: string, input: unknown, what: string): Promise<string> {
+  async expectDenied(
+    path: string,
+    input: unknown,
+    what: string
+  ): Promise<string> {
     try {
       await this.mutate(path, input);
     } catch (error) {
@@ -122,7 +150,11 @@ class Session {
    * REST and shaped accordingly: express.raw on the body, everything else on
    * the query string.
    */
-  async upload(channelId: number, filename: string, bytes: Buffer): Promise<unknown> {
+  async upload(
+    channelId: number,
+    filename: string,
+    bytes: Buffer
+  ): Promise<unknown> {
     const url = new URL("/api/upload", BASE);
     url.searchParams.set("channelId", String(channelId));
     url.searchParams.set("filename", filename);
@@ -151,7 +183,9 @@ class Session {
       headers: { cookie: this.cookieHeader() },
     });
     if (!response.ok) {
-      throw new JourneyError(`${this.label} download failed (${response.status})`);
+      throw new JourneyError(
+        `${this.label} download failed (${response.status})`
+      );
     }
     return Buffer.from(await response.arrayBuffer());
   }
@@ -203,12 +237,18 @@ function unwrap<T>(text: string, status: number, context: string): T {
   }
 
   if (status >= 400) {
-    throw new JourneyError(`${context}: HTTP ${status} with no error body — ${text.slice(0, 200)}`);
+    throw new JourneyError(
+      `${context}: HTTP ${status} with no error body — ${text.slice(0, 200)}`
+    );
   }
 
   const data = body?.result?.data;
   // superjson nests the payload one level deeper.
-  if (data && typeof data === "object" && "json" in (data as Record<string, unknown>)) {
+  if (
+    data &&
+    typeof data === "object" &&
+    "json" in (data as Record<string, unknown>)
+  ) {
     return (data as { json: T }).json;
   }
   return data as T;
@@ -233,19 +273,29 @@ async function runJourney(): Promise<void> {
   // auth.register returns the user object *flat* — toPublicUser(user), not
   // { user }. Shapes here are read off the router rather than assumed; guessing
   // costs a full stack boot per mistake.
-  const registered = await owner.mutate<{ id: number; role?: string }>("auth.register", {
-    email: ownerEmail,
-    password,
-    name: "Owner",
-  });
-  assert(registered?.id, `registration returned no id: ${JSON.stringify(registered)}`);
+  const registered = await owner.mutate<{ id: number; role?: string }>(
+    "auth.register",
+    {
+      email: ownerEmail,
+      password,
+      name: "Owner",
+    }
+  );
+  assert(
+    registered?.id,
+    `registration returned no id: ${JSON.stringify(registered)}`
+  );
   ok("First account registered");
 
   const me = await owner.query<{ role?: string; email?: string }>("auth.me");
   assertEqual(me?.email, ownerEmail, "auth.me returned the wrong account");
   // The installer promises this, and it was broken once: adminProcedure
   // checked for the role and nothing ever assigned it.
-  assertEqual(me?.role, "admin", "the first account should be the instance admin");
+  assertEqual(
+    me?.role,
+    "admin",
+    "the first account should be the instance admin"
+  );
   ok("First account is the administrator");
 
   // Default join policy is invite-only, so a second signup must be refused.
@@ -270,7 +320,10 @@ async function runJourney(): Promise<void> {
     description: "Created by the end-to-end harness",
   });
   const community = created?.server;
-  assert(community?.id, `community creation returned no server: ${JSON.stringify(created)}`);
+  assert(
+    community?.id,
+    `community creation returned no server: ${JSON.stringify(created)}`
+  );
   ok(`Community created (#${community.id})`);
 
   // Listed rather than taken from the create response, so this exercises the
@@ -336,7 +389,8 @@ async function runJourney(): Promise<void> {
       capabilities?: { clientMatrix?: boolean; eventIngest?: boolean };
     };
     capabilities = instance.capabilities ?? {};
-    if (capabilities.clientMatrix === true && capabilities.eventIngest === true) break;
+    if (capabilities.clientMatrix === true && capabilities.eventIngest === true)
+      break;
     await new Promise(resolve => setTimeout(resolve, 500));
   }
   assert(
@@ -351,6 +405,7 @@ async function runJourney(): Promise<void> {
 
   const session = await owner.mutate<{
     homeserverUrl: string;
+    matrixUserId: string;
     accessToken: string;
     deviceId: string;
   }>("matrix.clientSession", { displayName: "e2e journey" });
@@ -400,6 +455,140 @@ async function runJourney(): Promise<void> {
   );
   ok("Ingest recorded it — the database is an index of Matrix, demonstrated");
 
+  // -- cross-signing through the instance (ADR 0011, decision 2) -------------
+  //
+  // The load-bearing assumption of stage 4's cross-signing flow, checked
+  // against the homeserver that has to honour it.
+  //
+  // Uploading cross-signing keys is user-interactive-auth gated, and this
+  // instance's Matrix passwords are derived, so the instance knows them and
+  // the browser doesn't. Rather than hand the password to a web page — it is
+  // permanent, unrotatable, and authorises everything — the client starts the
+  // flow, receives a UIA session id, asks the instance to satisfy that one
+  // stage, then re-submits carrying only the session id.
+  //
+  // That only works if the homeserver records a completed stage against the
+  // session rather than against the request. The spec is written that way and
+  // it is how the SSO stage can be satisfied in a different window, but it is
+  // an assumption about Dendrite's implementation and nothing else in this
+  // repository would notice if it were wrong. Everything about stage 4's
+  // identity story rests on it, so it is checked here rather than believed.
+  //
+  // Real Ed25519, no crypto library: a master cross-signing key is a public
+  // key and needs no signature — only the self- and user-signing keys have to
+  // be signed by it, and uploading a master key alone is enough to prove the
+  // authentication path. The keys are generated in this process and thrown
+  // away with the stack.
+
+  console.log("\n  Cross-signing auth (ADR 0011)");
+
+  const uploadUrl = `${homeserver}/_matrix/client/v3/keys/device_signing/upload`;
+  const uploadHeaders = {
+    Authorization: `Bearer ${session.accessToken}`,
+    "Content-Type": "application/json",
+  };
+
+  const unauthenticated = await fetch(uploadUrl, {
+    method: "POST",
+    headers: uploadHeaders,
+    body: JSON.stringify({}),
+  });
+
+  if (unauthenticated.status !== 401) {
+    // A homeserver that doesn't gate this endpoint makes the whole dance
+    // unnecessary — the SDK's first attempt simply succeeds. Worth saying out
+    // loud rather than passing silently, because it means this run proved
+    // less than it looks like it did.
+    detail(
+      `homeserver answered ${unauthenticated.status}, not 401 — no UIA required here`
+    );
+    ok("Device-signing upload needs no interactive auth on this homeserver");
+  } else {
+    const challenge = (await unauthenticated.json()) as {
+      session?: string;
+      flows?: Array<{ stages?: string[] }>;
+    };
+    assert(
+      typeof challenge.session === "string" && challenge.session.length > 0,
+      `the 401 carried no UIA session: ${JSON.stringify(challenge).slice(0, 200)}`
+    );
+    const stages = (challenge.flows ?? []).flatMap(flow => flow.stages ?? []);
+    assert(
+      stages.includes("m.login.password"),
+      `no password stage to satisfy; flows were ${JSON.stringify(challenge.flows)}`
+    );
+    ok(`Upload is UIA-gated, session issued (${stages.join(", ")})`);
+
+    // The instance satisfies the password stage. The derived password never
+    // enters this process, exactly as it never enters a browser.
+    const completed = await owner.mutate<{ completed: boolean }>(
+      "matrix.completeCrossSigningAuth",
+      { session: challenge.session }
+    );
+    assert(
+      completed?.completed === true,
+      `the instance couldn't complete the stage: ${JSON.stringify(completed)}`
+    );
+    ok("Instance satisfied the password stage, browser never saw the password");
+
+    const { publicKey } = generateKeyPairSync("ed25519");
+    // SPKI for Ed25519 is a 12-byte header followed by the 32-byte key.
+    const raw = publicKey.export({ format: "der", type: "spki" }).subarray(12);
+    const encoded = raw.toString("base64").replace(/=+$/, "");
+
+    const resubmitted = await fetch(uploadUrl, {
+      method: "POST",
+      headers: uploadHeaders,
+      body: JSON.stringify({
+        // Only the session id. No password, no identifier — the stage it
+        // refers to is already satisfied, and if the homeserver disagreed
+        // this is where stage 4's design would fall over.
+        auth: { session: challenge.session },
+        master_key: {
+          user_id: session.matrixUserId,
+          usage: ["master"],
+          keys: { [`ed25519:${encoded}`]: encoded },
+        },
+      }),
+    });
+
+    if (resubmitted.status === 401) {
+      const body = await resubmitted.text();
+      throw new JourneyError(
+        "The homeserver rejected a re-submission carrying only the UIA session id.\n" +
+          "      ADR 0011 decision 2 assumes a completed stage is recorded against the\n" +
+          "      session, not the request. On this homeserver it is not, so cross-signing\n" +
+          "      setup cannot work without giving the browser the derived password.\n" +
+          `      response: ${body.slice(0, 200)}`
+      );
+    }
+    assert(
+      resubmitted.ok,
+      `re-submission failed: HTTP ${resubmitted.status} ${(await resubmitted.text()).slice(0, 200)}`
+    );
+    ok(
+      "Re-submission with only the session id was accepted — the design holds"
+    );
+
+    // And the key is really there, which is the difference between "the
+    // request was accepted" and "the upload happened".
+    const queried = await fetch(`${homeserver}/_matrix/client/v3/keys/query`, {
+      method: "POST",
+      headers: uploadHeaders,
+      body: JSON.stringify({ device_keys: { [session.matrixUserId]: [] } }),
+    });
+    assert(queried.ok, `key query failed: HTTP ${queried.status}`);
+    const keys = (await queried.json()) as {
+      master_keys?: Record<string, { keys?: Record<string, string> }>;
+    };
+    const master = keys.master_keys?.[session.matrixUserId]?.keys ?? {};
+    assert(
+      Object.values(master).includes(encoded),
+      "the master key isn't in /keys/query — the upload was accepted but not stored"
+    );
+    ok("Master key readable back from the homeserver");
+  }
+
   // -- files ----------------------------------------------------------------
 
   console.log("\n  Files");
@@ -410,11 +599,17 @@ async function runJourney(): Promise<void> {
     cid?: string;
   };
   const cid = uploaded.ipfsHash ?? uploaded.cid;
-  assert(cid, `upload returned no CID: ${JSON.stringify(uploaded).slice(0, 160)}`);
+  assert(
+    cid,
+    `upload returned no CID: ${JSON.stringify(uploaded).slice(0, 160)}`
+  );
   ok(`Uploaded and pinned (${String(cid).slice(0, 16)}…)`);
 
   const fetched = await owner.download(String(cid));
-  assert(fetched.equals(payload), "the file that came back isn't the file that went up");
+  assert(
+    fetched.equals(payload),
+    "the file that came back isn't the file that went up"
+  );
   ok("Downloaded, byte-for-byte identical");
 
   // -- invite ---------------------------------------------------------------
@@ -427,13 +622,19 @@ async function runJourney(): Promise<void> {
   assert(invite?.code, `no invite code returned: ${JSON.stringify(invite)}`);
   ok("Invite created");
 
-  const guestUser = await guest.mutate<{ id: number; role?: string }>("auth.register", {
-    email: guestEmail,
-    password,
-    name: "Guest",
-    inviteCode: invite.code,
-  });
-  assert(guestUser?.id, `invited registration failed: ${JSON.stringify(guestUser)}`);
+  const guestUser = await guest.mutate<{ id: number; role?: string }>(
+    "auth.register",
+    {
+      email: guestEmail,
+      password,
+      name: "Guest",
+      inviteCode: invite.code,
+    }
+  );
+  assert(
+    guestUser?.id,
+    `invited registration failed: ${JSON.stringify(guestUser)}`
+  );
   // Only the first account is admin. A second must not inherit it.
   assert(guestUser.role !== "admin", "the second account must not be an admin");
   ok("Second account registered via invite, without admin");
@@ -449,7 +650,10 @@ async function runJourney(): Promise<void> {
   await guest.mutate("servers.joinByInvite", { code: invite.code });
   ok("Joined by invite");
 
-  await guest.mutate("messages.send", { channelId: channel.id, content: `guest ${stamp}` });
+  await guest.mutate("messages.send", {
+    channelId: channel.id,
+    content: `guest ${stamp}`,
+  });
   ok("Members can post");
 
   // -- permissions ----------------------------------------------------------
@@ -476,10 +680,14 @@ async function runJourney(): Promise<void> {
 
   console.log("\n  Matrix sessions");
 
-  const devices = await owner.query<Array<{ deviceId: string; isServer: boolean }>>(
-    "profile.devices"
+  const devices =
+    await owner.query<Array<{ deviceId: string; isServer: boolean }>>(
+      "profile.devices"
+    );
+  assert(
+    devices.length > 0,
+    `no Matrix devices listed: ${JSON.stringify(devices)}`
   );
-  assert(devices.length > 0, `no Matrix devices listed: ${JSON.stringify(devices)}`);
   const serverDevice = devices.find(d => d.isServer);
   assert(
     serverDevice,
@@ -528,22 +736,37 @@ async function verifyRestore(): Promise<void> {
   console.log("\n  After restore");
 
   // Signing in at all proves accounts and password hashes came back.
-  await owner.mutate("auth.login", { email: state.ownerEmail, password: state.password });
+  await owner.mutate("auth.login", {
+    email: state.ownerEmail,
+    password: state.password,
+  });
   ok("The account still exists and the password still works");
 
   const me = await owner.query<{ role?: string }>("auth.me");
-  assertEqual(me?.role, "admin", "the administrator lost their role in the restore");
+  assertEqual(
+    me?.role,
+    "admin",
+    "the administrator lost their role in the restore"
+  );
   ok("Administrator role survived");
 
-  const communities = await owner.query<Array<{ id: number; name: string }>>("servers.list");
+  const communities =
+    await owner.query<Array<{ id: number; name: string }>>("servers.list");
   const found = communities.find(c => c.id === state.communityId);
   assert(found, `the community is gone: ${JSON.stringify(communities)}`);
-  assertEqual(found.name, state.communityName, "the community came back with the wrong name");
+  assertEqual(
+    found.name,
+    state.communityName,
+    "the community came back with the wrong name"
+  );
   ok("Community survived");
 
-  const messages = await owner.query<Array<{ content: string }>>("messages.listByChannel", {
-    channelId: state.channelId,
-  });
+  const messages = await owner.query<Array<{ content: string }>>(
+    "messages.listByChannel",
+    {
+      channelId: state.channelId,
+    }
+  );
   assert(
     messages.some(m => m.content === state.messageText),
     "the owner's message is gone"
@@ -554,9 +777,12 @@ async function verifyRestore(): Promise<void> {
   );
   ok(`Messages survived (${messages.length} in the channel)`);
 
-  const files = await owner.query<Array<{ ipfsHash?: string }>>("fileShares.listByChannel", {
-    channelId: state.channelId,
-  });
+  const files = await owner.query<Array<{ ipfsHash?: string }>>(
+    "fileShares.listByChannel",
+    {
+      channelId: state.channelId,
+    }
+  );
   assert(
     files.some(f => f.ipfsHash === state.cid),
     "the file record is gone"
@@ -566,7 +792,11 @@ async function verifyRestore(): Promise<void> {
   // The bytes live in IPFS, not Postgres, so this proves the two halves of a
   // restore agree with each other rather than each being individually fine.
   const bytes = await owner.download(state.cid);
-  assertEqual(bytes.length, state.fileBytes, "the restored file is the wrong size");
+  assertEqual(
+    bytes.length,
+    state.fileBytes,
+    "the restored file is the wrong size"
+  );
   ok("File contents still downloadable");
 }
 

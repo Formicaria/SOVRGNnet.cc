@@ -373,21 +373,43 @@ function checkConsistency(descriptor: InstanceDescriptor): CheckResult[] {
     );
   }
 
-  // Client-side encryption requires the client to reach the homeserver itself.
-  // An instance claiming e2ee while proxying everything is claiming a property
-  // it structurally cannot have.
-  if (caps.e2ee && !caps.clientMatrix) {
+  // Client-side encryption requires two things the instance also advertises
+  // separately, and an e2ee claim that contradicts either of them is a claim
+  // about a property the deployment structurally cannot have.
+  //
+  //   clientMatrix — the client reaches the homeserver itself, and can
+  //   therefore hold its own keys. Without it the instance proxies everything
+  //   and holds the keys, which is not end-to-end encryption under any
+  //   description.
+  //
+  //   eventIngest — the instance records what its homeserver pushes. Without
+  //   it an encrypted message never reaches the index, so it is not unreadable
+  //   to other members, it is absent.
+  //
+  // A conforming instance derives e2ee from both (ADR 0011), so this can only
+  // fire against one that hard-codes the capability — which is exactly the
+  // instance worth catching.
+  const missing = [
+    !caps.clientMatrix ? "clientMatrix" : null,
+    !caps.eventIngest ? "eventIngest" : null,
+  ].filter((name): name is string => name !== null);
+
+  if (caps.e2ee && missing.length > 0) {
     results.push(
       fail(
         "consistency-e2ee",
         "Encryption claim is structurally possible",
-        "e2ee is true but clientMatrix is false. If the instance proxies all Matrix traffic, " +
-          "it holds the keys — this claims a protection it cannot provide."
+        `e2ee is true but ${missing.join(" and ")} ${missing.length === 1 ? "is" : "are"} ` +
+          "false. This claims a protection the deployment cannot provide."
       )
     );
   } else if (caps.e2ee) {
     results.push(
-      pass("consistency-e2ee", "Encryption claim is structurally possible", "e2ee with clientMatrix")
+      pass(
+        "consistency-e2ee",
+        "Encryption claim is structurally possible",
+        "e2ee with clientMatrix and eventIngest"
+      )
     );
   } else {
     results.push(

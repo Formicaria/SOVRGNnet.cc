@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { deriveE2eeCapability } from "@shared/e2ee";
 import { PROTOCOL_VERSION, type InstanceDescriptor } from "@shared/protocol";
 import { ENV } from "./_core/env";
 import { appserviceConfigured } from "./appservice";
@@ -125,19 +126,46 @@ export type StoredSettings = {
 } | null;
 
 /**
- * Whether this build encrypts messages end-to-end.
+ * Whether this build ships a crypto implementation at all.
  *
- * A property of the software, not of any deployment — so it is a constant, and
- * no environment variable can turn it on. It flips to true when Olm/Megolm
- * actually ships in the client (ADR 0001, phase 9), and not one commit sooner.
+ * A property of the software, not of any deployment, so it stays a constant
+ * that no environment variable can turn on. It became true when Olm/Megolm
+ * actually shipped in the client — ADR 0008 stage 4 — and not one commit
+ * sooner. It was false for five releases while the groundwork went in, which
+ * is the point of having it.
  *
- * This was briefly derived from whether the homeserver was publicly
- * reachable, which is wrong: a reachable homeserver is a *precondition* for
- * clients to sync directly and therefore for encryption to become possible.
- * It is not encryption. Conflating the two would have made every instance
- * advertise E2EE the moment it got a public address.
+ * It is necessary and not sufficient. See `e2eeAvailable`.
  */
-const E2EE_AVAILABLE = false;
+const E2EE_IMPLEMENTED = true;
+
+/**
+ * Whether *this instance* can offer end-to-end encryption.
+ *
+ * Shipping the code is one of three conditions and the only one the build
+ * controls. The others are facts about the deployment, and both are things
+ * this codebase has previously got wrong by asserting instead of checking:
+ * `encryption` in v0.3 was a constant that claimed more than the software did,
+ * and `clientMatrix` before stage 2 was `Boolean(MATRIX_PUBLIC_URL)`, which
+ * announced a capability the moment an operator set a variable.
+ *
+ * So the answer is derived. A homeserver has to have actually answered at the
+ * advertised address, because that is what lets a client hold its own session
+ * and therefore its own keys — on a loopback-only deployment the only place
+ * keys could live is the server, which is the arrangement encryption exists to
+ * end. And the appservice has to be wired, because an encrypted message the
+ * instance never records is invisible to every member whose client is on the
+ * API fallback.
+ *
+ * The derivation itself lives in `shared/e2ee.ts`, where it is unit-tested
+ * and where a client can read the same rule the instance applied.
+ */
+export function e2eeAvailable(): boolean {
+  return deriveE2eeCapability({
+    implemented: E2EE_IMPLEMENTED,
+    homeserverReachable: directSync().available,
+    eventIngest: appserviceConfigured(),
+  });
+}
 
 /**
  * The formal protocol descriptor for this instance.
@@ -167,7 +195,7 @@ export function instanceDescriptor(
     capabilities: {
       messaging: true,
       media: true,
-      // Declared by the same constant the app reports everywhere else, so
+      // Derived by the same function the app reports everywhere else, so
       // this can never drift into claiming encryption that doesn't exist.
       e2ee: info.encryption,
       voice: false,
@@ -221,7 +249,7 @@ export function instanceInfo(version: string, stored: StoredSettings = null): In
     // encryption) is available here at all.
     matrixBaseUrl: publicMatrix || null,
     joinPolicy: normalizeJoinPolicy(stored?.joinPolicy ?? process.env.INSTANCE_JOIN_POLICY),
-    encryption: E2EE_AVAILABLE,
+    encryption: e2eeAvailable(),
     listed: stored?.listed ?? process.env.INSTANCE_LISTED === "true",
     sso: {
       enabled: process.env.INSTANCE_ALLOW_SSO === "true",

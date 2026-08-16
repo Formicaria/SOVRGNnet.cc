@@ -304,7 +304,7 @@ export function explainMissing(capability: CapabilityName): string {
   const reasons: Record<CapabilityName, string> = {
     messaging: "This instance doesn't support messaging, which is unusual — it may be misconfigured.",
     media: "This instance doesn't have file sharing switched on.",
-    e2ee: "This instance doesn't support end-to-end encryption yet. Messages are readable by whoever runs it.",
+    e2ee: "This instance can't offer end-to-end encryption — either its homeserver isn't reachable by clients, or it isn't recording the events they send. Messages here are readable by whoever runs it.",
     voice: "This instance doesn't have voice channels.",
     federation: "This instance doesn't talk to other Matrix servers.",
     sso: "This instance only accepts accounts created on it directly.",

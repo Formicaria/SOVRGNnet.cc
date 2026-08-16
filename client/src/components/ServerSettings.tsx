@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Check, ShieldAlert } from "lucide-react";
+import { Loader2, Check, ShieldAlert, ShieldCheck } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -326,13 +326,20 @@ export default function ServerSettings({
             </label>
 
             {/* Facts an admin needs, that this dialog deliberately can't
-                change: the Matrix name is permanent, and encryption is a
-                property of the build. */}
+                change: the Matrix name is permanent, and whether encryption
+                can be offered is derived from the deployment, not chosen
+                here. */}
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 space-y-1.5">
               <p className="text-[11px] text-slate-500 font-mono">
                 {data.matrixServerName} · v{data.version} · {data.instanceId}
               </p>
-              {!data.encryption && (
+              {data.encryption ? (
+                <p className="text-xs text-slate-400 flex items-start gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  Channels can be encrypted, permanently. The plaintext ones —
+                  the default — you can read.
+                </p>
+              ) : (
                 <p className="text-xs text-amber-400/90 flex items-start gap-1.5">
                   <ShieldAlert className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                   Messages on this server are not end-to-end encrypted. You can

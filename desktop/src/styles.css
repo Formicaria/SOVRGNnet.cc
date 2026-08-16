@@ -446,6 +446,18 @@ button.ghost:hover { color: var(--text); }
   font-size: 12px;
 }
 
+/* Same shape as .panel-warn, quieter: a fact worth stating, not a hazard.
+   Used when e2ee is offered — plaintext-by-default still deserves a line. */
+.panel-note {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  line-height: 1.45;
+  font-size: 12px;
+}
+
 .panel-foot { display: flex; gap: 8px; margin-top: 22px; }
 .panel-foot button {
   background: var(--accent);

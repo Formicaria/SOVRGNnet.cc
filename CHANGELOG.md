@@ -1,5 +1,73 @@
 # Changelog
 
+## Unreleased
+
+**End-to-end encryption (ADR 0008 stage 4, ADR 0011).** An administrator can
+encrypt a channel. From then on messages are Megolm ciphertext: keys live on
+members' devices, the homeserver stores what it cannot read, and the instance's
+own index — which has held `m.room.encrypted` content-blind since v0.5 — keeps
+the ordering and none of the content. ADR 0008 said `e2ee` flips only when all
+of it works including recovery, so all of it is here: cross-signing, emoji
+device verification, a recovery key, server-side key backup, and restoring a
+new device from that key.
+
+*What it doesn't do ships in the same commit as what it does.* Metadata is
+readable in every channel. The instance can still mint a Matrix device for any
+user, because the derived password still exists — so room keys are shared only
+with cross-signed devices, which turns "you would have been warned" into "that
+device received nothing", and leaves the last step with a person clicking a
+button. The threat model gains T20 and T21 and rewrites T1 and T17 around it.
+
+*matrix-js-sdk arrives and the hand-rolled sync engine leaves.* Stage 3 said
+the SDK would earn its bundle weight when crypto landed. Running both would
+mean two positions in one stream and a bug with two candidate causes — the
+exact thing separating stages 3 and 4 was meant to avoid — so
+`shared/matrixSyncCore.ts` and its test suite are deleted rather than kept
+alongside.
+
+The weight is real and is paid only by instances that can use it: about 1 MB of
+JavaScript and a 7.8 MB WASM module, all of it behind a dynamic import gated on
+`clientMatrix`, none of it in the entry chunk. An instance whose homeserver is
+on loopback fetches not one byte and behaves exactly as it did before.
+
+*Cross-signing without putting the derived password in a browser.* The key
+upload is user-interactive-auth gated and only the instance knows the password.
+Rather than hand it over — permanent, unrotatable, one XSS from an attacker —
+the client starts the flow, gets a UIA session id, and asks the instance to
+satisfy that one stage. Private keys stay in the browser; the password stays on
+the server. A UIA stage is recorded as soon as the credentials check out, before
+the endpoint reads the rest of the body, so the instance's keyless request
+completing the stage and *then* being rejected is the success case. Only 401
+and 403 are failures.
+
+That last part is an assumption about a homeserver, so the e2e harness checks
+it against a real one: unauthenticated upload, 401 with a password stage, the
+instance satisfies it, re-submit with the session id and a generated Ed25519
+master key, read the key back from `/keys/query`. A 401 on the re-submission
+fails the run and says the design doesn't hold there. It needs no Olm — a
+master cross-signing key is a public key and carries no signature of its own.
+
+*Sending into an encrypted room has no fallback, and that inverts a rule.*
+Every other client-side send falls back to the instance API so a message isn't
+lost to an architectural preference. The API path composes plaintext
+server-side, so here the fallback would put cleartext into a room whose members
+believe it's encrypted. The send fails, says so, and puts the text back in the
+box.
+
+*`e2ee` is derived, not declared.* Three conditions: the build ships crypto, a
+homeserver actually answered at the advertised address, and the appservice is
+wired. No environment variable sets any of them. This codebase has twice turned
+a deployment detail into a claim — `encryption` in v0.3, `clientMatrix` before
+stage 2 — and a client acted on it both times.
+
+*An unreadable message now says which kind of unreadable it is:* waiting for a
+key, fixable by verifying this device or entering a recovery key, or gone.
+They were one grey row before, and only the middle kind is something anybody
+can act on.
+
+Also corrected: `SECURITY.md` still claimed Matrix tokens are never sent to a
+browser. That stopped being true when stage 3 shipped.
+
 ## v0.5.1 — 2026-08-16
 
 **v0.5.0's desktop builds never shipped, and this is the release that fixes

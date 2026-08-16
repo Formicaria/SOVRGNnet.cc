@@ -12,7 +12,13 @@ import {
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { canRegister, instanceId, instanceInfo, normalizeJoinPolicy } from "./instance";
+import {
+  canRegister,
+  e2eeAvailable,
+  instanceId,
+  instanceInfo,
+  normalizeJoinPolicy,
+} from "./instance";
 import {
   JwksCache,
   decideSsoLink,
@@ -480,6 +486,58 @@ export const appRouter = router({
         if (!channel) return undefined;
         await requireServerMembership(channel.serverId, ctx.user.id);
         return channel;
+      }),
+
+    /**
+     * Turn on end-to-end encryption for a channel — ADR 0008 stage 4.
+     *
+     * Permanent, and gated three ways.
+     *
+     * *Admin only*, because it changes what every member of the channel can
+     * read and cannot be undone by any of them.
+     *
+     * *Refused unless the instance advertises `e2ee`* — which means a
+     * homeserver actually answered at the advertised address, and the instance
+     * records what that homeserver pushes. Encrypting a room whose members
+     * can't hold their own keys produces a channel nobody can read, the
+     * instance least of all, since it deliberately stores ciphertext
+     * content-blind.
+     *
+     * *Refused when already encrypted*, so a second call can't rotate the
+     * algorithm out from under existing history.
+     */
+    enableEncryption: protectedProcedure
+      .input(z.object({ channelId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const channel = await db.getChannelById(input.channelId);
+        if (!channel) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+        }
+        await requireServerRole(channel.serverId, ctx.user.id, "admin");
+
+        if (channel.encrypted) {
+          return { encrypted: true, alreadyEnabled: true } as const;
+        }
+
+        if (!e2eeAvailable()) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "This instance can't offer encryption yet — its homeserver isn't " +
+              "reachable by clients, or it isn't recording the events they send.",
+          });
+        }
+
+        const creds = await ensureMatrixCredentials(ctx.user.id);
+        await matrix.enableRoomEncryption(creds.accessToken, channel.matrixRoomId);
+
+        // The appservice marks the channel encrypted when the homeserver
+        // pushes the state event back. Doing it here too makes the change
+        // visible immediately and is idempotent — `markChannelEncrypted` only
+        // ever sets the flag true, and Matrix never downgrades the state.
+        await db.markChannelEncrypted(channel.matrixRoomId);
+
+        return { encrypted: true, alreadyEnabled: false } as const;
       }),
 
     /** "I'm typing" — call while someone is composing. */
@@ -1216,6 +1274,47 @@ export const appRouter = router({
           accessToken: session.accessToken,
           deviceId: session.deviceId ?? deviceId,
         };
+      }),
+
+    /**
+     * Satisfy the password stage of one user-interactive-auth session, so a
+     * client can upload cross-signing keys it generated itself — ADR 0011.
+     *
+     * The narrowest thing that makes stage 4 possible on this architecture.
+     * Uploading cross-signing keys is UIA-gated; this instance's Matrix
+     * passwords are derived from the app secret, so the instance knows them
+     * and the browser doesn't. Handing one over for the duration of the flow
+     * would put a permanent, unrotatable, fully-authorising credential inside
+     * a web page. This does the opposite: the client keeps its private keys,
+     * the instance keeps the password, and the only thing that crosses is a
+     * session id the homeserver issued a moment ago.
+     *
+     * The session id is not a capability by itself. It is meaningless without
+     * the request the client is already making, it belongs to the caller's own
+     * account because the password used is derived from `ctx.user.id`, and it
+     * expires with the UIA session. Passing somebody else's session id here
+     * completes a stage on a flow this instance would then satisfy with the
+     * *caller's* password, which the homeserver rejects.
+     */
+    completeCrossSigningAuth: protectedProcedure
+      .input(z.object({ session: z.string().min(1).max(255) }))
+      .mutation(async ({ ctx, input }) => {
+        if (!directSync().available) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "This instance does not offer direct Matrix sync.",
+          });
+        }
+
+        await ensureMatrixCredentials(ctx.user.id);
+
+        await matrix.completeUiaPasswordStage(
+          matrix.localpartForUser(ctx.user.id),
+          matrix.deriveMatrixPassword(ctx.user.id),
+          input.session
+        );
+
+        return { completed: true } as const;
       }),
   }),
 });
