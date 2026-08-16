@@ -51,3 +51,20 @@ fi
 
 echo ""
 echo "All ${#FOUND[@]} agree on $ROOT"
+
+# --- Cargo.lock self-consistency ---------------------------------------------
+# A lockfile with the same package listed twice at one version doesn't fail
+# here — it fails twenty minutes later on three CI runners at once, which is
+# exactly how v0.5.0's desktop builds died: a careless bump-time edit turned
+# heck 0.4.1 into a second heck 0.5.0. Cargo refuses such a file; so do we,
+# before anything expensive.
+DUPES="$(grep -A1 '^name = ' desktop/src-tauri/Cargo.lock \
+  | paste - - - | awk '{print $3, $6}' | sort | uniq -d)"
+if [ -n "$DUPES" ]; then
+  echo ""
+  echo "✗ desktop/src-tauri/Cargo.lock lists the same package twice:"
+  printf '%s\n' "$DUPES" | sed 's/^/    /'
+  echo "  Restore the lockfile from git and change only the sovrgnnet-desktop entry."
+  exit 1
+fi
+echo "✓ Cargo.lock has no duplicate packages"
