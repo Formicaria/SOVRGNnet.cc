@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+<<<<<<< HEAD
 Deliberately unversioned: `package.json` still reads 0.4.0, which is what is
 tagged and shipped. The number moves when this is released, not before — the
 tag guard exists because those drifted apart once already.
@@ -58,6 +59,36 @@ Documented before the claim rather than after.
 
 **ADR 0008** records the plan to invert the Matrix proxy so the client owns the
 session, which is a precondition for end-to-end encryption meaning anything.
+=======
+**The public site has a new landing page, and the rest of the site now matches
+it.** `site/index.html` is rebuilt around the SOVRGN mark and wordmark: a hero
+split between the mark and a preview of the client, the five-part ownership
+bar, the feature grid, an architecture diagram that puts your instance at the
+centre, the install transcript, and the honest-status section. `/docs`,
+`/legal.html` and `/404.html` pick up the same header, footer, palette and
+iconography rather than staying on the old chrome, so the site reads as one
+product end to end.
+
+Two pages are new. `manifesto.html` states the six commitments the project can
+be held to, starting from the one that matters — if sovrgnnet.cc disappeared
+tomorrow, a correctly configured instance keeps running. `about.html` covers
+what SOVRGN is, where v0.4.0 actually stands, and which of SOVRGN, SOVRGNnet
+and Formicaria means what.
+
+The preview and the diagram claim only what is built. There are no voice
+channels in the client mock, because there is no voice; the bot's status card
+says `Tunnel`, because that is what it is; and federation appears in the
+architecture diagram as a dashed edge labelled *off by default, untested*,
+because that is what it is. Every line of the install transcript is a line
+`install.sh` really prints.
+
+Still zero build and zero JavaScript. The mobile menu is a native `<details>`
+disclosure, the SOVRGN and Formicaria marks are two SVG files, and the display
+and monospace faces are vendored under `assets/fonts` with their SIL OFL
+licences — about 82 kB, cached for a year — because `font-src 'self'` rules out
+a hosted webfont. Nothing needs a `style` attribute and the
+Content-Security-Policy is unchanged.
+>>>>>>> origin/main
 
 ## v0.4.0 — 2026-08-15
 
