@@ -153,6 +153,58 @@ export async function countUsers(): Promise<number> {
   return Number(rows[0]?.count ?? 0);
 }
 
+export async function getUserBySsoSubject(subject: string) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const rows = await db
+    .select()
+    .from(users)
+    .where(eq(users.ssoSubject, subject))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Bind an existing local account to a sovrgnnet.cc identity. */
+export async function linkSsoSubject(userId: number, subject: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(users)
+    .set({ ssoSubject: subject, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+}
+
+/**
+ * Create an account from a verified identity token.
+ *
+ * No password hash: this account signs in through sovrgnnet.cc. It can be
+ * given a local password later, but it never has one implicitly.
+ */
+export async function createSsoUser(
+  subject: string,
+  email: string | null,
+  name: string | null,
+  role: "user" | "admin" = "user"
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .insert(users)
+    .values({
+      openId: `sso:${subject}`,
+      ssoSubject: subject,
+      email: email?.toLowerCase() ?? null,
+      name: name ?? email?.split("@")[0] ?? "New member",
+      loginMethod: "sovrgnnet",
+      role,
+    })
+    .returning();
+  return result[0];
+}
+
 export async function touchLastSignedIn(userId: number): Promise<void> {
   const db = await getDb();
   if (!db) return;

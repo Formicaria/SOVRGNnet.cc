@@ -12,7 +12,13 @@ import {
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, publicProcedure, protectedProcedure, router } from "./_core/trpc";
-import { canRegister, instanceInfo, normalizeJoinPolicy } from "./instance";
+import { canRegister, instanceId, instanceInfo, normalizeJoinPolicy } from "./instance";
+import {
+  JwksCache,
+  decideSsoLink,
+  ssoConfigFromEnv,
+  verifySsoToken,
+} from "./sso";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import * as db from "./db";
@@ -38,6 +44,17 @@ const credentialsInput = z.object({
   email: z.string().email().max(320),
   password: z.string().min(8).max(256),
 });
+
+/**
+ * Signing keys from the identity provider, cached for the process lifetime.
+ *
+ * One instance, so every request shares the cache — and so an outage at the
+ * provider is survived by the whole server rather than per-request.
+ */
+const jwksCache = new JwksCache(
+  process.env.IDENTITY_ISSUER?.trim() || "https://sovrgnnet.cc"
+);
+const ssoConfig = () => ssoConfigFromEnv(instanceId());
 
 /** Public shape of a user — never expose passwordHash. */
 function toPublicUser(user: User) {
@@ -128,6 +145,82 @@ export const appRouter = router({
         resetLoginRateLimit(rateKey);
         await db.touchLastSignedIn(user.id);
 
+        const token = await createSessionToken(user.id);
+        setSessionCookie(ctx.req, ctx.res, token);
+        return toPublicUser(user);
+      }),
+
+    /**
+     * Sign in with a sovrgnnet.cc account.
+     *
+     * The token was minted for this server specifically and is verified
+     * against a cached public key, so this works even when the identity
+     * provider is unreachable. Servers that want nothing to do with central
+     * identity leave INSTANCE_ALLOW_SSO unset and this always refuses.
+     */
+    ssoLogin: publicProcedure
+      .input(z.object({ token: z.string().min(1).max(4096) }))
+      .mutation(async ({ ctx, input }) => {
+        let claims;
+        try {
+          claims = await verifySsoToken(input.token, jwksCache, ssoConfig());
+        } catch (err) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: err instanceof Error ? err.message : "That sign-in couldn't be verified.",
+          });
+        }
+
+        const [existingBySubject, existingByEmail] = await Promise.all([
+          db.getUserBySsoSubject(claims.sub),
+          claims.email ? db.getUserByEmail(claims.email) : Promise.resolve(null),
+        ]);
+
+        const decision = decideSsoLink({
+          claims,
+          existingBySubject: existingBySubject ? { id: existingBySubject.id } : null,
+          existingByEmail: existingByEmail
+            ? { id: existingByEmail.id, ssoSubject: existingByEmail.ssoSubject }
+            : null,
+        });
+
+        if (decision.action === "refuse") {
+          throw new TRPCError({ code: "CONFLICT", message: decision.message });
+        }
+
+        let user;
+        if (decision.action === "create") {
+          // The same join policy applies to SSO as to local sign-up — a
+          // closed server stays closed no matter where the identity is from.
+          const isFirstAccount = (await db.countUsers()) === 0;
+          const settings = await db.getInstanceSettings().catch(() => null);
+          const verdict = canRegister({
+            policy: instanceInfo(APP_VERSION, settings).joinPolicy,
+            isFirstAccount,
+            hasValidInvite: false,
+          });
+          if (!verdict.allowed) {
+            throw new TRPCError({ code: "FORBIDDEN", message: verdict.message });
+          }
+
+          user = await db.createSsoUser(
+            claims.sub,
+            claims.email ?? null,
+            claims.name ?? null,
+            isFirstAccount ? "admin" : "user"
+          );
+        } else {
+          if (decision.action === "link") {
+            await db.linkSsoSubject(decision.userId, claims.sub);
+          }
+          const found = await db.getUserById(decision.userId);
+          if (!found) {
+            throw new TRPCError({ code: "NOT_FOUND", message: "Account not found." });
+          }
+          user = found;
+        }
+
+        await db.touchLastSignedIn(user.id);
         const token = await createSessionToken(user.id);
         setSessionCookie(ctx.req, ctx.res, token);
         return toPublicUser(user);
