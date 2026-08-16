@@ -1,6 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// This file is ESM (package.json sets "type": "module"), so __dirname does not
+// exist here. Resolving against import.meta.url is the equivalent that works.
+const here = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
 // Tauri drives this dev server; the port is fixed because tauri.conf.json
 // points at it and a moving port would break `tauri dev`.
@@ -11,8 +15,8 @@ export default defineConfig({
       // The connection, invite, and deep-link logic is shared with the web
       // app rather than reimplemented here — one tested implementation of
       // "which servers am I connected to", not two that drift.
-      "@shared": resolve(__dirname, "../shared"),
-      "@": resolve(__dirname, "src"),
+      "@shared": here("../shared"),
+      "@": here("./src"),
     },
   },
   server: {

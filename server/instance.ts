@@ -74,6 +74,21 @@ export type StoredSettings = {
   listed?: boolean | null;
 } | null;
 
+/**
+ * Whether this build encrypts messages end-to-end.
+ *
+ * A property of the software, not of any deployment — so it is a constant, and
+ * no environment variable can turn it on. It flips to true when Olm/Megolm
+ * actually ships in the client (ADR 0001, phase 9), and not one commit sooner.
+ *
+ * This was briefly derived from whether the homeserver was publicly
+ * reachable, which is wrong: a reachable homeserver is a *precondition* for
+ * clients to sync directly and therefore for encryption to become possible.
+ * It is not encryption. Conflating the two would have made every instance
+ * advertise E2EE the moment it got a public address.
+ */
+const E2EE_AVAILABLE = false;
+
 export function instanceInfo(version: string, stored: StoredSettings = null): InstanceInfo {
   const publicMatrix = process.env.MATRIX_PUBLIC_URL?.trim();
 
@@ -96,7 +111,7 @@ export function instanceInfo(version: string, stored: StoredSettings = null): In
     // encryption) is available here at all.
     matrixBaseUrl: publicMatrix || null,
     joinPolicy: normalizeJoinPolicy(stored?.joinPolicy ?? process.env.INSTANCE_JOIN_POLICY),
-    encryption: Boolean(publicMatrix),
+    encryption: E2EE_AVAILABLE,
     listed: stored?.listed ?? process.env.INSTANCE_LISTED === "true",
     software: { name: "sovrgnnet", version },
   };

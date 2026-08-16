@@ -57,13 +57,26 @@ describe("instanceInfo", () => {
     expect(info.listed).toBe(false);
   });
 
-  it("reports no encryption until a public homeserver is published", () => {
+  it("never claims encryption, because this build has none", () => {
     expect(instanceInfo("0.1.0").encryption).toBe(false);
+  });
+
+  it("does not start claiming encryption once the homeserver is public", () => {
+    // A reachable homeserver is a precondition for clients to sync directly,
+    // and therefore for encryption to become possible later. It is not
+    // encryption. These two must never be wired together again.
+    process.env.MATRIX_PUBLIC_URL = "https://matrix.example.com";
+
+    const info = instanceInfo("0.1.0");
+    expect(info.matrixBaseUrl).toBe("https://matrix.example.com");
+    expect(info.encryption).toBe(false);
+  });
+
+  it("exposes the homeserver address so clients know direct sync is possible", () => {
+    expect(instanceInfo("0.1.0").matrixBaseUrl).toBeNull();
 
     process.env.MATRIX_PUBLIC_URL = "https://matrix.example.com";
-    const info = instanceInfo("0.1.0");
-    expect(info.encryption).toBe(true);
-    expect(info.matrixBaseUrl).toBe("https://matrix.example.com");
+    expect(instanceInfo("0.1.0").matrixBaseUrl).toBe("https://matrix.example.com");
   });
 
   describe("settings precedence", () => {
