@@ -328,13 +328,14 @@ export async function getChannelById(channelId: number) {
 }
 
 // Message functions
-export async function createMessage(channelId: number, userId: number, content: string, matrixEventId: string, encrypted: boolean = true) {
+export async function createMessage(channelId: number, userId: number, content: string, matrixEventId: string, encrypted: boolean = true, senderMatrixId?: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   const result = await db.insert(messages).values({
     channelId,
     userId,
+    senderMatrixId: senderMatrixId ?? null,
     content,
     matrixEventId,
     encrypted,
@@ -364,6 +365,7 @@ export async function getMessagesByChannel(
       userId: messages.userId,
       content: messages.content,
       matrixEventId: messages.matrixEventId,
+      senderMatrixId: messages.senderMatrixId,
       encrypted: messages.encrypted,
       createdAt: messages.createdAt,
       editedAt: messages.editedAt,
@@ -389,7 +391,9 @@ export async function getMessagesByChannel(
 
   return rows.reverse().map(row => ({
     ...row,
-    senderName: displayName(row.nickname, row.accountName),
+    // Nickname, then account name; a federated sender has neither, and their
+    // Matrix id is the honest, unambiguous fallback (ADR 0010).
+    senderName: displayName(row.nickname, row.accountName) ?? row.senderMatrixId,
     senderAvatar: row.memberAvatar,
   }));
 }
@@ -514,11 +518,13 @@ export async function getChannelByMatrixRoomId(matrixRoomId: string) {
  */
 export async function ingestMessage(
   channelId: number,
-  userId: number,
+  /** Null for federated senders — a Matrix id with no local account (ADR 0010). */
+  userId: number | null,
   content: string,
   matrixEventId: string,
   encrypted: boolean,
-  originServerTs?: number
+  originServerTs?: number,
+  senderMatrixId?: string
 ): Promise<boolean> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -528,6 +534,7 @@ export async function ingestMessage(
     .values({
       channelId,
       userId,
+      senderMatrixId: senderMatrixId ?? null,
       content,
       matrixEventId,
       encrypted,

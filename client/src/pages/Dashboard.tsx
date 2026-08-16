@@ -55,7 +55,8 @@ type TimelineItem =
       kind: "message";
       id: string;
       dbId: number;
-      senderId: number;
+      /** Null for federated senders — a Matrix id without a local account. */
+      senderId: number | null;
       senderName: string | null;
       createdAt: Date;
       content: string;
@@ -766,12 +767,40 @@ export default function Dashboard() {
           }}
         >
           {servers.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 gap-2">
-              <p className="text-lg text-slate-300">Welcome to SOVRGNnet.</p>
-              <p className="text-sm">
-                Create a server with the <Plus className="w-3.5 h-3.5 inline" /> button, or
-                find one with <Compass className="w-3.5 h-3.5 inline" /> Discover.
-              </p>
+            <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 gap-3">
+              {user.role === "admin" ? (
+                <>
+                  {/* The first account on an instance lands here having just
+                      set the whole thing up. Say so, and say what's next —
+                      this is the one moment they're guaranteed to be looking. */}
+                  <p className="text-lg text-slate-300">
+                    Your instance is running, and you're its administrator.
+                  </p>
+                  <div className="text-sm max-w-md space-y-1.5 text-left">
+                    <p>
+                      <Plus className="w-3.5 h-3.5 inline mr-1" />
+                      Create your first community — it starts with a #general channel.
+                    </p>
+                    <p>
+                      <UserPlus className="w-3.5 h-3.5 inline mr-1" />
+                      Invite people from the community header once it exists.
+                    </p>
+                    <p>
+                      <Settings className="w-3.5 h-3.5 inline mr-1" />
+                      Server settings holds your instance's name, join policy,
+                      health, and members.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg text-slate-300">Welcome.</p>
+                  <p className="text-sm">
+                    Create a server with the <Plus className="w-3.5 h-3.5 inline" /> button, or
+                    find one with <Compass className="w-3.5 h-3.5 inline" /> Discover.
+                  </p>
+                </>
+              )}
             </div>
           )}
           {timeline.map(item => (

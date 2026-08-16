@@ -17,6 +17,14 @@ export default defineConfig({
   envDir: path.resolve(import.meta.dirname),
   root: path.resolve(import.meta.dirname, "client"),
   publicDir: path.resolve(import.meta.dirname, "client", "public"),
+  optimizeDeps: {
+    // The Rust crypto bindings locate their .wasm with
+    // `new URL("...", import.meta.url)`. Pre-bundling rewrites the module's
+    // URL and the lookup resolves to a path that doesn't exist, so the whole
+    // crypto machine fails at init with a 404 for the WASM. Excluded here
+    // means Vite serves it as a real module and the relative URL holds.
+    exclude: ["@matrix-org/matrix-sdk-crypto-wasm"],
+  },
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,

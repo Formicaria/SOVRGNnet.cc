@@ -13,6 +13,9 @@ export default function Home() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [inviteCode, setInviteCode] = useState(
+    () => sessionStorage.getItem("pending_invite") ?? ""
+  );
   const [isSignUp, setIsSignUp] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -27,19 +30,31 @@ export default function Home() {
     }
   }, [user, setLocation]);
 
-  // Whether this server accepts sovrgnnet.cc accounts. Read from the server
-  // rather than assumed, because it's an operator's choice and most instances
-  // will have it switched off.
+  // What this instance is and who may join — read from the server rather
+  // than assumed, because both are the operator's choice. The form below
+  // shapes itself around the answer instead of letting a visitor type a
+  // doomed signup and learn the policy from a 403.
   const [sso, setSso] = useState<{ enabled: boolean; issuer: string | null } | null>(null);
+  const [instance, setInstance] = useState<{
+    name: string | null;
+    description: string | null;
+    joinPolicy: "open" | "invite" | "closed" | null;
+  }>({ name: null, description: null, joinPolicy: null });
   useEffect(() => {
     let cancelled = false;
     fetch("/api/instance")
       .then(res => (res.ok ? res.json() : null))
       .then(info => {
-        if (!cancelled && info?.sso) setSso(info.sso);
+        if (cancelled || !info) return;
+        if (info.sso) setSso(info.sso);
+        setInstance({
+          name: info.server?.name ?? null,
+          description: info.server?.description ?? null,
+          joinPolicy: info.joinPolicy ?? null,
+        });
       })
       .catch(() => {
-        // An instance that can't describe itself simply doesn't offer SSO.
+        // An instance that can't describe itself gets the generic form.
       });
     return () => {
       cancelled = true;
@@ -52,12 +67,17 @@ export default function Home() {
     window.location.href = `${sso.issuer.replace(/\/+$/, "")}/authorize?return=${encodeURIComponent(returnUrl)}`;
   };
 
+  // Signing up on a closed instance isn't possible; on an invite-only one it
+  // needs a code. The form says so up front.
+  const canSignUp = instance.joinPolicy !== "closed";
+  const needsInvite = instance.joinPolicy === "invite";
+
   const handleEmailAuth = async () => {
     try {
       setAuthLoading(true);
       setAuthError(null);
       if (isSignUp) {
-        await register(email, password);
+        await register(email, password, undefined, inviteCode || undefined);
       } else {
         await login(email, password);
       }
@@ -230,13 +250,18 @@ export default function Home() {
           <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-3xl mx-auto mb-6">
             SN
           </div>
-          <h1 className="text-5xl font-bold mb-4">SOVRGNnet</h1>
+          <h1 className="text-5xl font-bold mb-4">{instance.name ?? "SOVRGNnet"}</h1>
           {/* Claims on this page must be true today, not on the roadmap. This
               is the last thing someone reads before typing a password. */}
           <p className="text-xl text-slate-300">
-            Chat on a server someone you trust actually owns. Built on Matrix
-            and IPFS, running on their hardware — not a company's.
+            {instance.description ??
+              "Chat on a server someone you trust actually owns. Built on Matrix and IPFS, running on their hardware — not a company's."}
           </p>
+          {instance.name && (
+            <p className="text-xs text-slate-500 mt-2 font-mono">
+              an independent SOVRGNnet instance
+            </p>
+          )}
         </div>
 
         <Card className="bg-slate-800 border-slate-700 p-6 space-y-4">
@@ -260,6 +285,21 @@ export default function Home() {
                 if (e.key === "Enter") handleEmailAuth();
               }}
             />
+            {isSignUp && needsInvite && (
+              <>
+                <Input
+                  placeholder="Invite code"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  className="bg-slate-700 border-slate-600 font-mono"
+                  disabled={authLoading}
+                />
+                <p className="text-xs text-slate-500 text-left">
+                  This instance is invite-only. Paste the code from your invite
+                  link — the part after <span className="font-mono">/invite/</span>.
+                </p>
+              </>
+            )}
           </div>
 
           {authError && (
@@ -278,16 +318,23 @@ export default function Home() {
             )}
           </Button>
 
-          <div className="text-center text-sm text-slate-400">
-            {isSignUp ? "Already have an account? " : "Don't have an account? "}
-            <button
-              onClick={() => setIsSignUp(!isSignUp)}
-              className="text-purple-400 hover:text-purple-300 underline"
-              disabled={authLoading}
-            >
-              {isSignUp ? "Sign In" : "Sign Up"}
-            </button>
-          </div>
+          {canSignUp ? (
+            <div className="text-center text-sm text-slate-400">
+              {isSignUp ? "Already have an account? " : "Don't have an account? "}
+              <button
+                onClick={() => setIsSignUp(!isSignUp)}
+                className="text-purple-400 hover:text-purple-300 underline"
+                disabled={authLoading}
+              >
+                {isSignUp ? "Sign In" : "Sign Up"}
+              </button>
+            </div>
+          ) : (
+            <p className="text-center text-xs text-slate-500">
+              This instance isn't accepting new accounts. Existing members can
+              sign in.
+            </p>
+          )}
 
           {/* Only shown when the operator has opted in. Most instances won't,
               and an inert button would just raise questions. */}
