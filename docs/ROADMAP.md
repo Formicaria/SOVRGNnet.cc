@@ -130,27 +130,171 @@ Sign-in, registration, and a recovery-codes screen are served by the identity se
 
 **Remaining:** turning it on. `INSTANCE_ALLOW_SSO` is off everywhere, so none of this is reachable yet.
 
-## Phase 8 — Client-side Matrix
+---
 
-The client syncs directly with each homeserver instead of the app proxying. Still plaintext — this step is about moving the transport, not encrypting it, and separating the two keeps each reviewable. Replaces the 3-second polling loop with a real `/sync` stream. Conduit stops being loopback-only and moves behind the tunnel with proper delegation.
+# Milestones (from v0.4)
 
-## Phase 9 — End-to-end encryption
+Reorganised around architectural milestones rather than a feature list. The
+ordering principle: **sovereignty first, social features after.** A polished
+Discord clone that stops working when one domain lapses is the failure mode
+this project exists to avoid.
 
-Olm/Megolm in the client. The part everyone underestimates isn't the encryption, it's the key management: cross-device verification, key backup, and recovery phrases are the difference between encryption and permanent data loss. The web app does not get E2EE and must stop implying it does.
+## 0.4 — Sovereign core
 
-## Phase 10 — Voice
+- [x] **Formal protocol versioning**, separate from application versioning, so
+      instances upgrade on their own schedule
+- [x] **Capability negotiation** — typed, defaulting to absent, with graceful
+      degradation and human-readable explanations
+- [x] **Health and readiness endpoints** that distinguish "app down" from
+      "database down"
+- [x] **Identity separation** — SSO off by default, local accounts always work,
+      cached keys survive provider outages
+- [x] **Threat model and security architecture**, written against what is built
+      rather than intended
+- [x] **Dependency cleanup** — 11 unused packages removed after verifying usage
+- [x] **Deterministic infrastructure** — every image pinned, no `latest`
+- [x] **Conformance suite** — `pnpm conformance <url>`, an executable definition
+      of "is a SOVRGNnet instance"
+- [ ] **Client-side Matrix** — the client owns the Matrix session
+- [ ] **E2EE** via Olm/Megolm, with device verification and key backup
 
-MatrixRTC signalling with a LiveKit SFU. Needs the persistent client from Phase 7 and benefits from the direct sync of Phase 8. A public TURN relay is likely required for people behind hostile NAT — a real, ongoing bandwidth cost to decide on deliberately.
+## 0.5 — Portable infrastructure
 
-## Phase 11 — Directory and server administration
+- [x] Versioned `.sovbackup` format with a manifest, not a tarball of a folder
+- [x] **Validation before restore** — refuses a corrupt archive, a schema from
+      the future, or a server-name mismatch that would silently detach history
+- [x] Machine-to-machine migration preserving instance identity, Docker or native
+- [ ] Encrypted backups at rest
+- [ ] Server health metrics, Prometheus-compatible
+- [ ] Documented, deterministic upgrade process
 
-An opt-in directory at sovrgnnet.cc: servers may register an id and display name to be searchable; joining still needs an invite. It holds server addresses and nothing else — never members, never messages — and an unregistered server stays fully functional, just unsearchable.
+## 0.6 — Native client
 
-Alongside it, server administration from the client: settings, roles, moderation, and join policy, so running a server never requires SSH.
+- [x] Multi-instance connections, each with its own session
+- [x] Credentials in the OS keychain
+- [x] Deep links, including cold start
+- [x] Update checks on launch
+- [ ] Server administration from the client — no SSH for routine operations
+- [ ] Instance health surfaced in the UI
+- [ ] Onboarding polish
+
+## 0.7 — Network
+
+- [ ] Federation, tested rather than merely possible
+- [ ] Optional instance directory — opt-in, addresses only
+- [ ] Portable cryptographic identity
 
 ## Later
 
-Optional wallet linking and ENS display names; the soundboard; and a decision on the old "Nitro" tables — reimagined as token-gated membership, or removed. Federation stays possible for operators who want it, but multi-connection comes first: federation makes every server's uptime and moderation policy everyone else's problem, and requires every instance to be publicly reachable, which contradicts running one on a laptop in a closet.
+Voice, screen sharing, plugins, integrations, optional wallet/ENS, and other
+social features. Deliberately after the architecture, not before it.
+
+---
+
+# Notes on the milestone work
+
+Detail behind the checkboxes above. The numbered phases up to 7.6 are history;
+these are the reasoning for what's left.
+
+## Client-side Matrix (0.4)
+
+The client syncs directly with each homeserver instead of the app proxying.
+Still plaintext — this step moves the transport without encrypting it, and
+separating the two keeps each reviewable. Replaces the 3-second polling loop
+with a real `/sync` stream. The homeserver stops being loopback-only and moves
+behind the tunnel with proper `.well-known` delegation.
+
+Advertised as the `clientMatrix` capability, so a client can tell whether an
+instance supports direct sync or still requires the proxy.
+
+## End-to-end encryption (0.4)
+
+Olm/Megolm in the client. The part everyone underestimates isn't the
+encryption, it's key management: cross-device verification, key backup, and
+recovery phrases are the difference between encryption and permanent data loss.
+
+The web app does not get E2EE — a server that serves the code that holds the
+keys cannot honestly claim the server can't read messages. It must stop
+implying otherwise, and the `e2ee` capability must stay false until the
+implementation genuinely delivers it.
+
+## Portable backup (0.5) ✅
+
+The old backup was a tarball of a directory plus a prose README — fine for
+restoring in place, useless for deciding whether a restore was *safe*.
+`.sovbackup` adds a manifest naming the schema version, protocol version,
+instance id, Matrix server name, and a checksum per component, so that decision
+became mechanical. Restore validates before writing anything.
+
+Three real bugs surfaced while building it, all of which would have destroyed
+data quietly:
+
+- **Chat history was never restored.** `restore.sh` looked for
+  `matrix_data.tar.gz`, which stopped existing when Dendrite moved to Postgres.
+  `dendrite.sql` was backed up faithfully and then ignored.
+- **The signing key was never restored.** Backed up, never put back — so every
+  restored instance silently became a different server to anyone it had
+  federated with.
+- **Native installs couldn't restore at all.** `restore.sh` assumed Docker,
+  despite `backup.sh` supporting both.
+
+Remaining: encryption at rest. A backup is password material and the tooling
+still doesn't encrypt it.
+
+Full detail in [BACKUP.md](BACKUP.md).
+
+## Server administration in the client (0.6)
+
+Settings, roles, moderation, join policy, invites, and instance health from the
+Tauri app. Running a server should not require SSH for routine operation —
+requiring it means the only people who can run one are the ones who already
+could.
+
+## Federation (0.7)
+
+Possible today, off by default, and untested — which is why it isn't claimed.
+Federation makes every server's uptime and moderation policy everyone else's
+problem, and requires every instance to be publicly reachable, which
+contradicts running one on a laptop in a closet. Multi-connection came first
+for that reason. When federation lands it will be because it's tested, not
+because the homeserver technically supports it.
+
+## Directory (0.7)
+
+Opt-in, at sovrgnnet.cc: instances may register an id and display name to be
+searchable; joining still needs an invite. It holds instance addresses and
+nothing else — never members, never messages — and an unregistered instance
+stays fully functional, just unsearchable.
+
+## Conformance suite ✅
+
+An executable definition of "is a SOVRGNnet instance". Point it at an address
+and it verifies the descriptor, capability negotiation, version reporting,
+health endpoints, and self-consistency. Without it, "anyone can write another
+implementation" was an aspiration; with it, it's checkable.
+
+```bash
+pnpm conformance https://your-instance.example
+```
+
+It earned its place immediately. Run against a live process with no database,
+it surfaced `/ready` reporting `database: "ok"` — the endpoint called
+`getInstanceSettings()`, which catches its own errors and returns null by
+design. Correct for serving traffic on defaults, useless as a probe. A
+readiness check that cannot fail is not a check, and an orchestrator would have
+routed traffic to a broken instance forever.
+
+Still to add: the authenticated surface — registration, membership, roles,
+invites — which needs credentials and so can't run against an instance you
+don't operate.
+
+## Later
+
+Voice (MatrixRTC signalling with a LiveKit SFU — needs a TURN relay for hostile
+NAT, a real ongoing bandwidth cost to decide on deliberately). Screen sharing.
+Plugins and integrations. Optional wallet linking and ENS display names. The
+soundboard. A decision on the old "Nitro" tables — reimagined as token-gated
+membership, or removed.
 
 ---
 

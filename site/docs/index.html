@@ -100,6 +100,18 @@ cd sovrgnnet
           <td>How the pieces fit together, in engineering detail</td>
         </tr>
         <tr>
+          <td><a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/PROTOCOL.md">docs/PROTOCOL.md</a></td>
+          <td>The SOVRGN protocol: versioning, capabilities, discovery, and how to check another implementation</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/BACKUP.md">docs/BACKUP.md</a></td>
+          <td>Backups, verification, and moving an instance to another machine</td>
+        </tr>
+        <tr>
+          <td><a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/THREAT_MODEL.md">docs/THREAT_MODEL.md</a></td>
+          <td>Threats, mitigations, and residual risk — written against what is built, not what is planned</td>
+        </tr>
+        <tr>
           <td><a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/ROADMAP.md">docs/ROADMAP.md</a></td>
           <td>What's done, what's next, and what was deliberately deferred</td>
         </tr>
@@ -111,15 +123,19 @@ cd sovrgnnet
 
       <h2>Where things stand</h2>
       <p>
-        <strong>v0.1.0 alpha.</strong> Working today: accounts, servers,
+        <strong>v0.4.0 alpha.</strong> Working today: accounts, communities,
         channels, text chat over a real Matrix homeserver, file sharing on your
         own IPFS node, invite links, roles and moderation, message editing,
-        reactions, typing indicators.
+        reactions, typing indicators. A native desktop client connects to
+        several independent instances at once. Backups are portable and verified
+        before restore.
       </p>
       <p class="muted">
-        Not yet: end-to-end encryption, voice and video, password reset by
-        email, mobile apps. See <a href="/docs/security.html">security</a> for
-        what that means in practice.
+        Not yet: end-to-end encryption, voice and video, mobile apps, federation
+        between instances, an instance directory, and session revocation —
+        sessions are stateless and last a year. There has been no independent
+        security audit. See <a href="/docs/security.html">security</a> for what
+        that means in practice.
       </p>
 
       <h2>Getting help</h2>
