@@ -4,7 +4,7 @@ End-to-end sweep of the repo as inherited. This is the ground truth the roadmap 
 
 ## What genuinely works
 
-The Vite + React 19 client with a full shadcn/ui component library, theming, and routing (wouter, patched). The tRPC 11 API skeleton with typed routers for servers, channels, messages, file shares, soundboard, members, and profiles. A complete Drizzle/Postgres schema with migrations for all core entities (users, profiles, servers, channels, messages, fileShares, soundboardClips, nitroSubscriptions, serverMembers). Lazy DB connection so tooling runs without a database. A Docker Compose stack definition covering app, DB, Matrix (Conduit), IPFS (Kubo), and nginx. Vitest test files exist for auth, db, matrix, and routers.
+The Vite + React 19 client with a full shadcn/ui component library, theming, and routing (wouter, patched). The tRPC 11 API skeleton with typed routers for servers, channels, messages, file shares, soundboard, members, and profiles. A complete Drizzle/Postgres schema with migrations for all core entities (users, profiles, servers, channels, messages, fileShares, soundboardClips, serverMembers, plus a speculative NFT-subscription table since removed). Lazy DB connection so tooling runs without a database. A Docker Compose stack definition covering app, DB, Matrix (Conduit), IPFS (Kubo), and nginx. Vitest test files exist for auth, db, matrix, and routers.
 
 ## Critical defects (block everything)
 
@@ -22,7 +22,7 @@ Messaging is not implemented: `MatrixContext` is a stub that hardcodes `isConnec
 
 ## Cleanup debt
 
-Manus scaffold residue: `vite-plugin-manus-runtime`, `manusTypes.ts`, Forge API and Manus OAuth env vars in compose/templates, `OAUTH_SERVER_URL` references. Package was named `decentralized-discord` *(fixed: now `sovrgnnet`)*. `js-ipfs@0.0.301` is a deprecated/suspicious dependency (the real js-ipfs is discontinued; its successor is Helia) — remove or replace. `findAvailablePort` silently hops ports in production, which breaks Docker port mapping — should fail fast instead. Compose healthcheck uses `curl` not present in the Alpine runtime image. Branding strings ("Decentralized Discord") remain across UI, compose defaults, and scripts. The Nitro/NFT subscription tables and routers are speculative scope that should not gate v1.
+Manus scaffold residue: `vite-plugin-manus-runtime`, `manusTypes.ts`, Forge API and Manus OAuth env vars in compose/templates, `OAUTH_SERVER_URL` references. Package was named `decentralized-discord` *(fixed: now `sovrgnnet`)*. `js-ipfs@0.0.301` is a deprecated/suspicious dependency (the real js-ipfs is discontinued; its successor is Helia) — remove or replace. `findAvailablePort` silently hops ports in production, which breaks Docker port mapping — should fail fast instead. Compose healthcheck uses `curl` not present in the Alpine runtime image. Branding strings ("Decentralized Discord") remain across UI, compose defaults, and scripts. The scaffold's NFT-subscription tables and routers (named after a third party's paid tier) are speculative scope that should not gate v1 *(since removed entirely — migration 0007)*.
 
 ## Test and build status
 

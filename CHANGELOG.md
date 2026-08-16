@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**Third-party trademark removed.** The scaffold's speculative NFT-subscription
+feature carried the name of a competitor's paid tier through a table, an enum,
+a router, and a soundboard flag. All of it is gone — migration 0007 drops the
+table, the enum, and the column; the router and its client surface never had a
+caller. Migration history keeps the word in already-applied files, which are
+immutable by design; everything living is clean.
+
 **Administration without SSH (0.6).** The server settings dialog grows two
 tabs. *Health*: live dependency status (database, homeserver, IPFS — each
 probed with a 2-second bound through the new admin-gated `admin.overview`),

@@ -126,35 +126,14 @@ describe.skipIf(!process.env.DATABASE_URL)("Database Functions", () => {
         "airhorn",
         uniqueHash,
         2000,
-        1,
-        false
+        1
       );
       expect(result).toBeDefined();
     });
 
     it("should retrieve soundboard clips by server ID", async () => {
-      const clips = await db.getSoundboardClipsByServer(1, false);
+      const clips = await db.getSoundboardClipsByServer(1);
       expect(Array.isArray(clips)).toBe(true);
-    });
-  });
-
-  describe("Nitro subscription operations", () => {
-    it("should create a nitro subscription with required fields", async () => {
-      const uniqueTokenId = `${Date.now()}`;
-      const result = await db.createNitroSubscription(
-        1,
-        "0x742d35Cc6634C0532925a3b844Bc9e7595f42bE",
-        "0x1234567890123456789012345678901234567890",
-        uniqueTokenId,
-        "pro",
-        new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-      );
-      expect(result).toBeDefined();
-    });
-
-    it("should retrieve nitro subscription by user ID", async () => {
-      const subscription = await db.getNitroSubscriptionByUser(1);
-      expect(subscription).toBeDefined();
     });
   });
 
