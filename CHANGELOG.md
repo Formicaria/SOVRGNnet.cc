@@ -1,5 +1,64 @@
 # Changelog
 
+## Unreleased
+
+Deliberately unversioned: `package.json` still reads 0.4.0, which is what is
+tagged and shipped. The number moves when this is released, not before — the
+tag guard exists because those drifted apart once already.
+
+**End-to-end verification, locally.** `pnpm preflight` runs in about 20 seconds
+before a push; `pnpm preflight --full` stands up Postgres, Dendrite, Kubo and
+the app under their own compose project, drives a full user journey through the
+real HTTP API, takes a backup, verifies it, **drops the schema**, restores, and
+confirms accounts, roles, communities, both users' messages and the file bytes
+came back. `pnpm test:db` runs the 28 integration tests that skip themselves
+without a database.
+
+**It found six production bugs on its way to passing.** None were caught by 590
+unit tests or by review, and four of them were invisible outside Docker —
+because the native install was the only deployment anyone had ever actually
+booted:
+
+- **The production image could not start.** `index.ts` statically imported the
+  Vite dev server; the runtime check was right but a static import resolves
+  when the module graph loads. The `--prod` install has no `vite`, so the
+  container died immediately.
+- **`/ready` hung** whenever the homeserver was slow to start. The reachability
+  probe had no timeout, and a readiness endpoint that never answers is worse
+  than one reporting a failure.
+- **`install.sh` never produced a usable signing key.** Its primary path wrote
+  to a read-only bind mount that couldn't exist yet, and its fallback used
+  `openssl genpkey`, which makes a valid PKCS#8 key that Dendrite rejects. So
+  every Docker install produced a homeserver that refused to start.
+- **There was no `.dockerignore`**, so `COPY . .` shipped 388 MB of host
+  `node_modules` over the container's, along with the host's `dist/` and any
+  `.env` — secrets into an image layer.
+- **The generated homeserver config and signing key were not gitignored.**
+  `matrix_key.pem` *is* the instance's Matrix identity; committing it lets
+  anyone impersonate the server to everyone it has federated with. Never
+  committed here, now ignored.
+
+**Device-scoped Matrix sessions.** Logins carry a device identity, so sessions
+are listable and individually revocable — closing a gap the threat model had
+recorded as unfixed. The instance's own session is shown and flagged rather
+than hidden, and refuses to be signed out, because removing it breaks every
+operation the server performs on that account.
+
+Which device belongs to the instance is now determined by asking the homeserver
+rather than comparing against a constant. The constant only matched accounts
+created through the login path; every account made by shared-secret
+registration had a homeserver-named device, so the refusal never fired and the
+server's session was removable. Found by the harness reading a live device list.
+
+**T17: the instance can log in as any of its users.** Matrix passwords are
+derived from the app secret, so the server can create a session for any
+account. It adds nothing while messages are plaintext — the operator can
+already read them — and becomes the sharpest edge the moment E2EE ships.
+Documented before the claim rather than after.
+
+**ADR 0008** records the plan to invert the Matrix proxy so the client owns the
+session, which is a precondition for end-to-end encryption meaning anything.
+
 ## v0.4.0 — 2026-08-15
 
 The release that makes "sovereign" a property you can check rather than a word
