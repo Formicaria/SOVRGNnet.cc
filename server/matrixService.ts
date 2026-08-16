@@ -505,6 +505,39 @@ export async function sendMessage(
   return res.event_id;
 }
 
+/**
+ * Announce a file share in the room.
+ *
+ * File bytes live on the instance's IPFS node and are served through the
+ * membership-checked `/api/files/:cid` route — the event deliberately carries
+ * no URL, only the CID under a namespaced key. Its purpose is liveness: a
+ * client on direct sync (ADR 0008 stage 3) hears it and refetches the file
+ * list, instead of polling every five seconds. `m.file` msgtype keeps the
+ * event legible in third-party Matrix clients, which show the filename.
+ */
+export async function sendFileNotice(
+  accessToken: string,
+  roomId: string,
+  file: { filename: string; cid: string; size: number; mimeType?: string | null }
+): Promise<string> {
+  const txnId = `sovrgn_${Date.now()}_${nanoid(8)}`;
+  const res = await matrixRequest<{ event_id: string }>(
+    "PUT",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+    {
+      msgtype: "m.file",
+      body: file.filename,
+      "cc.sovrgnnet.file": {
+        cid: file.cid,
+        size: file.size,
+        ...(file.mimeType ? { mimeType: file.mimeType } : {}),
+      },
+    },
+    accessToken
+  );
+  return res.event_id;
+}
+
 /** Redact (delete) an event. Returns the redaction event id. */
 export async function redactEvent(
   accessToken: string,

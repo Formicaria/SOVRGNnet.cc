@@ -160,15 +160,27 @@ outright.
 
 **Capabilities:** Act as that user on the homeserver.
 
-**Mitigations:** Tokens are held server-side and never sent to browsers.
-Desktop credentials live in the OS keychain, not browser storage. Sessions are
-now **device-scoped and named**: the instance's own session is a fixed,
-recognisable device, and every session is listable and individually revocable
-from account settings.
+**Mitigations:** Sessions are **device-scoped and named**: the instance's own
+session is a fixed, recognisable device, and every session is listable and
+individually revocable from account settings. Desktop credentials live in the
+OS keychain, not browser storage.
 
-**Residual risk: moderate.** Revocation exists now, but see T17 — the instance
-can create a new session at any time, so revoking one does not lock the
-instance out.
+"Tokens are held server-side and never sent to browsers" **stopped being true
+with ADR 0008 stage 3.** On instances that advertise `clientMatrix`, a client
+obtains its own device-scoped token over the authenticated instance API and
+syncs directly. The browser keeps that token in memory only — the persisted
+part is the device id, which is useless without a fresh login through the
+instance. Revoking the device from account settings kills the stream at the
+next request; the client treats a 401 as final rather than retrying. On
+instances without the capability, the proxy remains and tokens still never
+leave the server.
+
+**Residual risk: moderate.** A token exfiltrated from a running tab acts as
+that device until revoked. That is a narrower credential than before — one
+device, visible in the device list, individually revocable — where the
+previous design had one invisible token nothing could revoke. See T17: the
+instance can still create a new session at any time, so revoking one does not
+lock the instance out.
 
 ---
 

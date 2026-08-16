@@ -28,6 +28,7 @@ import MemberList from "@/components/MemberList";
 import AddServerDialog from "@/components/AddServerDialog";
 import ServerSettings from "@/components/ServerSettings";
 import { useConnections } from "@/contexts/ConnectionsContext";
+import { useDirectSync } from "@/hooks/useDirectSync";
 
 /** Reactions people actually reach for, without shipping an emoji picker. */
 const QUICK_REACTIONS = ["👍", "😂", "🔥", "❤️", "👀", "🎉"] as const;
@@ -100,13 +101,35 @@ export default function Dashboard() {
     { serverId: selectedServerId! },
     { enabled: selectedServerId != null }
   );
+  // Live updates over the client's own Matrix session where the instance
+  // offers it (ADR 0008 stage 3); the intervals below stay as the fallback
+  // for instances whose homeserver isn't publicly reachable.
+  const roomToChannelRef = useRef<Map<string, number>>(new Map());
+  const { live: syncLive } = useDirectSync(!!user, event => {
+    const channelId = roomToChannelRef.current.get(event.roomId);
+    if (channelId == null) return;
+
+    const isFileNotice =
+      event.type === "m.room.message" &&
+      ("cc.sovrgnnet.file" in event.content ||
+        (event.content as { msgtype?: string }).msgtype === "m.file");
+
+    if (isFileNotice) {
+      void utils.fileShares.listByChannel.invalidate({ channelId });
+      return;
+    }
+    if (event.type === "m.room.message" || event.type === "m.room.redaction") {
+      void utils.messages.listByChannel.invalidate({ channelId });
+    }
+  });
+
   const messagesQuery = trpc.messages.listByChannel.useQuery(
     { channelId: selectedChannelId!, limit: 50 },
-    { enabled: selectedChannelId != null, refetchInterval: 3000 }
+    { enabled: selectedChannelId != null, refetchInterval: syncLive ? false : 3000 }
   );
   const filesQuery = trpc.fileShares.listByChannel.useQuery(
     { channelId: selectedChannelId! },
-    { enabled: selectedChannelId != null, refetchInterval: 5000 }
+    { enabled: selectedChannelId != null, refetchInterval: syncLive ? false : 5000 }
   );
 
   const createServer = trpc.servers.create.useMutation({
@@ -239,6 +262,14 @@ export default function Dashboard() {
   const channels = channelsQuery.data ?? [];
   const messages = messagesQuery.data ?? [];
   const files = filesQuery.data ?? [];
+
+  // Sync events arrive addressed by Matrix room id; queries are keyed by
+  // channel id. Keep the translation current as channel lists load.
+  useEffect(() => {
+    for (const channel of channels) {
+      roomToChannelRef.current.set(channel.matrixRoomId, channel.id);
+    }
+  }, [channels]);
 
   const timeline: TimelineItem[] = useMemo(() => {
     const items: TimelineItem[] = [

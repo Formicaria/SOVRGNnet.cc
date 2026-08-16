@@ -2,6 +2,8 @@ import express, { type Express } from "express";
 import { authenticateRequest } from "./_core/auth";
 import * as db from "./db";
 import { addFile, catFile } from "./ipfsService";
+import { ensureMatrixCredentials } from "./matrixBridge";
+import { sendFileNotice } from "./matrixService";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // aligned with body-parser limits & Cloudflare free tier headroom
 
@@ -47,6 +49,23 @@ export function registerFileRoutes(app: Express): void {
           body.length,
           mimeType
         );
+
+        // Announce the share in the room so clients on direct sync hear it
+        // (ADR 0008 stage 3). Best-effort: the upload already succeeded, and a
+        // homeserver hiccup shouldn't turn a stored file into a 500 — clients
+        // still on the polling fallback will see it within one interval.
+        try {
+          const creds = await ensureMatrixCredentials(user.id);
+          await sendFileNotice(creds.accessToken, channel.matrixRoomId, {
+            filename,
+            cid,
+            size: body.length,
+            mimeType,
+          });
+        } catch (err) {
+          console.warn("[upload] file notice not sent:", err);
+        }
+
         return res.status(201).json(share);
       } catch (err) {
         console.error("[upload]", err);

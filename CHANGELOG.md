@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+**Direct Matrix sync (ADR 0008 stage 3).** On instances that advertise
+`clientMatrix`, the client now obtains its own device-scoped Matrix session
+over the authenticated instance API and long-polls `/sync` directly — messages
+and file shares arrive when they happen instead of on a 3–5 second poll. The
+sync engine is ~150 dependency-free lines with an injectable fetch, tested
+against a scripted homeserver; matrix-js-sdk waits for stage 4, where its
+crypto earns the bundle weight. Uploads emit an `m.file` room event so files
+announce themselves on the stream. Device ids persist per browser so reloads
+replace the same session rather than minting anonymous devices; access tokens
+stay in memory only, and a revoked device stops the stream at the next request
+(401 is treated as final). Instances without the capability keep the proxy and
+the polling fallback, unchanged. T8 in the threat model rewritten to match —
+"tokens never reach the browser" is no longer claimed, because it is no longer
+true.
+
 ## v0.4.1 — 2026-08-16
 
 A patch release: the headline is that v0.4.0's Docker image could not start.
