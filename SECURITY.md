@@ -35,6 +35,7 @@ support branches.
 | Sessions | Signed JWT in an httpOnly, SameSite=Lax cookie (stateless — see gaps) |
 | Brute force | 10 login attempts per IP+email per 15 minutes |
 | Matrix tokens | Held server-side; never sent to a browser |
+| Matrix sessions | Device-scoped and named; listable and individually revocable |
 | Desktop credentials | OS keychain, not browser storage |
 | Authorization | Role checked server-side on every mutation |
 | File access | Streamed through the app with membership checks |
@@ -50,7 +51,10 @@ Stated plainly rather than omitted:
 - **Sessions are stateless and last a year.** Logging out clears the cookie but
   does not invalidate the token; rotating `JWT_SECRET` is the only way to
   revoke, and it revokes everyone
-- No per-device session revocation
+- **The instance can log in as any of its users.** Matrix passwords are derived
+  from the app secret, so the server can create a session for any account. It
+  adds nothing while messages are plaintext — the operator can already read
+  them — but it is the sharpest edge once end-to-end encryption ships
 - No two-factor authentication for local accounts
 - Backups are not encrypted at rest
 - No rate limiting beyond login
