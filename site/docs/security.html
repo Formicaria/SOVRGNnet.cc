@@ -67,7 +67,24 @@
         <tr>
           <td>Sessions</td>
           <td>Signed JWT in an httpOnly, SameSite=Lax cookie. JavaScript on the
-              page can't read it.</td>
+              page can't read it. <em>Stateless — see the gaps below.</em></td>
+        </tr>
+        <tr>
+          <td>Desktop credentials</td>
+          <td>Stored in the operating system's keychain, not in browser
+              storage.</td>
+        </tr>
+        <tr>
+          <td>Identity tokens <span class="muted">(if you enable SSO)</span></td>
+          <td>Ed25519, valid five minutes, and bound to a single instance — a
+              token minted for one instance is refused by every other. Verified
+              against a cached key, so the identity service going down blocks
+              new sign-ins but logs nobody out.</td>
+        </tr>
+        <tr>
+          <td>Backups</td>
+          <td>Written <code>0600</code>, with a checksum per component verified
+              before any restore.</td>
         </tr>
         <tr>
           <td>Brute force</td>
@@ -122,6 +139,39 @@
         an earlier version of the compose file. It isn't now, and it shouldn't
         be in any deployment you build.
       </div>
+
+      <h2>Known gaps</h2>
+      <p>
+        Stated together rather than scattered, because a gap you have to hunt
+        for is a gap that gets missed.
+      </p>
+      <ul>
+        <li><strong>No end-to-end encryption.</strong> The largest by a
+            distance.</li>
+        <li><strong>No session revocation.</strong> Sessions are stateless
+            tokens lasting a year. Logging out clears the cookie but doesn't
+            invalidate the token, so a stolen copy keeps working. The only
+            revocation lever is rotating <code>JWT_SECRET</code>, which signs
+            everyone out at once.</li>
+        <li><strong>No per-device sign-out</strong> for Matrix sessions.</li>
+        <li><strong>No two-factor authentication</strong> on local accounts.
+            Signing in through a provider inherits theirs, which is one of the
+            better arguments for using SSO.</li>
+        <li><strong>Backups are not encrypted at rest.</strong> The tooling
+            writes them <code>0600</code> and stops there.</li>
+        <li><strong>Rate limiting covers login only</strong>, not the rest of
+            the API.</li>
+        <li><strong>No audit log</strong> of administrative actions.</li>
+        <li><strong>No independent security audit.</strong> Careful review is
+            not an audit.</li>
+      </ul>
+      <p class="muted">
+        The full analysis — sixteen threats with attacker capabilities,
+        mitigations, and residual risk each — is in the
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/THREAT_MODEL.md">threat model</a>.
+        Mechanism-level detail is in the
+        <a href="https://github.com/Formicaria/SOVRGNnet.cc/blob/main/docs/SECURITY_ARCHITECTURE.md">security architecture</a>.
+      </p>
 
       <h2>Federation is off by default</h2>
       <p>
