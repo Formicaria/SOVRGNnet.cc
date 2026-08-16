@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { PROTOCOL_VERSION, type InstanceDescriptor } from "@shared/protocol";
 import { ENV } from "./_core/env";
 
 /**
@@ -135,6 +136,55 @@ export type StoredSettings = {
  * advertise E2EE the moment it got a public address.
  */
 const E2EE_AVAILABLE = false;
+
+/**
+ * The formal protocol descriptor for this instance.
+ *
+ * Separate from `instanceInfo` on purpose: that shape is what v0.1–v0.3
+ * clients already parse, and independently operated instances upgrade on
+ * nobody's schedule but their own. Both are served from `/api/instance` —
+ * old fields kept, new ones added alongside — so an old client keeps working
+ * and a new one gets a typed, negotiated contract.
+ */
+export function instanceDescriptor(
+  version: string,
+  stored: StoredSettings = null
+): InstanceDescriptor {
+  const info = instanceInfo(version, stored);
+  const publicMatrix = process.env.MATRIX_PUBLIC_URL?.trim() || null;
+
+  return {
+    product: "sovrgnnet",
+    protocol: { major: PROTOCOL_VERSION.major, minor: PROTOCOL_VERSION.minor },
+    server: {
+      version,
+      id: info.id,
+      name: info.name,
+      description: info.description,
+    },
+    capabilities: {
+      messaging: true,
+      media: true,
+      // Declared by the same constant the app reports everywhere else, so
+      // this can never drift into claiming encryption that doesn't exist.
+      e2ee: info.encryption,
+      voice: false,
+      federation: process.env.MATRIX_ALLOW_FEDERATION === "true",
+      sso: info.sso.enabled,
+      publicRegistration: info.joinPolicy === "open",
+      // True once clients sync with Matrix themselves. Requires a reachable
+      // homeserver, which is exactly what MATRIX_PUBLIC_URL announces.
+      clientMatrix: Boolean(publicMatrix),
+      portableBackup: true,
+    },
+    matrix: {
+      serverName: info.matrixServerName,
+      baseUrl: publicMatrix,
+    },
+    joinPolicy: info.joinPolicy,
+    identityIssuer: info.sso.enabled ? info.sso.issuer : null,
+  };
+}
 
 export function instanceInfo(version: string, stored: StoredSettings = null): InstanceInfo {
   const publicMatrix = process.env.MATRIX_PUBLIC_URL?.trim();

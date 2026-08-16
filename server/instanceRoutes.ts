@@ -1,8 +1,10 @@
 import type { Express } from "express";
 import { APP_VERSION } from "@shared/const";
 import { isValidInviteCode } from "@shared/invite";
+import { PROTOCOL_VERSION } from "@shared/protocol";
 import * as db from "./db";
-import { instanceInfo } from "./instance";
+import { instanceDescriptor, instanceInfo } from "./instance";
+import * as matrix from "./matrixService";
 
 /**
  * Public, unauthenticated routes a client needs *before* it has an account.
@@ -28,7 +30,79 @@ export function registerInstanceRoutes(app: Express): void {
     res.set("Access-Control-Allow-Origin", "*");
 
     const stored = await db.getInstanceSettings().catch(() => null);
-    res.json(instanceInfo(APP_VERSION, stored));
+
+    // Both shapes, one response. The v0.1–v0.3 fields stay exactly where old
+    // clients expect them; `protocol`, `capabilities`, and `matrix` are added
+    // alongside. Independently operated instances and clients upgrade on their
+    // own schedules, so neither may be forced to move first.
+    res.json({
+      ...instanceInfo(APP_VERSION, stored),
+      ...instanceDescriptor(APP_VERSION, stored),
+    });
+  });
+
+  /**
+   * Just the capabilities, for a client deciding what to offer.
+   *
+   * Separate from the full descriptor because it's the part worth polling —
+   * an operator turning federation on shouldn't need a client restart.
+   */
+  app.get("/api/capabilities", async (_req, res) => {
+    res.set("Cache-Control", "public, max-age=60");
+    res.set("Access-Control-Allow-Origin", "*");
+    const stored = await db.getInstanceSettings().catch(() => null);
+    const descriptor = instanceDescriptor(APP_VERSION, stored);
+    res.json({ protocol: descriptor.protocol, capabilities: descriptor.capabilities });
+  });
+
+  /** Version, for humans and for compatibility checks. */
+  app.get("/api/version", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*");
+    res.json({
+      server: APP_VERSION,
+      protocol: `${PROTOCOL_VERSION.major}.${PROTOCOL_VERSION.minor}`,
+    });
+  });
+
+  /**
+   * Liveness: is this process up at all?
+   *
+   * Deliberately answers without touching the database — a health check that
+   * needs Postgres can't tell you the difference between "the app is down" and
+   * "the database is down", which is the distinction you most want at 3am.
+   */
+  app.get("/health", (_req, res) => {
+    res.json({ status: "ok", uptime: Math.floor(process.uptime()) });
+  });
+
+  /**
+   * Readiness: can this instance actually serve requests?
+   *
+   * Reports each dependency separately, and treats only the database as
+   * fatal. A dead IPFS means file sharing fails while conversations continue,
+   * and reporting that as "not ready" would take a working instance out of
+   * rotation for a partial outage.
+   */
+  app.get("/ready", async (_req, res) => {
+    const checks: Record<string, "ok" | "down"> = {
+      database: "down",
+      matrix: "down",
+    };
+
+    // pingDatabase, not getInstanceSettings. The latter catches its own errors
+    // and returns null by design, so this endpoint used to report the database
+    // as healthy when there was no database at all.
+    const database = await db.pingDatabase();
+    checks.database = database.ok ? "ok" : "down";
+
+    checks.matrix = (await matrix.isHomeserverReachable()) ? "ok" : "down";
+
+    const ready = checks.database === "ok";
+    res.status(ready ? 200 : 503).json({
+      ready,
+      checks,
+      ...(database.error ? { detail: { database: database.error } } : {}),
+    });
   });
 
   app.options("/api/instance", (_req, res) => {
