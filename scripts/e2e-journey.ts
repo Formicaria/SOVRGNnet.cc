@@ -216,11 +216,15 @@ async function runJourney(): Promise<void> {
 
   console.log("\n  Accounts");
 
-  const registered = await owner.mutate<{ user?: { id: number; role?: string } }>(
-    "auth.register",
-    { email: ownerEmail, password, name: "Owner" }
-  );
-  assert(registered?.user?.id, "registration returned no user");
+  // auth.register returns the user object *flat* — toPublicUser(user), not
+  // { user }. Shapes here are read off the router rather than assumed; guessing
+  // costs a full stack boot per mistake.
+  const registered = await owner.mutate<{ id: number; role?: string }>("auth.register", {
+    email: ownerEmail,
+    password,
+    name: "Owner",
+  });
+  assert(registered?.id, `registration returned no id: ${JSON.stringify(registered)}`);
   ok("First account registered");
 
   const me = await owner.query<{ role?: string; email?: string }>("auth.me");
@@ -243,18 +247,28 @@ async function runJourney(): Promise<void> {
 
   console.log("\n  Community");
 
-  const community = await owner.mutate<{ id: number; name: string }>("servers.create", {
+  // servers.create returns { server, defaultChannel }, not a flat server.
+  const created = await owner.mutate<{
+    server: { id: number; name: string };
+    defaultChannel: { id: number; name: string } | null;
+  }>("servers.create", {
     name: `E2E community ${stamp}`,
     description: "Created by the end-to-end harness",
   });
-  assert(community?.id, "community creation returned no id");
+  const community = created?.server;
+  assert(community?.id, `community creation returned no server: ${JSON.stringify(created)}`);
   ok(`Community created (#${community.id})`);
 
+  // Listed rather than taken from the create response, so this exercises the
+  // read path too — and confirms the default channel was really persisted.
   const channels = await owner.query<Array<{ id: number; name: string }>>(
     "channels.listByServer",
     { serverId: community.id }
   );
-  assert(channels.length > 0, "a new community should have a default channel");
+  assert(
+    channels.length > 0,
+    `a new community should have a default channel: ${JSON.stringify(channels)}`
+  );
   const channel = channels[0];
   ok(`Default channel exists (#${channel.id} ${channel.name})`);
 
@@ -267,7 +281,7 @@ async function runJourney(): Promise<void> {
     channelId: channel.id,
     content: text,
   });
-  assert(sent?.id, "sending returned no message");
+  assert(sent?.id, `sending returned no message: ${JSON.stringify(sent)}`);
   ok("Message sent through the real homeserver");
 
   const listed = await owner.query<Array<{ id: number; content: string }>>(
@@ -316,16 +330,18 @@ async function runJourney(): Promise<void> {
   const invite = await owner.mutate<{ code: string }>("servers.createInvite", {
     serverId: community.id,
   });
-  assert(invite?.code, "no invite code returned");
+  assert(invite?.code, `no invite code returned: ${JSON.stringify(invite)}`);
   ok("Invite created");
 
-  const guestUser = await guest.mutate<{ user?: { id: number; role?: string } }>(
-    "auth.register",
-    { email: guestEmail, password, name: "Guest", inviteCode: invite.code }
-  );
-  assert(guestUser?.user?.id, "invited registration failed");
+  const guestUser = await guest.mutate<{ id: number; role?: string }>("auth.register", {
+    email: guestEmail,
+    password,
+    name: "Guest",
+    inviteCode: invite.code,
+  });
+  assert(guestUser?.id, `invited registration failed: ${JSON.stringify(guestUser)}`);
   // Only the first account is admin. A second must not inherit it.
-  assert(guestUser.user.role !== "admin", "the second account must not be an admin");
+  assert(guestUser.role !== "admin", "the second account must not be an admin");
   ok("Second account registered via invite, without admin");
 
   const beforeJoin = await guest.expectDenied(
@@ -348,7 +364,7 @@ async function runJourney(): Promise<void> {
 
   const escalation = await guest.expectDenied(
     "serverMembers.setRole",
-    { serverId: community.id, userId: registered.user.id, role: "member" },
+    { serverId: community.id, userId: registered.id, role: "member" },
     "A member demoting the owner"
   );
   detail(escalation.slice(0, 90));
@@ -356,7 +372,7 @@ async function runJourney(): Promise<void> {
 
   const selfPromote = await guest.expectDenied(
     "serverMembers.setRole",
-    { serverId: community.id, userId: guestUser.user.id, role: "admin" },
+    { serverId: community.id, userId: guestUser.id, role: "admin" },
     "A member promoting themselves"
   );
   detail(selfPromote.slice(0, 90));
@@ -369,9 +385,12 @@ async function runJourney(): Promise<void> {
   const devices = await owner.query<Array<{ deviceId: string; isServer: boolean }>>(
     "profile.devices"
   );
-  assert(devices.length > 0, "no Matrix devices listed");
+  assert(devices.length > 0, `no Matrix devices listed: ${JSON.stringify(devices)}`);
   const serverDevice = devices.find(d => d.isServer);
-  assert(serverDevice, "the instance's own session should appear, flagged");
+  assert(
+    serverDevice,
+    `the instance's own session should appear, flagged: ${JSON.stringify(devices)}`
+  );
   ok(`${devices.length} session(s), server's own shown and flagged`);
 
   const refusal = await owner.expectDenied(
@@ -424,7 +443,7 @@ async function verifyRestore(): Promise<void> {
 
   const communities = await owner.query<Array<{ id: number; name: string }>>("servers.list");
   const found = communities.find(c => c.id === state.communityId);
-  assert(found, "the community is gone");
+  assert(found, `the community is gone: ${JSON.stringify(communities)}`);
   assertEqual(found.name, state.communityName, "the community came back with the wrong name");
   ok("Community survived");
 
