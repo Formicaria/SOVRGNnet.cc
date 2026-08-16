@@ -5,6 +5,38 @@ Matrix keys, and eventually does voice. See
 [ADR 0001](../docs/adr/0001-multi-server-client.md) for why it exists and what
 it changes.
 
+## Installing it
+
+The bundles register the app properly with the desktop, not just drop a binary:
+
+| Platform | Artifact | Notes |
+|---|---|---|
+| Linux | `.deb` | Menu entry, icon, and claims `sovrgn://` links |
+| Linux | `.AppImage` | Portable; bundles the GTK/WebKit runtime so it runs on distributions other than the build machine's |
+| Windows | `.msi` | Start Menu entry; the deep-link plugin registers `sovrgn://` on first run |
+| macOS | `.dmg` | Universal binary, 10.15+ |
+
+The `sovrgn://` registration is what makes an invite link in a browser open
+the app instead of doing nothing. On Linux that comes from the `MimeType` line
+in `src-tauri/sovrgnnet.desktop`; the `.AppImage` needs desktop integration
+(AppImageLauncher, or running it once) before the association takes effect.
+
+**Builds are unsigned.** macOS will refuse to open the `.dmg` without
+right-click → Open, and Windows will show a SmartScreen warning. Fixable with
+an Apple Developer account and a code-signing certificate; nothing blocks
+shipping unsigned meanwhile, but don't mistake the warning for a broken build.
+
+## Hosting a server — planned, not built
+
+[ADR 0005](../docs/adr/0005-desktop-hosts-a-server.md) commits to bundling
+PostgreSQL, Conduit, and Kubo inside the installer, so installing the app means
+you're hosting, usable at first launch, with no terminal and no root prompt.
+
+None of that exists yet. Today this is a client: it connects to servers that
+already exist, installed with `install.sh` or `scripts/install-lxc.sh`. The ADR
+is worth reading before starting, because the costs it records — bundled
+Postgres upgrades in particular — are the kind that quietly consume a release.
+
 ## A note on Tauri's `unstable` feature
 
 `src-tauri/Cargo.toml` enables it, and that is not incidental. It's what

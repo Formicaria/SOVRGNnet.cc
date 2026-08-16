@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name={{name}}
+GenericName=Chat
+Comment={{comment}}
+Exec={{exec}} {{exec_arg}}
+Icon={{icon}}
+Terminal=false
+Categories={{categories}}
+Keywords=chat;messaging;matrix;community;discord;selfhosted;
+StartupNotify=true
+StartupWMClass=sovrgnnet-desktop
+{{#if mime_type}}MimeType={{mime_type}}{{/if}}
