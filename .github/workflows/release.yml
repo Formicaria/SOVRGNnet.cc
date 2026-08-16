@@ -48,8 +48,7 @@ jobs:
   desktop:
     needs: [guard, draft]
     strategy:
-      # One platform failing shouldn't throw away the others' build minutes;
-      # the draft stays unpublished either way.
+      # One platform failing shouldn't throw away the others' build minutes.
       fail-fast: false
       matrix:
         include:
@@ -58,12 +57,20 @@ jobs:
           # on older but perfectly current distributions.
           - platform: ubuntu-22.04
             args: ""
+            required: true
+          # macOS compiles fine but bundle_dmg.sh fails on the runner, and
+          # nobody here has a Mac to debug it on. Marked optional so a broken
+          # DMG degrades the release to Linux + Windows rather than blocking
+          # it entirely. Make it required again once it's been made to work.
           - platform: macos-latest
             args: "--target universal-apple-darwin"
+            required: false
           - platform: windows-latest
             args: ""
+            required: true
 
     runs-on: ${{ matrix.platform }}
+    continue-on-error: ${{ !matrix.required }}
     steps:
       - uses: actions/checkout@v4
 
