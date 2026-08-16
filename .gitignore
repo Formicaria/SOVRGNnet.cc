@@ -133,3 +133,6 @@ temp/
 dendrite/matrix_key.pem
 dendrite/dendrite.yaml
 dendrite/appservice-e2e.yaml
+# Rendered by scripts/e2e-federation.sh — configs, signing keys, appservice
+# registrations, and throwaway TLS pairs for the two-instance harness.
+dendrite/fed-*/

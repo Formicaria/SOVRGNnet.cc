@@ -56,8 +56,21 @@ future work that must not block the 0.7 proof.
 federation between their homeservers, puts one room in both, and proves:
 messages cross; both indexes record both senders (one local, one federated);
 redactions propagate; and neither instance's `/metrics` or conformance
-regresses. That harness is `scripts/e2e-federation.sh`, and it does not exist
-yet — this ADR records the shape it will test, not the claim that it passes.
+regresses.
+
+That harness is [`scripts/e2e-federation.sh`](../../scripts/e2e-federation.sh),
+and it now exists: two compose projects sharing only a network between their
+homeservers, a federated invite and join, messages authored on both sides,
+shape assertions against both databases, and a redaction that must clear both
+indexes. One step is spliced rather than driven through the product — B's
+channel row pointing at A's room is INSERTed directly, because no
+"attach a remote room" surface exists yet and this ADR's scope section says
+richer treatment must not block the proof. When that surface is built, the
+INSERT is the line it replaces.
+
+The checkbox itself closes on the harness's first green run on a real Docker
+host. Until someone has watched it pass, this ADR records the shape under
+test, not the claim that it passes.
 
 ## References
 

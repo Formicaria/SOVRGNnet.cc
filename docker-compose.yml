@@ -41,6 +41,11 @@ services:
       # default: the capability comes from a reachability probe, not this
       # variable, so setting it wrongly advertises nothing.
       MATRIX_PUBLIC_URL: ${MATRIX_PUBLIC_URL:-}
+      # Must agree with what install.sh rendered into dendrite.yaml. Without
+      # this passthrough the homeserver could federate while the app's
+      # `federation` capability said false — a capability lying downward is
+      # safer than lying upward, and still lying.
+      MATRIX_ALLOW_FEDERATION: ${MATRIX_ALLOW_FEDERATION:-false}
       # Appservice ingest (ADR 0009) — set both, with the matching
       # registration wired into Dendrite, to record client-authored events.
       MATRIX_APPSERVICE_AS_TOKEN: ${MATRIX_APPSERVICE_AS_TOKEN:-}
