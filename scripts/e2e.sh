@@ -159,14 +159,13 @@ DENDRITE_DB_PASS="$(read_env DB_PASSWORD)"
 [ -n "$DENDRITE_SECRET" ] && [ -n "$DENDRITE_DB_PASS" ] \
   || die "Couldn't read the generated secrets back out of $ENV_FILE."
 
-if [ ! -f dendrite/matrix_key.pem ]; then
-  openssl genpkey -algorithm ed25519 -out dendrite/matrix_key.pem 2>/dev/null \
-    || die "Couldn't generate a signing key (needs openssl)."
-  chmod 600 dendrite/matrix_key.pem
-  ok "Signing key generated"
-else
-  ok "Signing key present"
-fi
+# Regenerated every run. A key left over from a previous run might be in the
+# wrong format — an openssl-generated one was, and Dendrite refused it — and a
+# throwaway stack has no reason to keep an identity between runs.
+rm -f dendrite/matrix_key.pem
+./scripts/generate-matrix-key.sh dendrite/matrix_key.pem \
+  || die "Couldn't generate the homeserver signing key."
+ok "Signing key generated (Dendrite format, verified)"
 
 sed \
   -e "s|__MATRIX_SERVER_NAME__|e2e.local|g" \
