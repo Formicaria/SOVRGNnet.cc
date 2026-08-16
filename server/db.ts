@@ -20,6 +20,34 @@ export async function getDb() {
   return _db;
 }
 
+/**
+ * Does the database actually answer?
+ *
+ * Deliberately separate from every other query in this file. The rest swallow
+ * errors and fall back, because a server that can't read one row should still
+ * serve traffic on defaults. That policy is right for request handling and
+ * exactly wrong for a readiness probe: `/ready` reported `database: "ok"`
+ * against a DATABASE_URL pointing nowhere, because the function it called
+ * caught the failure and returned null exactly as designed.
+ *
+ * A readiness check that cannot fail is not a check. This one round-trips.
+ */
+export async function pingDatabase(): Promise<{ ok: boolean; error?: string }> {
+  if (!process.env.DATABASE_URL) {
+    return { ok: false, error: "DATABASE_URL is not set" };
+  }
+
+  const db = await getDb();
+  if (!db) return { ok: false, error: "no database connection" };
+
+  try {
+    await db.execute(sql`select 1`);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
   if (!user.openId) {
     throw new Error("User openId is required for upsert");

@@ -1,5 +1,109 @@
 # Changelog
 
+## v0.4.0 — 2026-08-15
+
+The release that makes "sovereign" a property you can check rather than a word
+in the README.
+
+**The protocol is now versioned separately from the application.** Instances
+are run by different people who upgrade on their own schedule. If they had to
+track our releases to keep working with everyone else, every instance would be
+quietly downstream of us — which is the dependency this project exists to
+remove. Compatibility is one rule now: the same protocol major version.
+Application versions never gate a connection.
+
+**Capabilities are explicit and default to absent.** A client asks an instance
+what it can do before offering a feature, and an instance that has never heard
+of a capability reads as "doesn't have it" rather than "probably fine".
+Optimistic defaults are how a client ends up offering something that silently
+does nothing. When a feature is missing, the interface explains why instead of
+hiding the button.
+
+**Anyone can check another implementation.** `pnpm conformance <url>` verifies
+the descriptor, version compatibility, capability negotiation, health
+endpoints, and self-consistency — including whether an instance is claiming a
+security property its architecture cannot provide. No credentials needed, so
+it's safe to point at an instance you don't operate.
+
+**Backups are portable and verified.** `.sovbackup` carries a manifest with the
+schema version, protocol version, instance identity, and a checksum per
+component. `sovrgnnet verify` answers "will this restore cleanly onto this
+machine?" and changes nothing. `sovrgnnet restore` runs it first and refuses
+rather than half-applying. The check that matters most is the Matrix server
+name: restoring across a mismatch detaches every room from its history,
+silently.
+
+**Three ways restore quietly destroyed data.** Chat history was never
+restored — the script looked for a file that stopped existing when Dendrite
+moved to Postgres, while the real dump was taken faithfully and then ignored.
+The homeserver signing key was backed up and never put back, so every restored
+instance became a different server to anyone it had federated with. And native
+installs couldn't restore at all, despite backups supporting them.
+
+**`/ready` reported the database as healthy when there was none.** It called a
+query that catches its own errors and returns null by design — right for
+serving traffic on defaults, useless as a probe. A readiness check that cannot
+fail is not a check, and an orchestrator would have routed traffic to a broken
+instance indefinitely. Found by pointing the new conformance suite at a live
+process, not by reading code that looks like it checks something.
+
+**The desktop client can tell you what's wrong.** The shell shows each
+instance's own UI in a webview, which goes blank when the instance breaks —
+handing you a white rectangle exactly when you need information. A status panel
+now runs outside the webview against the unauthenticated endpoints, names the
+component that stopped rather than blaming the instance, and keeps working when
+the failure is "I can't sign in".
+
+**Security documented honestly.** A threat model with sixteen threats, a
+security architecture describing mechanisms as built, and a reporting policy.
+Writing them surfaced an undisclosed gap: sessions are stateless and last a
+year, so logging out doesn't invalidate anything and the only revocation lever
+signs out everyone. It's now in every gap list rather than left to be
+discovered.
+
+**Smaller and more deterministic.** Every infrastructure image pinned — no
+`latest`, so two installs a month apart are the same software. Seventeen unused
+dependencies removed after verifying each individually, including a `pnpm add
+add` typo and a `pnpm` devDependency that conflicted with the `packageManager`
+field.
+
+**`shared/protocol.ts` has no dependencies.** It is the specification, and a
+contract defined in terms of one language's schema library is one nobody can
+implement in another language. A test holds that line now, because the same
+class of mistake already shipped once and only surfaced during packaging.
+
+Docs rewritten to match what exists: the architecture document still described
+Supabase auth removed two releases ago and called Dendrite a Rust binary.
+Terminology standardised — an *instance* is a deployment, a *community* is a
+space inside one. The site stopped selling a Discord clone.
+
+Tests: 208 → 473.
+
+## v0.3.0 — 2026-08-15
+
+**Dendrite replaces Conduit.** Conduit ships Linux binaries only, which made
+bundling a server into the Windows and macOS desktop installers impossible.
+Dendrite is Go, cross-compiles everywhere, and has complete Spaces support —
+and Spaces are how communities are modelled, so Conduit's partial support was
+disqualifying regardless. See [ADR 0006](docs/adr/0006-dendrite-replaces-conduit.md).
+
+**One account across every instance, optionally.** Sign-in goes through Google,
+Microsoft, GitHub, or Discord, so no password store exists to breach. It is off
+by default; an instance that never enables it never contacts the identity
+service at all. Instances verify tokens against a cached key and keep serving
+stale keys through an outage, so the identity service going down blocks new
+sign-ins but logs nobody out.
+
+**The desktop app checks for updates on launch.** It bundles components whose
+security fixes are ours to ship, and a version nobody installs is a fix nobody
+gets. Security updates prompt every launch; routine ones weekly. A failed check
+reports "unknown" rather than "up to date".
+
+**Desktop sign-in uses device flow, not a redirect.** `sovrgn://` scheme
+registration is unauthenticated on every operating system — any installed
+application can claim it — so a redirect flow would hand a sign-in token to
+whichever program got there first.
+
 ## v0.2.0 — 2026-08-15
 
 The release that makes SOVRGNnet installable by someone who isn't a developer,

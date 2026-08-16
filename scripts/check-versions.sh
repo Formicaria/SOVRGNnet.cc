@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The version number lives in five places. Verify they agree.
+# The version number lives in six places. Verify they agree.
 #
 # Run by CI on every pull request, and by bump-version.sh after it writes.
 # Drift here is invisible until a release, where it produces an app that
@@ -24,6 +24,9 @@ declare -A FOUND=(
   ["desktop/src-tauri/tauri.conf.json"]="$(read_json_version desktop/src-tauri/tauri.conf.json)"
   ["shared/const.ts"]="$(sed -n 's/^export const APP_VERSION = "\(.*\)";$/\1/p' shared/const.ts)"
   ["desktop/src-tauri/Cargo.toml"]="$(sed -n '0,/^version = "\(.*\)"$/s//\1/p' desktop/src-tauri/Cargo.toml)"
+  # The lock records our own package's version too. It drifted once, silently,
+  # because cargo rewrites it on the next build and nobody looks at the diff.
+  ["desktop/src-tauri/Cargo.lock"]="$(sed -n '/^name = "sovrgnnet-desktop"$/{n;s/^version = "\(.*\)"$/\1/p;}' desktop/src-tauri/Cargo.lock)"
 )
 
 failed=0
@@ -47,4 +50,4 @@ if [ "$failed" -ne 0 ]; then
 fi
 
 echo ""
-echo "All five agree on $ROOT"
+echo "All ${#FOUND[@]} agree on $ROOT"

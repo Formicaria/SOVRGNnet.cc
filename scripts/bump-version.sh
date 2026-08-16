@@ -90,6 +90,14 @@ set_json_version desktop/src-tauri/tauri.conf.json
 # ones belong to dependencies, hence the non-global regex.
 rewrite desktop/src-tauri/Cargo.toml '/^version = "[^"]*"$/m' "version = \\\"$NEXT\\\""
 
+# Cargo.lock records our own package's version as well, and cargo rewrites it
+# on the next build. Leaving it stale means a --locked build fails, or CI
+# quietly produces a dirty tree — neither worth discovering during a release.
+if [ -f desktop/src-tauri/Cargo.lock ]; then
+  rewrite desktop/src-tauri/Cargo.lock \
+    '/(name = "sovrgnnet-desktop"\nversion = ")[^"]*(")/' "\\\$1$NEXT\\\$2"
+fi
+
 rewrite shared/const.ts '/^export const APP_VERSION = "[^"]*";$/m' \
   "export const APP_VERSION = \\\"$NEXT\\\";"
 
