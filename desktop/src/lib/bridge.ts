@@ -1,0 +1,65 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { DeepLinkQueue } from "@shared/deeplink";
+
+/**
+ * The narrow seam between the UI and the shell.
+ *
+ * Everything the desktop app can do that a web page cannot goes through here,
+ * in one place, so the rest of the UI stays ordinary React and the surface
+ * that needs auditing stays small.
+ */
+
+/** Per-server credentials, in the OS keychain rather than browser storage. */
+export const credentials = {
+  async store(instanceId: string, secret: string): Promise<void> {
+    await invoke("store_credential", { instanceId, secret });
+  },
+
+  async read(instanceId: string): Promise<string | null> {
+    return await invoke<string | null>("read_credential", { instanceId });
+  },
+
+  async forget(instanceId: string): Promise<void> {
+    await invoke("forget_credential", { instanceId });
+  },
+};
+
+/**
+ * Links arriving from outside the app.
+ *
+ * Queued rather than delivered immediately, because a cold start from an
+ * invite click produces the URL before React has mounted. `startListening`
+ * is called once at boot; the UI subscribes whenever it's ready and receives
+ * anything that arrived in the meantime.
+ */
+export const deepLinks = new DeepLinkQueue();
+
+export async function startListeningForDeepLinks(): Promise<void> {
+  await listen<string>("deep-link", event => {
+    if (typeof event.payload === "string") {
+      deepLinks.push(event.payload);
+    }
+  });
+}
+
+/**
+ * Show a server.
+ *
+ * Each server is loaded in its own webview so that sessions, cookies, and
+ * storage stay separated per origin — which is the whole reason this can hold
+ * several servers at once while a browser tab cannot. The Rust side owns
+ * creating and switching them; see src-tauri/src/main.rs.
+ */
+export async function showServer(url: string, label: string): Promise<void> {
+  await invoke("show_server", { url, label });
+}
+
+export async function closeServer(label: string): Promise<void> {
+  await invoke("close_server", { label });
+}
+
+/** A stable, filesystem-safe webview label for a connection. */
+export function webviewLabel(instanceId: string): string {
+  return `server-${instanceId}`;
+}

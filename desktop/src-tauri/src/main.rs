@@ -58,6 +58,82 @@ fn forget_credential(instance_id: String) -> Result<(), String> {
     }
 }
 
+/// Width of the shell's rail, and height of its title strip. The server's own
+/// webview is inset by these so the frame stays visible around it.
+const RAIL_WIDTH: f64 = 68.0;
+const HEADER_HEIGHT: f64 = 34.0;
+
+/// Show a server, creating its webview on first use.
+///
+/// One webview per server, kept alive and hidden rather than destroyed on
+/// switch. That's deliberate: each origin keeps its own cookies, storage, and
+/// scroll position, which is exactly what lets this hold several signed-in
+/// servers at once where a single browser tab could not. It also makes
+/// switching instant instead of a reload.
+#[tauri::command]
+async fn show_server(
+    app: tauri::AppHandle,
+    url: String,
+    label: String,
+) -> Result<(), String> {
+    // Only ever load http(s). A deep link is untrusted input, and without this
+    // a crafted one could point a webview at a local file.
+    let parsed = url::Url::parse(&url).map_err(|e| e.to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!("Refusing to open a {} URL", parsed.scheme()));
+    }
+
+    let window = app
+        .get_window("main")
+        .ok_or_else(|| "main window is missing".to_string())?;
+    let size = window.inner_size().map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let logical_width = size.width as f64 / scale;
+    let logical_height = size.height as f64 / scale;
+
+    let position = tauri::LogicalPosition::new(RAIL_WIDTH, HEADER_HEIGHT);
+    let extent = tauri::LogicalSize::new(
+        (logical_width - RAIL_WIDTH).max(0.0),
+        (logical_height - HEADER_HEIGHT).max(0.0),
+    );
+
+    // Hide whichever server was showing, so they don't stack.
+    for webview in window.webviews() {
+        if webview.label().starts_with("server-") && webview.label() != label {
+            let _ = webview.hide();
+        }
+    }
+
+    if let Some(existing) = window.get_webview(&label) {
+        existing.set_position(position).map_err(|e| e.to_string())?;
+        existing.set_size(extent).map_err(|e| e.to_string())?;
+        existing.show().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    window
+        .add_child(
+            tauri::webview::WebviewBuilder::new(&label, tauri::WebviewUrl::External(parsed))
+                .auto_resize(),
+            position,
+            extent,
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Forget a server's webview entirely, dropping its session with it.
+#[tauri::command]
+async fn close_server(app: tauri::AppHandle, label: String) -> Result<(), String> {
+    if let Some(window) = app.get_window("main") {
+        if let Some(webview) = window.get_webview(&label) {
+            webview.close().map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
 /// Hand a sovrgn:// URL to the frontend, which knows how to parse it.
 ///
 /// Parsing lives in TypeScript (shared/invite.ts) so there is exactly one
@@ -106,7 +182,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             store_credential,
             read_credential,
-            forget_credential
+            forget_credential,
+            show_server,
+            close_server
         ])
         .run(tauri::generate_context!())
         .expect("error while running SOVRGNnet");
