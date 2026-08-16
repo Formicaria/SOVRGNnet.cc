@@ -267,7 +267,7 @@ body::after {
   text-decoration: none;
 }
 .brand-mark {
-  width: 30px;
+  width: 24px;
   height: 30px;
   flex: none;
   filter: drop-shadow(0 0 10px var(--glow-soft));
@@ -483,7 +483,7 @@ body::after {
 }
 
 .hero-mark {
-  width: 156px;
+  width: 123px;
   height: 156px;
   margin: 0 auto 6px;
   filter: drop-shadow(0 0 46px rgba(139, 92, 246, 0.42));
@@ -753,7 +753,7 @@ body::after {
   flex: none;
 }
 .rail-home img {
-  width: 19px;
+  width: 15px;
   height: 19px;
 }
 .rail-add {
@@ -1781,7 +1781,7 @@ td code {
   letter-spacing: 0.03em;
 }
 .foot .logo img {
-  width: 18px;
+  width: 14px;
   height: 18px;
 }
 
@@ -1880,7 +1880,7 @@ a.logo:hover {
     max-width: 46ch;
   }
   .hero-mark {
-    width: 118px;
+    width: 93px;
     height: 118px;
   }
   .install-grid {
@@ -1946,7 +1946,7 @@ a.logo:hover {
     padding: 40px 0 40px;
   }
   .hero-mark {
-    width: 96px;
+    width: 76px;
     height: 96px;
   }
   .wordmark {
