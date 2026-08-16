@@ -174,6 +174,15 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
     if (!account) return res.status(401).json({ error: "Not signed in." });
 
     const password = String(req.body?.password ?? "");
+    if (account.passwordHash == null) {
+      // A provider-only account has no password to prove with. Requiring one
+      // would lock these people out of regenerating codes entirely; a fresh
+      // sign-in through their provider is the equivalent proof.
+      return res.status(400).json({
+        error:
+          "This account signs in through a provider and has no password. Sign in again to regenerate codes.",
+      });
+    }
     if (!(await verifyPassword(password, account.passwordHash))) {
       return res.status(401).json({ error: "That password is incorrect." });
     }
@@ -225,9 +234,12 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
       .limit(1);
 
     // Identical response either way — a different error for "no such account"
-    // turns this endpoint into a way to enumerate who has one.
+    // turns this endpoint into a way to enumerate who has one. An account with
+    // no password (provider-only) fails here for the same reason and with the
+    // same message, rather than revealing how it signs in.
     const ok =
-      account != null && (await verifyPassword(parsed.data.password, account.passwordHash));
+      account?.passwordHash != null &&
+      (await verifyPassword(parsed.data.password, account.passwordHash));
     if (!ok || account.suspendedAt) {
       return res.status(401).json({ error: "Incorrect email or password." });
     }
