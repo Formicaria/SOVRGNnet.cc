@@ -54,6 +54,15 @@ files for Archivo Black (the display face) and JetBrains Mono (everything
 technical), about 82 kB in total. Both are SIL OFL 1.1 and the licences ship
 alongside them. `font-src 'self'` means a Google Fonts link would simply fail.
 
+**Assets are cached by how stable their URL is, not by how big they are.**
+`style.css`, `mark.svg` and `formicaria.svg` keep the same path forever, so
+`_headers` gives them ten minutes and a revalidation. Fonts get a year and
+`immutable`, because their filenames carry family, weight and subset — new
+bytes always mean a new name. If you ever add a long TTL to a path whose
+contents can change, you are choosing to ship new HTML against an old
+stylesheet to every returning visitor, which looks far worse than an unstyled
+page. After a deploy that changes `style.css`, purge the Cloudflare cache.
+
 **The docs here mirror the repository, they don't replace it.** `QUICKSTART.md`,
 `docs/LXC.md`, `docs/DEPLOYMENT.md`, and the rest stay authoritative because
 they version with the code. These pages are the readable front door — when you
