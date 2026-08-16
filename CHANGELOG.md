@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+**The public site has a new landing page.** `site/index.html` is rebuilt around
+the SOVRGN sigil and wordmark: a hero split between the mark and a full preview
+of the client, a five-column ownership bar, the feature grid, an architecture
+diagram that puts your node at the centre, the install transcript, and the
+manifesto. `site/assets/style.css` gains the landing system and retunes the
+shared tokens toward near-black and violet; the docs, legal and 404 pages
+inherit the new palette and are otherwise untouched.
+
+Still zero build, zero JavaScript, and no external fonts — the mobile menu is a
+CSS-only checkbox, the sigil and every icon are an inline `<symbol>` sprite, the
+wordmark is drawn as vector letterforms rather than a webfont, and nothing
+needs a `style` attribute. The existing Content-Security-Policy is unchanged.
+
 ## v0.4.0 — 2026-08-15
 
 The release that makes "sovereign" a property you can check rather than a word
