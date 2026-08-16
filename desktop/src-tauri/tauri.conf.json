@@ -46,12 +46,19 @@
     ],
     "category": "SocialNetworking",
     "shortDescription": "Your own chat network",
-    "longDescription": "SOVRGNnet desktop client. Connect to servers your friends run, on hardware they own.",
+    "longDescription": "SOVRGNnet desktop client. Connect to servers your friends run, on hardware they own — or host one yourself.",
     "licenseFile": "../../LICENSE",
     "linux": {
       "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"],
+        "desktopTemplate": "sovrgnnet.desktop"
+      },
+      "appimage": {
+        "bundleMediaFramework": true
       }
+    },
+    "macOS": {
+      "minimumSystemVersion": "10.15"
     }
   }
 }
