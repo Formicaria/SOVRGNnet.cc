@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeAll, describe, it, expect, beforeEach, vi } from "vitest";
 import * as db from "./db";
 
 // Mock the database module
@@ -10,6 +10,27 @@ vi.mock("./db", async () => {
 // Integration tests — require a live Postgres (DATABASE_URL). CI provides one;
 // locally run `docker compose up db` or they are skipped.
 describe.skipIf(!process.env.DATABASE_URL)("Database Functions", () => {
+  /**
+   * This file used to write a userProfiles row for a hard-coded userId 1.
+   *
+   * routers.test.ts creates its own users, and in a throwaway database its
+   * first user *is* id 1 — so both files were writing the same row while
+   * vitest ran them in parallel. The symptom was routers.test.ts failing on a
+   * userProfiles update, intermittently, depending on scheduling: this file
+   * sets matrixUserId without an access token, so getMatrixCredentials read
+   * the row as "no credentials" and re-provisioned into a row the other file
+   * was already touching.
+   *
+   * Owning a user of its own removes the collision, and removes this file's
+   * hidden assumption that some user 1 already exists.
+   */
+  let userId: number;
+
+  beforeAll(async () => {
+    const user = await db.createLocalUser(`dbtest_${Date.now()}@test.cc`, "x", "DB Test");
+    userId = user.id;
+  });
+
   describe("Server operations", () => {
     it("should create a server with required fields", async () => {
       const uniqueRoomId = `!testroom${Date.now()}:matrix.org`;
@@ -140,25 +161,26 @@ describe.skipIf(!process.env.DATABASE_URL)("Database Functions", () => {
   describe("User profile operations", () => {
     it("should create or update a user profile", async () => {
       const result = await db.createOrUpdateUserProfile(
-        1,
-        "0x742d35Cc6634C0532925a3b844Bc9e7595f42bE",
+        userId,
+        // Unique per run: walletAddress carries a unique constraint too.
+        `0x${Date.now().toString(16)}${"0".repeat(8)}`,
         "alice.eth",
         "ipfs://avatar",
         "Hello, I'm Alice",
-        "@alice:matrix.org"
+        `@dbtest_${Date.now()}:matrix.org`
       );
       expect(result).toBeDefined();
     });
 
     it("should retrieve a user profile by ID", async () => {
-      const profile = await db.getUserProfile(1);
+      const profile = await db.getUserProfile(userId);
       expect(profile).toBeDefined();
     });
   });
 
   describe("Server member operations", () => {
     it("should add a server member with required fields", async () => {
-      const result = await db.addServerMember(1, 1, "admin");
+      const result = await db.addServerMember(1, userId, "admin");
       expect(result).toBeDefined();
     });
 
