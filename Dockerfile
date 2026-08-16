@@ -7,12 +7,16 @@ WORKDIR /app
 # Install build dependencies
 RUN apk add --no-cache python3 make g++ cairo-dev jpeg-dev pango-dev giflib-dev pixman-dev
 
-# Copy package files
+# Copy package files. The patches directory comes too: pnpm-lock.yaml pins a
+# patched wouter, and pnpm hashes the patch file during install — without it
+# the install fails with an unhelpful ENOENT deep inside pnpm.
 COPY package.json pnpm-lock.yaml ./
+COPY patches ./patches
 
 # pnpm comes from corepack, which reads the exact version out of the
 # packageManager field. `npm install -g pnpm` grabs whatever is newest, and a
-# pnpm newer than the one that wrote pnpm-lock.yaml rejects the lockfile.
+# pnpm newer than the one that wrote pnpm-lock.yaml both rejects the lockfile
+# and silently ignores the `pnpm` field in package.json.
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable && pnpm install --frozen-lockfile
 
@@ -30,8 +34,10 @@ WORKDIR /app
 # Install runtime dependencies only
 RUN apk add --no-cache cairo jpeg pango giflib pixman
 
-# Copy package files
+# Same as the builder stage: patches are needed at install time, not just at
+# build time, because pnpm hashes them while resolving the lockfile.
 COPY package.json pnpm-lock.yaml ./
+COPY patches ./patches
 
 # Install production dependencies only — same corepack reasoning as above.
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
