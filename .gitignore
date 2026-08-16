@@ -21,6 +21,21 @@ build/
 # Backups contain secrets and user data — never commit them
 backups/
 
+# The generated homeserver config and its signing key.
+#
+# dendrite.yaml carries the registration shared secret: whatever holds it can
+# create an account on the homeserver. matrix_key.pem *is* the instance's
+# identity on the Matrix network — publishing it lets anyone impersonate the
+# server to everyone it has ever federated with, and the damage isn't undone by
+# rotating it.
+#
+# Only the template is tracked; install.sh and scripts/e2e.sh generate the rest.
+dendrite/dendrite.yaml
+dendrite/matrix_key.pem
+
+# Real certificates and private keys for the proxy deployment.
+ssl/
+
 # IDE and editor files
 .vscode/
 .idea/

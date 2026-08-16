@@ -133,6 +133,61 @@ printf '\n%sSOVRGNnet end-to-end%s %s(project: %s, port %s)%s\n' \
 
 # ------------------------------------------------------------------- bring up
 
+step "Configuring the homeserver"
+
+# install.sh does this for a real install; the harness goes straight to
+# `compose up`, so it has to do it too.
+#
+# Getting this wrong is silent and confusing: the compose file bind-mounts
+# ./dendrite/dendrite.yaml, and Docker creates a *directory* when a bind-mount
+# source doesn't exist. Dendrite then finds a directory where its config should
+# be, fails to start, and the only symptom is that the homeserver never becomes
+# reachable.
+for stray in dendrite/dendrite.yaml dendrite/matrix_key.pem; do
+  if [ -d "$stray" ]; then
+    rmdir "$stray" 2>/dev/null || rm -rf "$stray"
+    info "Removed $stray, which Docker had created as a directory"
+  fi
+done
+
+mkdir -p dendrite
+
+read_env() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
+
+DENDRITE_SECRET="$(read_env MATRIX_SHARED_SECRET)"
+DENDRITE_DB_PASS="$(read_env DB_PASSWORD)"
+[ -n "$DENDRITE_SECRET" ] && [ -n "$DENDRITE_DB_PASS" ] \
+  || die "Couldn't read the generated secrets back out of $ENV_FILE."
+
+if [ ! -f dendrite/matrix_key.pem ]; then
+  openssl genpkey -algorithm ed25519 -out dendrite/matrix_key.pem 2>/dev/null \
+    || die "Couldn't generate a signing key (needs openssl)."
+  chmod 600 dendrite/matrix_key.pem
+  ok "Signing key generated"
+else
+  ok "Signing key present"
+fi
+
+sed \
+  -e "s|__MATRIX_SERVER_NAME__|e2e.local|g" \
+  -e "s|__MATRIX_SHARED_SECRET__|$DENDRITE_SECRET|g" \
+  -e "s|__DENDRITE_DISABLE_FEDERATION__|true|g" \
+  -e "s|__DENDRITE_DATABASE_URL__|postgresql://sovrgn:$DENDRITE_DB_PASS@db:5432/dendrite?sslmode=disable|g" \
+  dendrite/dendrite.yaml.template > dendrite/dendrite.yaml
+chmod 600 dendrite/dendrite.yaml
+
+# A leftover placeholder means the template gained a field this doesn't fill
+# in, and Dendrite would fail on it in a way that takes a while to trace.
+#
+# Comments are excluded: the template's own header says "the __PLACEHOLDERS__
+# are replaced", which is prose, not an unfilled slot.
+LEFTOVER="$(grep -v '^\s*#' dendrite/dendrite.yaml | grep -o '__[A-Z_]*__' | sort -u || true)"
+if [ -n "$LEFTOVER" ]; then
+  printf '%s\n' "$LEFTOVER" | sed 's/^/    /'
+  die "The Dendrite template has placeholders this script doesn't fill in."
+fi
+ok "Config written from the template"
+
 step "Starting the stack"
 info "Postgres, Dendrite, Kubo, and the app. First run builds the image."
 
