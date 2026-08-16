@@ -137,24 +137,57 @@ async fn close_server(app: tauri::AppHandle, label: String) -> Result<(), String
 /// Open a URL in the user's own browser.
 ///
 /// Release downloads and sign-in belong in the browser someone already trusts,
-/// not in an app webview. Scheme-checked because the frontend could be asked
-/// to open a link that arrived from outside.
+/// not in an app webview.
+///
+/// Done with the platform's own launcher rather than a Tauri plugin: it's three
+/// well-known commands, it adds no dependency whose API can shift between
+/// versions, and it needs no extra capability in the manifest.
 #[tauri::command]
-fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String> {
+fn open_external(url: String) -> Result<(), String> {
+    // Untrusted input reaches here — a release URL, or a link out of a deep
+    // link. Anything but http(s) is refused before it becomes a process
+    // argument, so this can't be talked into launching a local file or a
+    // handler for some other scheme.
     let parsed = url::Url::parse(&url).map_err(|e| e.to_string())?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(format!("Refusing to open a {} URL", parsed.scheme()));
     }
-    tauri_plugin_opener::OpenerExt::opener(&app)
-        .open_url(url, None::<&str>)
-        .map_err(|e| e.to_string())
+    let url = parsed.to_string();
+
+    #[cfg(target_os = "linux")]
+    let mut command = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(&url);
+        c
+    };
+
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = std::process::Command::new("open");
+        c.arg(&url);
+        c
+    };
+
+    // The empty string is the window title `start` expects first; without it
+    // a quoted URL would be taken as the title and nothing would open.
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", "start", "", &url]);
+        c
+    };
+
+    command.spawn().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
-/// The running version, so the update check compares against something real
-/// rather than a number the frontend was told at build time.
+/// The running version, so the update check compares against something real.
+///
+/// Read at compile time from Cargo.toml, which the release train keeps in step
+/// with every other version in the repository.
 #[tauri::command]
-fn app_version(app: tauri::AppHandle) -> String {
-    app.package_info().version.to_string()
+fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
 }
 
 /// Hand a sovrgn:// URL to the frontend, which knows how to parse it.
@@ -171,7 +204,6 @@ fn forward_deep_link(app: &tauri::AppHandle, urls: Vec<String>) {
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // A second launch — usually someone clicking an invite while the

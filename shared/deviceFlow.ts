@@ -1,7 +1,10 @@
-import { randomBytes } from "node:crypto";
-
 /**
  * Signing in to sovrgnnet.cc from the desktop app.
+ *
+ * Uses Web Crypto rather than `node:crypto`, deliberately: this module is
+ * imported by the desktop frontend, which runs in a webview where `node:`
+ * builtins do not exist. `crypto.getRandomValues` is a global in browsers and
+ * in Node 19+, so the same code runs on both sides.
  *
  * ## Why not the redirect flow the web uses
  *
@@ -46,8 +49,20 @@ export type DevicePollResult =
   | { status: "denied" }
   | { status: "expired" };
 
+function randomBytes(length: number): Uint8Array {
+  return crypto.getRandomValues(new Uint8Array(length));
+}
+
+function base64url(bytes: Uint8Array): string {
+  // Indexed rather than for..of: the server build targets an older ES level
+  // where iterating a typed array needs downlevelIteration.
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 export function generateDeviceCode(): string {
-  return randomBytes(32).toString("base64url");
+  return base64url(randomBytes(32));
 }
 
 /**
