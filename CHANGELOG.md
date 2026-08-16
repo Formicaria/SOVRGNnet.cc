@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+**Administration without SSH (0.6).** The server settings dialog grows two
+tabs. *Health*: live dependency status (database, homeserver, IPFS — each
+probed with a 2-second bound through the new admin-gated `admin.overview`),
+direct-sync and event-ingest state, version, uptime, and instance totals,
+refreshing every ten seconds while watched. *Members*: every account on the
+instance with role management — grant and revoke admin from the client, with
+the existing self-demotion guard, so an instance always keeps at least the
+administrator you are.
+
 ## v0.5.0 — 2026-08-16
 
 Portable infrastructure, completed — and the architecture that end-to-end
