@@ -138,13 +138,27 @@ jobs:
 
   # The server image. This is what people actually run; the desktop apps are
   # clients for it.
+  #
+  # Each architecture builds on hardware that actually is that architecture.
+  # It was one QEMU-emulated buildx job, and Node under qemu-user dies with
+  # SIGILL partway through pnpm install — v0.5.1's image build proved it.
+  # Native arm64 runners are free for public repositories, so emulation buys
+  # nothing but the crash. Each build pushes by digest; the manifest job
+  # stitches them into one tag afterwards.
   server:
     needs: guard
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
@@ -153,29 +167,87 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # GHCR names must be lowercase; ${{ github.repository }} isn't. The
+      # metadata action used to hide this by lowercasing internally — done
+      # explicitly here because the digest push and manifest need the same
+      # exact string.
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+          images: ${{ steps.image.outputs.name }}
 
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # No tag here on purpose: pushing by digest lets the manifest job
+          # own the tags, so the two halves become one image atomically
+          # rather than the last-pushed architecture winning.
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+
+      - name: Record digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # One tag, both architectures, created only after both builds exist.
+  server-manifest:
+    needs: [guard, server]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create the multi-arch manifest
+        working-directory: /tmp/digests
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          VERSION="${{ needs.guard.outputs.version }}"
+          MAJOR_MINOR="${VERSION%.*}"
+          docker buildx imagetools create \
+            -t "$IMAGE:$VERSION" \
+            -t "$IMAGE:$MAJOR_MINOR" \
+            -t "$IMAGE:latest" \
+            $(printf "$IMAGE@sha256:%s " *)
+
+      - name: Verify both architectures answer to the tag
+        run: |
+          docker buildx imagetools inspect \
+            "ghcr.io/${GITHUB_REPOSITORY,,}:${{ needs.guard.outputs.version }}" | tee /tmp/inspect
+          grep -q "linux/amd64" /tmp/inspect || { echo "::error::amd64 missing from the manifest"; exit 1; }
+          grep -q "linux/arm64" /tmp/inspect || { echo "::error::arm64 missing from the manifest"; exit 1; }
 
   # Only once every platform and the image are done. Until this runs, the
   # release is a draft nobody can download half of.
   publish:
-    needs: [guard, draft, desktop, server]
+    needs: [guard, draft, desktop, server-manifest]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -194,7 +266,7 @@ jobs:
             No Docker? `scripts/install-lxc.sh` installs everything as systemd
             services. Already running one? `sovrgnnet update`.
 
-            Container image: `ghcr.io/${{ github.repository }}:${{ needs.guard.outputs.version }}`
+            Container image: `ghcr.io/formicaria/sovrgnnet.cc:${{ needs.guard.outputs.version }}`
 
             ## Desktop apps
 
