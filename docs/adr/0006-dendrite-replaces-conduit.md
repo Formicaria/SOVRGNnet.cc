@@ -1,6 +1,6 @@
 # ADR 0006 — Dendrite replaces Conduit
 
-**Status:** Accepted · August 2026 · **not yet implemented**
+**Status:** Accepted · August 2026 · implemented in v0.3.0
 **Forced by:** [ADR 0005](0005-desktop-hosts-a-server.md)
 
 ## Context

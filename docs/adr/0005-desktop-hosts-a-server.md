@@ -1,6 +1,6 @@
 # ADR 0005 — The desktop app installs a server, with everything bundled
 
-**Status:** Accepted · August 2026 · **not yet built** (targeted at v0.3.0)
+**Status:** Accepted · August 2026 · implemented in v0.3.0
 **Supersedes:** the WSL2 approach in [ADR 0002](0002-windows-bundled-server.md), for the desktop case only
 
 ## Context
