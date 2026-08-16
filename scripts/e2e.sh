@@ -39,10 +39,14 @@ YELLOW=$(tput setaf 3 2>/dev/null || echo)
 
 KEEP=0
 BUILD_ARG="--build"
+FRESH=0
 for arg in "$@"; do
   case "$arg" in
     --keep) KEEP=1 ;;
     --no-build) BUILD_ARG="" ;;
+    # For when the image is suspected of being stale. Slow, and the answer
+    # when a cached layer is serving code that no longer exists in the tree.
+    --fresh) FRESH=1 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
   esac
@@ -193,8 +197,45 @@ info "Postgres, Dendrite, Kubo, and the app. First run builds the image."
 # Start clean so a previous failed run can't make this one pass.
 compose down -v --remove-orphans >/dev/null 2>&1 || true
 
+if [ "$FRESH" -eq 1 ]; then
+  info "Rebuilding the app image from scratch (--fresh)"
+  compose build --no-cache app 2>&1 | tail -3 || die "The image failed to build."
+fi
+
 # shellcheck disable=SC2086
 compose up -d $BUILD_ARG db matrix ipfs app 2>&1 | grep -Ei 'error|warn' || true
+
+# --------------------------------------------------- check what was built
+#
+# The image is what runs, and it is not necessarily what `pnpm build` just
+# produced on the host — a cached layer, a stale context, or a Dockerfile that
+# copies the wrong thing all produce a container running different code.
+#
+# This exact failure happened twice: dist/index.js inside the image statically
+# imported `vite`, which the production install doesn't have, so the container
+# died on startup. The host bundle was clean and the unit test that checks it
+# passed. Checking the artifact rather than the source is the difference.
+step "Checking the image"
+
+BUNDLE_IMPORTS="$(compose run --rm --no-deps --entrypoint node app \
+  -e 'const s=require("fs").readFileSync("dist/index.js","utf8");
+      const m=[...s.matchAll(/^\s*import\s+(?:[^;\x27"]*?\sfrom\s+)?["\x27]([^"\x27]+)["\x27]/gm)]
+        .map(x=>x[1]).filter(x=>!x.startsWith(".")&&!x.startsWith("node:"));
+      console.log(m.join(" "));' 2>/dev/null | tr -d '\r')"
+
+for forbidden in vite @vitejs/plugin-react @tailwindcss/vite drizzle-kit; do
+  case " $BUNDLE_IMPORTS " in
+    *" $forbidden "*)
+      printf '\n%sThe image imports %s, which is a devDependency.%s\n' "$RED" "$forbidden" "$RESET" >&2
+      printf '%sThe container will die on startup with ERR_MODULE_NOT_FOUND.%s\n\n' "$DIM" "$RESET" >&2
+      printf '%sThe host bundle may well be fine — this is the image.%s\n' "$DIM" "$RESET" >&2
+      printf '%sMost likely a cached build layer. Rebuild without cache:%s\n' "$DIM" "$RESET" >&2
+      printf '  %s%s -p %s build --no-cache app%s\n\n' "$BOLD" "$DC" "$PROJECT" "$RESET" >&2
+      die "The built image is broken."
+      ;;
+  esac
+done
+ok "No development-only packages in the image's bundle"
 
 # ---------------------------------------------------------------- wait for it
 
