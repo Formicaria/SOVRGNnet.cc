@@ -1,0 +1,90 @@
+# Overrides for the federation harness — one of two instances.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.federation.yml \
+#     -p sovrgnnet-fed-a --env-file <generated> up
+#
+# Used only by scripts/e2e-federation.sh, which runs this file *twice* under
+# two project names to stand up two complete, independent instances, then
+# opens Matrix federation between their homeservers. Same principle as
+# docker-compose.e2e.yml: each instance is the actual production topology,
+# with only the differences a test needs stated explicitly here.
+#
+# Everything per-instance comes in through variables (FED_ID, ports, alias),
+# so the two instances are the same file twice rather than two files that
+# drift apart.
+
+services:
+  app:
+    # The base file pins container names, which is right for a real install
+    # and a collision for anything that runs two. Named per instance.
+    container_name: sovrgnnet-fed-${FED_ID:?}-app
+    ports: !override
+      - "${FED_APP_PORT:?}:3000"
+    environment:
+      # The base file doesn't pass these through; the harness needs instance
+      # identity at startup, same as docker-compose.e2e.yml.
+      INSTANCE_NAME: ${INSTANCE_NAME:-Federation instance}
+      INSTANCE_JOIN_POLICY: ${INSTANCE_JOIN_POLICY:-invite}
+    # A crash should fail the run, not be papered over by a restart.
+    restart: "no"
+
+  db:
+    container_name: sovrgnnet-fed-${FED_ID:?}-db
+    restart: "no"
+
+  matrix:
+    container_name: sovrgnnet-fed-${FED_ID:?}-matrix
+    restart: "no"
+    # The federation transport is HTTPS — gomatrixserverlib resolves a bare
+    # server name to <name>:8448 over TLS and will not speak plaintext. The
+    # monolith only opens its TLS listener when handed a certificate, so the
+    # harness generates a throwaway self-signed pair per instance and each
+    # side's rendered config sets disable_tls_validation to accept the
+    # other's. Real federation between real instances uses real certificates;
+    # what's under test here is everything above the transport.
+    command:
+      - "--config"
+      - "/etc/dendrite/dendrite.yaml"
+      - "--http-bind-address"
+      - ":8008"
+      - "--https-bind-address"
+      - ":8448"
+      - "--tls-cert"
+      - "/etc/dendrite/fed-tls.crt"
+      - "--tls-key"
+      - "/etc/dendrite/fed-tls.key"
+    volumes:
+      # Same-target mounts replace the base file's; new targets append.
+      - ./dendrite/fed-${FED_ID:?}/dendrite.yaml:/etc/dendrite/dendrite.yaml:ro
+      - ./dendrite/fed-${FED_ID:?}/matrix_key.pem:/etc/dendrite/matrix_key.pem:ro
+      - ./dendrite/fed-${FED_ID:?}/appservice.yaml:/etc/dendrite/appservice-fed.yaml:ro
+      - ./dendrite/fed-${FED_ID:?}/tls.crt:/etc/dendrite/fed-tls.crt:ro
+      - ./dendrite/fed-${FED_ID:?}/tls.key:/etc/dendrite/fed-tls.key:ro
+    ports: !override
+      # The journey drives each homeserver's client API from the host.
+      - "127.0.0.1:${FED_MATRIX_PORT:?}:8008"
+    networks:
+      # The project-local network, where this instance's app reaches this
+      # instance's homeserver as `matrix`, exactly as in production.
+      sovrgnnet: {}
+      # The shared network is federation's wire. Only the homeservers join
+      # it — apps, databases, and IPFS stay project-local, because federation
+      # is a conversation between homeservers and nothing else.
+      fednet:
+        aliases:
+          - ${FED_MATRIX_ALIAS:?}
+
+  ipfs:
+    container_name: sovrgnnet-fed-${FED_ID:?}-ipfs
+    restart: "no"
+    # Two instances can't both publish 4001, and the harness never talks to
+    # Kubo from the host.
+    ports: !override []
+
+networks:
+  # Created and removed by the harness. External so neither compose project
+  # claims to own it — a project-owned network is deleted when that project
+  # goes down, taking the other instance's federation link with it.
+  fednet:
+    external: true
+    name: ${FED_NETWORK:-sovrgnnet-fed}

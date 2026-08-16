@@ -18,6 +18,7 @@ repeatedly not meant the software worked.
 | Unit | `pnpm test` | Logic is right | 7s |
 | Integration | `pnpm test:db` | It's right against a real Postgres | ~40s |
 | End-to-end | `pnpm e2e` | The whole stack works together | ~8m |
+| Federation | `./scripts/e2e-federation.sh` | Two instances work *with each other* | ~12m |
 | Conformance | `pnpm conformance <url>` | An instance speaks the protocol | 2s |
 
 ### Unit — 531 tests
@@ -71,6 +72,41 @@ found by reading that code rather than running it.
 generated secrets, own port. The teardown asserts the project name before
 removing anything, and `server/e2eHarness.test.ts` asserts that guard exists.
 
+### Federation — two instances, one room
+
+```bash
+./scripts/e2e-federation.sh            # build, run, tear down
+./scripts/e2e-federation.sh --keep     # leave both up (A :4101, B :4102)
+```
+
+ADR 0010's completion criterion, run for real. Two *complete* instances —
+each its own app, Postgres, Dendrite, and Kubo under its own compose project
+— share exactly one thing: a Docker network joining their homeservers, over a
+real TLS federation transport (throwaway self-signed pairs; validation off in
+the rendered harness configs only). Then:
+
+1. A's first account creates a community; a baseline message is sent before
+   B exists to the room
+2. A federated invite crosses to B's account, which joins through its own
+   homeserver
+3. Messages cross both ways, and **both indexes attribute both senders** —
+   the local one by account, the remote one as `userId NULL` plus the bare
+   Matrix id, asserted through the API *and* directly against both databases
+4. B's index is checked for what it must *not* contain: the pre-join
+   baseline. Attaching indexes a room from the join onward; a harness that
+   let history backfill silently would be describing a different feature
+5. A's moderator redacts the remote sender's message — the ADR 0010 path
+   where no local credentials exist — and both indexes must clear
+6. Conformance and `/metrics` are re-checked on both instances
+
+One honest splice: B's channel row pointing at A's room is INSERTed directly,
+because the product has no "attach a remote room" surface yet. The harness
+says so where it does it.
+
+Not part of `preflight --full` — two full stacks is a deliberate run, not a
+gate on every release. Run it when touching federation, ingest, or anything
+in ADR 0009/0010's blast radius.
+
 ### Conformance
 
 ```bash
@@ -106,7 +142,9 @@ Stated so it isn't mistaken for coverage:
 
 - **Tauri bundling.** Needs each target OS; only CI builds installers.
 - **macOS packaging.** Non-blocking in CI for the same reason.
-- **Federation.** Needs two reachable homeservers.
+- **Federation over real DNS and real certificates.** The harness proves the
+  protocol path with self-signed pairs and validation off; the public-internet
+  version of the same claim still needs two real deployments.
 - **Cloudflare Tunnel modes.** Need real DNS.
 - **Upgrade paths.** Nothing tests migrating a v0.2 instance to v0.4.
 
