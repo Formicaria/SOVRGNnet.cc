@@ -60,8 +60,8 @@ export default function Home() {
         <nav className="border-b border-slate-700 bg-slate-900/50 backdrop-blur">
           <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold">
-                DD
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-sm">
+                SN
               </div>
               <h1 className="text-2xl font-bold">SOVRGNnet</h1>
             </div>
@@ -81,8 +81,9 @@ export default function Home() {
               </span>
             </h2>
             <p className="text-xl text-slate-300 mb-8 max-w-2xl mx-auto">
-              A decentralized communication platform built on Web3, Matrix protocol, and IPFS. 
-              Encrypted, private, and completely under your control.
+              Servers, channels, and conversations on hardware you own. Built on
+              the Matrix protocol and IPFS — open standards, no company in the
+              middle.
             </p>
             <Button onClick={() => setLocation("/dashboard")} size="lg" className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700">
               Enter Dashboard
@@ -95,10 +96,14 @@ export default function Home() {
               <div className="flex items-start gap-4">
                 <Lock className="w-8 h-8 text-purple-400 flex-shrink-0 mt-1" />
                 <div>
-                  <h3 className="text-xl font-bold mb-2">End-to-End Encrypted</h3>
+                  {/* This card used to claim Olm/Megolm encryption that does
+                      not exist yet. Saying so plainly is the entire point of
+                      the project — see docs/adr/0001. */}
+                  <h3 className="text-xl font-bold mb-2">Nobody's server but yours</h3>
                   <p className="text-slate-300">
-                    All messages and calls are encrypted using Matrix's Olm/Megolm protocol. 
-                    Only you and your recipients can read your communications.
+                    Messages live in your database, on your machine. Not yet
+                    end-to-end encrypted — whoever runs this server can read
+                    them, and that's on the roadmap to fix.
                   </p>
                 </div>
               </div>
@@ -108,10 +113,11 @@ export default function Home() {
               <div className="flex items-start gap-4">
                 <Users className="w-8 h-8 text-pink-400 flex-shrink-0 mt-1" />
                 <div>
-                  <h3 className="text-xl font-bold mb-2">Decentralized Identity</h3>
+                  <h3 className="text-xl font-bold mb-2">Roles and moderation</h3>
                   <p className="text-slate-300">
-                    Connect with your Web3 wallet and ENS name. Your identity is portable 
-                    and not tied to any single platform.
+                    Owners, admins, moderators, members — enforced on every
+                    request, not just hidden in the interface. Invite links,
+                    kicks, and bans included.
                   </p>
                 </div>
               </div>
@@ -121,10 +127,11 @@ export default function Home() {
               <div className="flex items-start gap-4">
                 <MessageCircle className="w-8 h-8 text-blue-400 flex-shrink-0 mt-1" />
                 <div>
-                  <h3 className="text-xl font-bold mb-2">Federated Messaging</h3>
+                  <h3 className="text-xl font-bold mb-2">Real Matrix underneath</h3>
                   <p className="text-slate-300">
-                    Built on the Matrix protocol, enabling true federation. 
-                    No single point of failure or control.
+                    Every message is an event on your own homeserver, so other
+                    Matrix clients can read the same rooms. Federation is
+                    available and off by default — your call, not ours.
                   </p>
                 </div>
               </div>
@@ -134,35 +141,56 @@ export default function Home() {
               <div className="flex items-start gap-4">
                 <Zap className="w-8 h-8 text-yellow-400 flex-shrink-0 mt-1" />
                 <div>
-                  <h3 className="text-xl font-bold mb-2">Premium Features</h3>
+                  <h3 className="text-xl font-bold mb-2">Files on your own node</h3>
                   <p className="text-slate-300">
-                    NFT-based "Nitro" subscription unlocks HD video, custom emojis, 
-                    and exclusive soundboards.
+                    Attachments pin to your IPFS node and stream back through
+                    the app with membership checks — no upload service, no
+                    links that rot when someone else's plan lapses.
                   </p>
                 </div>
               </div>
             </Card>
           </div>
 
-          {/* Features List */}
-          <div className="bg-slate-800 border border-slate-700 rounded-lg p-8">
-            <h3 className="text-2xl font-bold mb-6">Powerful Features</h3>
-            <div className="grid md:grid-cols-2 gap-4">
-              {[
-                "Real-time messaging with Matrix protocol",
-                "Voice and video calls with MatrixRTC + LiveKit",
-                "Large file sharing (500MB+) via IPFS & WebTorrent",
-                "Built-in soundboard with low-latency playback",
-                "NFT-based Nitro subscription system",
-                "Role-based permissions and moderation",
-                "Offline message queue and sync",
-                "Cross-device synchronization",
-              ].map((feature, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-gradient-to-r from-purple-400 to-pink-400" />
-                  <span className="text-slate-300">{feature}</span>
-                </div>
-              ))}
+          {/* Two lists, deliberately. Conflating what works with what's
+              planned is how a project ends up lying to its own users. */}
+          <div className="grid md:grid-cols-2 gap-6">
+            <div className="bg-slate-800 border border-slate-700 rounded-lg p-8">
+              <h3 className="text-2xl font-bold mb-6">Working today</h3>
+              <div className="space-y-3">
+                {[
+                  "Servers, channels, and text chat over Matrix",
+                  "File sharing on your own IPFS node",
+                  "Invite links, including for private servers",
+                  "Roles, kicks, bans, and message moderation",
+                  "Message editing, reactions, typing indicators",
+                  "One-command install, backups, and updates",
+                ].map((feature, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className="w-2 h-2 rounded-full bg-gradient-to-r from-purple-400 to-pink-400 mt-2 shrink-0" />
+                    <span className="text-slate-300">{feature}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-8">
+              <h3 className="text-2xl font-bold mb-6 text-slate-400">Not yet</h3>
+              <div className="space-y-3">
+                {[
+                  "End-to-end encryption",
+                  "Voice and video channels",
+                  "Desktop client with multi-server support",
+                  "Password reset by email",
+                  "Mobile apps",
+                  "Soundboard",
+                ].map((feature, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className="w-2 h-2 rounded-full bg-slate-600 mt-2 shrink-0" />
+                    <span className="text-slate-400">{feature}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -174,12 +202,15 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 text-white flex flex-col items-center justify-center">
       <div className="text-center space-y-8 max-w-md">
         <div>
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-4xl mx-auto mb-6">
-            DD
+          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center font-bold text-3xl mx-auto mb-6">
+            SN
           </div>
           <h1 className="text-5xl font-bold mb-4">SOVRGNnet</h1>
+          {/* Claims on this page must be true today, not on the roadmap. This
+              is the last thing someone reads before typing a password. */}
           <p className="text-xl text-slate-300">
-            A Web3-native communication platform with end-to-end encryption and true decentralization.
+            Chat on a server someone you trust actually owns. Built on Matrix
+            and IPFS, running on their hardware — not a company's.
           </p>
         </div>
 
