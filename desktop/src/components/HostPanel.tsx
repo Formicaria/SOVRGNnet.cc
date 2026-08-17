@@ -120,8 +120,10 @@ export default function HostPanel({
 
         {bundled === false && (
           <p className="dim">
-            This build was made without the server components — usually a
-            development build. Release installers from sovrgnnet.cc can host.
+            This build ships without the server components — the AppImage and
+            development builds are like this. To host from the desktop, use
+            the .deb or Windows installer from sovrgnnet.cc; to host without
+            it, any Linux box and one command — the install guide covers both.
           </p>
         )}
 

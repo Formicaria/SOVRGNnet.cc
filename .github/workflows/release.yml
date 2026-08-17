@@ -136,6 +136,32 @@ jobs:
           releaseId: ${{ needs.draft.outputs.id }}
           args: ${{ matrix.args }}
 
+      # ---- AppImage, client-only -------------------------------------------
+      # Built separately, after emptying the host components. linuxdeploy
+      # walks the AppDir resolving every ELF's shared libraries, and a full
+      # PostgreSQL tree is more ELF than it survives — v0.6.0's first build
+      # died with `failed to run linuxdeploy` on exactly that. The .deb hosts;
+      # the AppImage is the same client for every other distribution, and the
+      # app itself tells AppImage users this build can't host.
+      - name: Build the client-only AppImage
+        if: matrix.platform == 'ubuntu-22.04'
+        working-directory: desktop
+        env:
+          CI: true
+        run: |
+          rm -rf src-tauri/host
+          mkdir -p src-tauri/host
+          printf 'Emptied for the AppImage build — see release.yml.\n' > src-tauri/host/README
+          pnpm tauri build --bundles appimage
+
+      - name: Attach the AppImage to the draft
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          name: v${{ needs.guard.outputs.version }}
+          files: desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+
   # The server image. This is what people actually run; the desktop apps are
   # clients for it.
   #
@@ -274,11 +300,12 @@ jobs:
             connects to servers other people run — it is not required to use a
             SOVRGNnet server, which works in any browser.
 
-            **The Linux and Windows installers can also host.** "Run a server
-            on this computer" sets up a complete instance — database,
+            **The Linux .deb and Windows installers can also host.** "Run a
+            server on this computer" sets up a complete instance — database,
             homeserver, file storage — under your user account, no terminal
             involved. It runs while the app is open, and friends join with an
-            invite. macOS installs are client-only for now.
+            invite. The AppImage and macOS builds are client-only, and say so
+            in the app.
 
             **Channels are end-to-end encrypted by default** on instances
             whose deployment can support it — a reachable homeserver and a
