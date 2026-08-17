@@ -196,7 +196,21 @@ describe("what the person is told stays honest", () => {
   });
 
   it("the release notes state the hosting claim per platform", () => {
-    expect(releaseYml).toContain("The Linux and Windows installers can also host.");
-    expect(releaseYml).toContain("macOS installs are client-only for now");
+    expect(releaseYml).toContain("The Linux .deb and Windows installers can also host.");
+    expect(releaseYml).toContain("The AppImage and macOS builds are client-only");
+  });
+
+  it("the AppImage is built without the host bundle, deliberately", () => {
+    // linuxdeploy resolves every ELF in the AppDir and cannot digest a full
+    // PostgreSQL tree — v0.6.0's first build proved it. The AppImage build
+    // must empty host/ first, and the config must not list appimage in the
+    // default targets where the resources would ride along.
+    expect(releaseYml).toContain("pnpm tauri build --bundles appimage");
+    expect(releaseYml).toMatch(/rm -rf src-tauri\/host/);
+    expect(tauriConf).toBeTruthy();
+    const targets = (
+      tauriConf as unknown as { bundle?: { targets?: string[] } }
+    ).bundle?.targets;
+    expect(targets).not.toContain("appimage");
   });
 });

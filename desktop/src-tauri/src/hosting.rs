@@ -371,7 +371,7 @@ pub async fn host_start(
     std::fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
 
     let mut components: Vec<ComponentReport> = Vec::new();
-    let mut fail = |components: &mut Vec<ComponentReport>, id: &str, error: String| {
+    let fail = |components: &mut Vec<ComponentReport>, id: &str, error: String| {
         components.push(ComponentReport {
             id: id.to_string(),
             state: "failed".to_string(),
