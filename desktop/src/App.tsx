@@ -1,3 +1,4 @@
+import { IDENTITY_ORIGIN } from "@shared/identity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ConnectionManager,
@@ -24,7 +25,19 @@ import { appVersion, credentials } from "@/lib/bridge";
 import { hostAvailable, hostStart, onHostState } from "@/lib/hosting";
 import type { HostState } from "@shared/hosting";
 
-const IDENTITY_URL = "https://sovrgnnet.cc";
+/**
+ * Where this build looks for the identity service.
+ *
+ * Overridable at build time so a fork, a self-hosted identity service, or a
+ * staging deployment doesn't require patching source. ADR 0003 makes the
+ * identity service optional infrastructure; a hardcoded origin with no way past
+ * it would contradict that.
+ *
+ * The default is not currently running anything — see IDENTITY_ORIGIN.
+ */
+const IDENTITY_URL =
+  (import.meta.env.VITE_IDENTITY_URL as string | undefined)?.trim() ||
+  IDENTITY_ORIGIN;
 
 /**
  * The desktop shell.
@@ -98,17 +111,26 @@ export default function App() {
         });
         if (!res.ok) throw new Error(`Couldn't read your servers (${res.status})`);
 
+        // `instanceUrl`, not `address`. This read `grant.address` for its whole
+        // life and the API has never sent a field by that name — so the guard
+        // below skipped every grant, `added` stayed 0, and "sign in to bring
+        // your servers with you" quietly brought nothing. Declaring it
+        // optional is what hid it: an optional property the server never sends
+        // typechecks perfectly and is always undefined.
         const grants = (await res.json()) as Array<{
           instanceName?: string | null;
-          address?: string | null;
+          instanceUrl?: string | null;
           revoked?: boolean;
         }>;
 
         let added = 0;
         for (const grant of grants) {
-          if (grant.revoked || !grant.address) continue;
+          // Null instanceUrl means the identity service has only ever seen this
+          // instance through the API token flow and has no address it resolved
+          // itself. Nothing to connect to, and guessing is not on the table.
+          if (grant.revoked || !grant.instanceUrl) continue;
           try {
-            await manager.connect(grant.address);
+            await manager.connect(grant.instanceUrl);
             added += 1;
           } catch {
             // Unreachable right now; it stays out of the rail until added

@@ -1,3 +1,4 @@
+import { IDENTITY_ORIGIN } from "@shared/identity";
 import { useState } from "react";
 import { openExternal } from "@/lib/bridge";
 
@@ -19,7 +20,7 @@ export default function FirstRun({
   onSignIn,
   onHost,
   canHost = false,
-  identityUrl = "https://sovrgnnet.cc",
+  identityUrl = IDENTITY_ORIGIN,
 }: {
   onAddServer: () => void;
   onSignIn: () => void;
