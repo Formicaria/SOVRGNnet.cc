@@ -2,6 +2,44 @@
 
 ## v0.6.1 — 2026-08-17
 
+**An independent instance can use id.sovrgnnet.cc, and now something checks
+that.** A server run by somebody else gets exactly one thing from the identity
+provider — the JWKS at `/.well-known/jwks.json` — and verifies every token
+afterwards without contacting it again. That single document is the whole
+contract, so `shared/identityIssuer.ts` assesses it as one and returns problems
+as data rather than copy.
+
+`server/identityIssuer.test.ts` runs the real production JWKS through it, then
+simulates the relationship end to end: a provider signs with a key the instance
+never sees, publishes the public half, and the instance verifies from that
+alone — including refusing a token signed by an unpublished key, refusing one
+minted for a different instance, and accepting one signed by the outgoing key
+during a rotation overlap.
+
+Two of those assertions passed on their first run for the wrong reason. `expect
+(...).toThrow()` accepts *any* error, and they were catching a `TypeError` from
+my calling `verifyToken` with the wrong signature. They now assert the specific
+`TokenError` code, with a test above them checking that verification throws
+`TokenError` at all — otherwise the code assertions would quietly stop meaning
+anything.
+
+`pnpm check:identity` is the live half, kept out of the suite so the suite still
+runs offline. The fixture is a snapshot, and snapshots go stale in silence.
+
+**The crypto stage's log quieting never quieted anything.** `quietTheSdk()` set
+a default level and turned down the loggers that existed, with a comment saying
+anything created later was caught by the default. A full preflight run printed
+a thousand lines of `sync Getting saved sync token…` around eleven passing
+checks, which is how it was noticed.
+
+Two things made the comment false. It runs before matrix-js-sdk is imported, so
+`getLoggers()` is empty and the loop turns down nothing. And the SDK's
+`logger.js` calls `setLevel(loglevel.levels.DEBUG, false)` on every logger it
+creates — an explicit level always beats a default. It now clamps `setLevel`
+itself, so whatever the SDK asks for cannot go below warnings; intercepting the
+request is the only form that holds for loggers created afterwards, which is
+all of them. `E2E_CRYPTO_VERBOSE=1` still restores everything.
+
 **Both servers announced themselves as Express on every response.**
 `X-Powered-By` is on by default and neither app turned it off. Not an exploit,
 and hiding it keeps nobody out — but it names the framework to every scanner
