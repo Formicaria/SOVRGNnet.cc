@@ -32,6 +32,38 @@ export function registerInstanceRoutes(app: Express): void {
 
     const stored = await db.getInstanceSettings().catch(() => null);
 
+    // Whether this instance still has no accounts, so the sign-up form knows
+    // to ask for the setup code.
+    //
+    // Not a leak worth worrying about: anyone can learn the same thing by
+    // attempting to register and reading the refusal, and knowing it buys
+    // nothing without the code. Outside the formal descriptor deliberately —
+    // it's a transient fact about one deployment's state, not part of the
+    // protocol contract, and it stops being true permanently after one signup.
+    //
+    // Bounded, and false on anything but a clear answer. This endpoint is how
+    // a client discovers an instance at all, so it has to answer even when the
+    // database doesn't — the same lesson `/ready` learned by hanging. Erring
+    // to false means a genuinely fresh instance briefly hides the setup field
+    // rather than every client hanging on discovery, and the registration
+    // attempt still refuses correctly either way.
+    // The try/catch is not belt-and-braces: `Promise.race` only guards a
+    // promise that exists, and a synchronous throw here — an unavailable
+    // database layer, a mock without this method — would escape it and take
+    // the whole endpoint down with a 500.
+    let needsSetup = false;
+    try {
+      needsSetup = await Promise.race([
+        db
+          .countUsers()
+          .then(count => count === 0)
+          .catch(() => false),
+        new Promise<boolean>(resolve => setTimeout(() => resolve(false), 1500)),
+      ]);
+    } catch {
+      needsSetup = false;
+    }
+
     // Both shapes, one response. The v0.1–v0.3 fields stay exactly where old
     // clients expect them; `protocol`, `capabilities`, and `matrix` are added
     // alongside. Independently operated instances and clients upgrade on their
@@ -39,6 +71,7 @@ export function registerInstanceRoutes(app: Express): void {
     res.json({
       ...instanceInfo(APP_VERSION, stored),
       ...instanceDescriptor(APP_VERSION, stored),
+      needsSetup,
     });
   });
 
@@ -53,7 +86,10 @@ export function registerInstanceRoutes(app: Express): void {
     res.set("Access-Control-Allow-Origin", "*");
     const stored = await db.getInstanceSettings().catch(() => null);
     const descriptor = instanceDescriptor(APP_VERSION, stored);
-    res.json({ protocol: descriptor.protocol, capabilities: descriptor.capabilities });
+    res.json({
+      protocol: descriptor.protocol,
+      capabilities: descriptor.capabilities,
+    });
   });
 
   /** Version, for humans and for compatibility checks. */
@@ -108,12 +144,17 @@ export function registerInstanceRoutes(app: Express): void {
     // pingDatabase, not getInstanceSettings. The latter catches its own errors
     // and returns null by design, so this endpoint used to report the database
     // as healthy when there was no database at all.
-    const database = await timeout(db.pingDatabase(), { ok: false, error: "timed out" });
+    const database = await timeout(db.pingDatabase(), {
+      ok: false,
+      error: "timed out",
+    });
     checks.database = database.ok ? "ok" : "down";
 
     // Bounded twice: once inside isHomeserverReachable, once here. The inner
     // bound is the real one; this catches anything that never resolves at all.
-    checks.matrix = (await timeout(matrix.isHomeserverReachable(limit), false)) ? "ok" : "down";
+    checks.matrix = (await timeout(matrix.isHomeserverReachable(limit), false))
+      ? "ok"
+      : "down";
 
     const ready = checks.database === "ok";
     res.status(ready ? 200 : 503).json({
@@ -198,7 +239,9 @@ export function registerInstanceRoutes(app: Express): void {
       if (!server) {
         // Same shape and status for "never existed" and "revoked" — there's no
         // reason to help someone enumerate which codes were once real.
-        return res.status(404).json({ error: "This invite is no longer valid" });
+        return res
+          .status(404)
+          .json({ error: "This invite is no longer valid" });
       }
 
       const instance = instanceInfo(

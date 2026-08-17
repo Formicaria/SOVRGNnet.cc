@@ -103,13 +103,13 @@ describe("the server's own session", () => {
       .mockResolvedValueOnce(jsonResponse(400, { errcode: "M_USER_IN_USE" }))
       .mockResolvedValueOnce(
         jsonResponse(200, {
-          user_id: "@sovrgn_7:x",
+          user_id: "@alice:x",
           access_token: "t",
           device_id: SERVER_DEVICE_ID,
         })
       );
 
-    const credentials = await registerOrLogin(7);
+    const credentials = await registerOrLogin({ id: 7, username: "alice" });
 
     // Third call is the login.
     const body = bodyOf(2);

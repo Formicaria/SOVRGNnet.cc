@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 
 import { nanoid } from "nanoid";
 import { encryptionStateContent } from "@shared/e2ee";
+import { isLegalLocalpart } from "@shared/username";
 import { ENV } from "./_core/env";
 
 /**
@@ -82,8 +83,68 @@ export function deriveMatrixPassword(userId: number): string {
     .digest("hex");
 }
 
-export function localpartForUser(userId: number): string {
-  return `sovrgn_${userId}`;
+/**
+ * The Matrix localpart for an account: its username, unchanged.
+ *
+ * This used to be `sovrgn_${userId}`, which made every MXID an opaque
+ * `@sovrgn_7:example.com` — a number nobody chose, prefixed with the software's
+ * name, in the identifier people actually see and type. Usernames are
+ * constrained to a strict subset of what the Matrix grammar allows precisely so
+ * that they can be used here directly.
+ *
+ * ## Why this validates rather than just returning
+ *
+ * It is the last point before a string becomes permanent. A Matrix localpart is
+ * fixed at registration — the protocol has no rename — so a malformed value
+ * getting this far is not a bad request, it is an identity that can never be
+ * corrected. Checking costs nothing and the failure mode it prevents is
+ * unbounded.
+ *
+ * The check is `isLegalLocalpart`, not `checkUsername`: see that function for
+ * why the permanent gate deliberately ignores policy.
+ */
+export function localpartForUsername(username: string): string {
+  if (!isLegalLocalpart(username)) {
+    throw new MatrixError(
+      `Refusing to build a Matrix ID from ${JSON.stringify(username)}: not a legal localpart.`,
+      500,
+      "M_INVALID_USERNAME"
+    );
+  }
+  return username;
+}
+
+/**
+ * The localpart of an account that **already exists**.
+ *
+ * Use this — not `localpartForUsername` — anywhere the account has already been
+ * provisioned: logging a device in, answering a UIA password challenge,
+ * deleting a device.
+ *
+ * The distinction is the whole of task #33. A username can change; a Matrix ID
+ * cannot. `localpartForUsername` answers "what would we call this person if we
+ * were registering them right now", which is the same string only until the
+ * first rename. After that, re-deriving names an account that was never
+ * created, and the homeserver returns `M_FORBIDDEN` — a login failure for an
+ * account that is perfectly healthy, with nothing in the error to suggest the
+ * username is why.
+ *
+ * The stored MXID is the authority: it is the only record of what the
+ * homeserver actually knows this person as.
+ */
+export function localpartOf(matrixUserId: string): string {
+  // "@alice:example.org" -> "alice". Anchored, and the localpart deliberately
+  // excludes ":" so a server name carrying a port ("@alice:localhost:8008")
+  // still yields "alice" rather than swallowing part of the domain.
+  const match = /^@([^:]+):.+$/.exec(matrixUserId);
+  if (!match) {
+    throw new MatrixError(
+      `Stored Matrix ID ${JSON.stringify(matrixUserId)} is not a well-formed MXID.`,
+      500,
+      "M_INVALID_USERNAME"
+    );
+  }
+  return match[1];
 }
 
 export type MatrixCredentials = {
@@ -127,9 +188,16 @@ export function sharedSecretMac(
  * holding the secret can create an account. The secret never leaves this
  * process.
  */
-export async function registerOrLogin(appUserId: number): Promise<MatrixCredentials> {
-  const username = localpartForUser(appUserId);
-  const password = deriveMatrixPassword(appUserId);
+export async function registerOrLogin(user: {
+  id: number;
+  username: string;
+}): Promise<MatrixCredentials> {
+  // Localpart from the username, password from the immutable id. Not an
+  // inconsistency: the localpart is the visible identity and has to be the
+  // name; the password only has to be derivable forever, and keying it on the
+  // id means it survives a rename (task #33) that the localpart cannot.
+  const username = localpartForUsername(user.username);
+  const password = deriveMatrixPassword(user.id);
 
   if (!ENV.matrixSharedSecret) {
     throw new MatrixError(

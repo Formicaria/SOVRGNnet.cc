@@ -80,8 +80,18 @@ describe.skipIf(!process.env.DATABASE_URL)("Platform flow (DB + fake homeserver)
   beforeAll(async () => {
     installFakeHomeserver();
     const suffix = Date.now();
-    alice = (await db.createLocalUser(`alice_${suffix}@test.cc`, "x", "Alice")) as AuthenticatedUser;
-    bob = (await db.createLocalUser(`bob_${suffix}@test.cc`, "x", "Bob")) as AuthenticatedUser;
+    alice = (await db.createLocalUser({
+      username: `alice${suffix}`,
+      passwordHash: "x",
+      email: `alice_${suffix}@test.cc`,
+      name: "Alice",
+    })) as AuthenticatedUser;
+    bob = (await db.createLocalUser({
+      username: `bob${suffix}`,
+      passwordHash: "x",
+      email: `bob_${suffix}@test.cc`,
+      name: "Bob",
+    })) as AuthenticatedUser;
   });
 
   it("auth.me returns the user without passwordHash", async () => {
@@ -187,11 +197,12 @@ describe.skipIf(!process.env.DATABASE_URL)("Platform flow (DB + fake homeserver)
     const again = await aliceCaller.servers.createInvite({ serverId });
     expect(again.code).toBe(code);
 
-    const carol = (await db.createLocalUser(
-      `carol_${Date.now()}@test.cc`,
-      "x",
-      "Carol"
-    )) as AuthenticatedUser;
+    const carol = (await db.createLocalUser({
+      username: `carol${Date.now()}`,
+      passwordHash: "x",
+      email: `carol_${Date.now()}@test.cc`,
+      name: "Carol",
+    })) as AuthenticatedUser;
     const carolCaller = appRouter.createCaller(contextFor(carol));
     const joined = await carolCaller.servers.joinByInvite({ code });
     expect(joined.serverId).toBe(serverId);

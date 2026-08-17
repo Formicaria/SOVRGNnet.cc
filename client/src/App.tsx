@@ -6,7 +6,6 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { Web3Provider } from "./contexts/Web3Context";
 import { MatrixProvider } from "./contexts/MatrixContext";
-import { IPFSProvider } from "./contexts/IPFSContext";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ConnectionsProvider } from "./contexts/ConnectionsContext";
 import Home from "./pages/Home";
@@ -44,14 +43,23 @@ function App() {
           <RainbowKitProvider>
             <Web3Provider>
               <MatrixProvider>
-                <IPFSProvider>
-                  <ThemeProvider defaultTheme="dark">
-                    <TooltipProvider>
-                      <Toaster />
-                      <Router />
-                    </TooltipProvider>
-                  </ThemeProvider>
-                </IPFSProvider>
+                {/* No IPFSProvider. It used to sit here, and deleting it was
+                    a security fix as much as a cleanup: nothing ever called
+                    useIPFS, but the code it carried would have POSTed
+                    *plaintext* file bytes straight to Kubo's unauthenticated
+                    API on :5001 over plain HTTP, bypassing both the
+                    client-side encryption from #17 and /api/upload. It also
+                    defaulted to a third-party public gateway
+                    (gateway.pinata.cloud), which is the exact opposite of what
+                    this project claims. Uploads go through lib/attachments.ts.
+                    Removing it also dropped axios, and with it 28 of the 43
+                    advisories `pnpm audit --prod` was reporting. */}
+                <ThemeProvider defaultTheme="dark">
+                  <TooltipProvider>
+                    <Toaster />
+                    <Router />
+                  </TooltipProvider>
+                </ThemeProvider>
               </MatrixProvider>
             </Web3Provider>
           </RainbowKitProvider>

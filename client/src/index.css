@@ -1,6 +1,13 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Oxanium 800 — the wordmark face, and the only weight the wordmark uses, so
+   only that weight is imported. Self-hosted through @fontsource rather than
+   linked from Google Fonts: a page that pulls a font from a third party
+   contacts that third party on every view, which is precisely the property
+   this project claims not to have. The woff2 ships in the bundle. */
+@import "@fontsource/oxanium/800.css";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -173,5 +180,49 @@
       padding-right: 2rem;
       max-width: 1280px; /* Standard content width */
     }
+  }
+}
+
+/*
+ * The SOVRGN wordmark.
+ *
+ * Copied from the live site rather than approximated, because "close" reads as
+ * wrong when the two are seen an hour apart: Oxanium 800, uppercase, the same
+ * 0.005em tracking and 0.88 line-height, and the same brushed-metal fill — a
+ * fractal-noise texture over a four-stop grey gradient, both clipped to the
+ * glyphs. The fallback stack is the site's own, so a machine without the woff2
+ * lands on Eurostile or Bahnschrift before it reaches system-ui.
+ */
+.wordmark {
+  font-family: Oxanium, Eurostile, Bahnschrift, system-ui, sans-serif;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.005em;
+  line-height: 0.88;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.14' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23s)' opacity='0.55'/%3E%3C/svg%3E"),
+    linear-gradient(
+      168deg,
+      rgb(255, 255, 255) 0%,
+      rgb(222, 218, 233) 40%,
+      rgb(164, 158, 182) 78%,
+      rgb(210, 204, 223) 100%
+    );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/*
+ * Without background-clip the fill paints as a box behind fully transparent
+ * text, so the wordmark disappears entirely. Support is near-universal and the
+ * failure is total, which is the combination worth spending four lines on.
+ */
+@supports not ((background-clip: text) or (-webkit-background-clip: text)) {
+  .wordmark {
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+    color: rgb(237, 233, 246);
   }
 }

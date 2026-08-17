@@ -37,6 +37,17 @@ function withoutComments(source: string): string {
 }
 
 /**
+ * The same, for shell.
+ *
+ * Needed the moment a comment started *quoting* the code it replaced — an
+ * assertion that a bad pattern is absent will match the comment explaining why
+ * it was removed, and fail on the documentation rather than the behaviour.
+ */
+function withoutShellComments(source: string): string {
+  return source.replace(/^\s*#.*$/gm, "");
+}
+
+/**
  * Every procedure path the journey calls.
  *
  * Restricted to strings whose first segment is a real router namespace.
@@ -146,6 +157,26 @@ describe("the harness cannot touch a real instance", () => {
     expect(harness).toMatch(/E2E_PORT:-3999/);
   });
 
+  it("passes the setup token through to the app container", () => {
+    // Setting it in the env file isn't enough: compose uses that file for
+    // interpolation, and the container only receives what its `environment:`
+    // block lists. Missing it makes the instance refuse to create *any* first
+    // account, which reads as the fail-closed behaviour working rather than as
+    // a misconfiguration — and it cost a full e2e run to find.
+    const compose = readFileSync(join(ROOT, "docker-compose.yml"), "utf8");
+    expect(compose).toMatch(/SOVRGN_SETUP_TOKEN:\s*\$\{SOVRGN_SETUP_TOKEN\}/);
+    expect(harness).toMatch(/SOVRGN_SETUP_TOKEN=/);
+  });
+
+  it("refuses to let the bootstrap checks pass on a missing token", () => {
+    // The two "a stranger can't claim this" assertions would both pass against
+    // an instance with no token configured, proving nothing. They check the
+    // reason now.
+    const journeyCode = withoutComments(journey);
+    expect(journeyCode).toMatch(/notConfigured/);
+    expect(journeyCode).toMatch(/proved nothing/);
+  });
+
   it("generates its own secrets rather than reading a real .env", () => {
     expect(harness).toMatch(/mktemp/);
     expect(harness).toMatch(/DB_PASSWORD=\$\(secret\)/);
@@ -155,6 +186,24 @@ describe("the harness cannot touch a real instance", () => {
 });
 
 describe("the harness verifies what it claims to", () => {
+  it("fails on a failed `compose up` instead of waiting for readiness", () => {
+    // The output was piped to grep and suffixed with `|| true`, which discarded
+    // the exit code twice. A build that died on ERR_PNPM_OUTDATED_LOCKFILE —
+    // a stale lockfile, which is a one-command fix — produced no containers, no
+    // visible error, three minutes of polling, and then "the stack never became
+    // ready". Every word of that diagnosis was wrong.
+    expect(harness).toMatch(/if ! compose up/);
+    expect(withoutShellComments(harness)).not.toMatch(
+      /compose up[^\n]*\|\s*grep/
+    );
+  });
+
+  it("checks a container actually exists before polling it", () => {
+    // Compose can exit zero and leave nothing running. Readiness would then be
+    // measuring a port that was never going to open.
+    expect(harness).toMatch(/compose ps -q app/);
+  });
+
   it("waits on /ready rather than just a listening port", () => {
     expect(harness).toMatch(/\/ready/);
     expect(harness).toMatch(/"ready":true/);
@@ -342,9 +391,164 @@ describe("the crypto stage exercises the shipped code, not a copy of it", () => 
     expect(code).toMatch(/process\.exit\(1\)/);
   });
 
+  it("does not withhold room keys from unverified devices", () => {
+    // The setting that looks like hardening and is actually an outage.
+    //
+    // `globalBlacklistUnverifiedDevices = true` withholds room keys from any
+    // device its owner hasn't cross-signed. On a fresh instance that is every
+    // device, so every encrypted message is unreadable by everyone — and
+    // cross-signing doesn't fix it, because Alice only trusts Bob's device if
+    // she has verified *Bob*, so every pair of members would have to compare
+    // emoji first.
+    //
+    // It was set true here, written into the threat model as a mitigation, and
+    // caught by the crypto stage the first time that ran. This test exists so
+    // the next person to reach for it reads the reason instead of rediscovering
+    // it against a real homeserver.
+    const crypto = readFileSync(
+      join(ROOT, "client", "src", "lib", "matrixCrypto.ts"),
+      "utf8"
+    );
+    expect(withoutComments(crypto)).toMatch(
+      /globalBlacklistUnverifiedDevices\s*=\s*false/
+    );
+    // The half that does survive: verification inherits across a person's
+    // devices, so verifying is a per-person act rather than a per-device one.
+    expect(withoutComments(crypto)).toMatch(
+      /setTrustCrossSignedDevices\(true\)/
+    );
+  });
+
+  it("drives both sides of a verification, and compares the emoji", () => {
+    // "Interactive" describes the dialog, not the protocol. This was written
+    // off as un-scriptable and it isn't.
+    expect(code).toMatch(/requestOwnVerification/);
+    expect(code).toMatch(/sasFor/);
+    // Both prompts, and an assertion that they agree — checking only one side
+    // would pass against two devices showing different emoji, which is the
+    // one outcome the whole mechanism exists to detect.
+    expect(code).toMatch(/promptA/);
+    expect(code).toMatch(/promptB/);
+  });
+
+  it("waits out both halves of the verification handshake", () => {
+    // Two separate silent failures, both found by running the check above and
+    // neither reachable by a typecheck.
+    //
+    // A request sent to a device that has never heard of the sender is
+    // *discarded* — the rust machine logs it and does nothing else, so the
+    // asking device waits forever for a reply to a question nobody was asked.
+    // Publishing this device first gives the other side something to look up.
+    const crypto = withoutComments(
+      readFileSync(
+        join(ROOT, "client", "src", "lib", "matrixCrypto.ts"),
+        "utf8"
+      )
+    );
+    expect(crypto).toMatch(
+      /getUserDeviceInfo\([\s\S]{0,80}\)[\s\S]{0,120}requestOwnUserVerification/
+    );
+
+    // And the initiator cannot start SAS until the reply names a device: the
+    // SDK throws "other device is unknown" from `startVerification` otherwise.
+    // A person clicking twice never notices; anything automatic hits it every
+    // single time.
+    expect(crypto).toMatch(
+      /waitForReady\(request\)[\s\S]{0,200}startVerification/
+    );
+  });
+
+  it("downloads this user's identity before recovery imports into it", () => {
+    // Third of the same shape, and the worst-worded. Private cross-signing
+    // keys import only against the matching public identity, which a
+    // just-signed-in device may not have fetched — the rust store says "a
+    // /keys/query needs to be done", the SDK reports
+    // "importCrossSigningKeys failed to import the keys", and a person reads
+    // that as "my recovery key is wrong".
+    //
+    // Being told the wrong thing here is worse than the failure. It sends
+    // someone hunting for another copy of a key that was correct, at the one
+    // moment they are already worried they've lost their history.
+    const crypto = withoutComments(
+      readFileSync(
+        join(ROOT, "client", "src", "lib", "matrixCrypto.ts"),
+        "utf8"
+      )
+    );
+    expect(crypto).toMatch(
+      /getUserDeviceInfo\([\s\S]{0,80}\)[\s\S]{0,200}bootstrapCrossSigning/
+    );
+  });
+
+  it("proves a new device recovers history from the recovery key alone", () => {
+    // ADR 0008 made recovery a precondition for flipping `e2ee`. Before this,
+    // it had never run.
+    expect(code).toMatch(/recoverWithKey/);
+    expect(code).toMatch(/bootstrapEncryption/);
+    // The negative first: a fresh device must *not* be able to read the
+    // history before restoring, or the positive proves nothing.
+    expect(code).toMatch(/before restoring anything/);
+  });
+
   it("says what it does not prove", () => {
     // SAS and key backup need an interactive exchange this can't drive. Left
     // implied, they read as covered.
     expect(crypto).toMatch(/does not prove/);
+  });
+});
+
+describe("the browser stage runs against the stack --keep leaves behind", () => {
+  const browser = readFileSync(
+    join(ROOT, "scripts", "e2e-browser.spec.ts"),
+    "utf8"
+  );
+
+  it("signs in with an account rather than claiming the instance", () => {
+    // The whole of the first run failed on this and it is worth being exact
+    // about why, because the shape recurs: `--keep` is the *only* way to get a
+    // stack a browser can reach, and a --keep stack has always already run the
+    // journey. Its first account is claimed and its setup code is spent, so the
+    // sign-up form it offers asks for an invite code. A spec holding a setup
+    // token waits fifteen seconds for a field that will never render.
+    //
+    // Three of the four failures were just the first one's missing session
+    // showing up later, which is the other half of the lesson: shared sign-in
+    // state turns one real defect into four reports of it.
+    const code = withoutComments(browser);
+    expect(code).toMatch(/E2E_USERNAME/);
+    expect(code).toMatch(/E2E_PASSWORD/);
+    expect(code).not.toMatch(/SETUP_TOKEN/);
+    expect(code).not.toMatch(/setup code/i);
+  });
+
+  it("has every test reach the dashboard on its own", () => {
+    // Not tidiness. One of these tests asserts the access token is kept out of
+    // web storage; a file that assumed the browser context would remember a
+    // sign-in would be depending on the thing it is trying to disprove.
+    const code = withoutComments(browser);
+    const signIns = code.match(/ensureSignedIn\(page\)/g) ?? [];
+    expect(signIns.length).toBe(4);
+  });
+
+  it("the harness prints credentials that exist, before deleting them", () => {
+    // The journey's state file is the only place an account known to work is
+    // written down, and the line that removes the work directory sits directly
+    // below the block that reads it. Order is the whole correctness argument.
+    const shell = withoutShellComments(harness);
+    expect(shell).toMatch(/E2E_USERNAME=/);
+    expect(shell).toMatch(/E2E_PASSWORD=/);
+    expect(shell).toMatch(/journey-state\.json/);
+
+    // The field the harness reads has to be one the journey actually writes.
+    // This assertion is the reason the pair can be renamed safely: quoting
+    // ownerEmail worked for as long as the journey gave its accounts an
+    // address, and email became optional in #29 — so "it printed something"
+    // was never the property worth checking.
+    expect(shell).toMatch(/ownerUsername/);
+    expect(withoutComments(journey)).toMatch(/ownerUsername,/);
+    const readAt = shell.indexOf("journey-state.json");
+    const deleteAt = shell.indexOf('rm -rf "$WORK_DIR"');
+    expect(readAt).toBeGreaterThan(-1);
+    expect(deleteAt).toBeGreaterThan(readAt);
   });
 });

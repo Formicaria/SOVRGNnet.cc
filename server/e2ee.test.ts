@@ -301,3 +301,163 @@ describe("shared/e2ee.ts stays dependency-free", () => {
     expect(MEGOLM_ALGORITHM).toBe("m.megolm.v1.aes-sha2");
   });
 });
+
+describe("the landing page agrees with what shipped", () => {
+  const home = readFileSync(
+    join(__dirname, "..", "client", "src", "pages", "Home.tsx"),
+    "utf8"
+  );
+
+  it("does not file end-to-end encryption under 'Not yet'", () => {
+    // Every other honesty check in this repository points one way: stop the
+    // instance claiming more than it does. This one points the other way, and
+    // it caught a real regression — the encryption shipped and the marketing
+    // page kept saying "Not yet end-to-end encrypted — whoever runs this
+    // server can read them" for a release afterwards.
+    //
+    // A stale disclaimer is not the cautious option. It is the same defect
+    // with the sign flipped, it sits on the first screen anyone sees, and it
+    // tells people to be careful in a way that is no longer true — which is
+    // its own kind of lie about a security property.
+    const notYet = home.slice(home.indexOf("Not yet"));
+    expect(notYet).not.toMatch(/"End-to-end encryption"/);
+    expect(home).toMatch(/End-to-end encrypted messages and files/);
+  });
+
+  it("still says what the encryption does not hide", () => {
+    // Promoting the claim without its limit would be the overstatement this
+    // file exists to prevent. The server cannot read the messages; it can
+    // still see the room, the members, and the timing.
+    //
+    // Whitespace collapsed first: JSX wraps prose across lines, so matching
+    // sentences against the raw source tests the prettier config, not the copy.
+    const prose = home.replace(/\s+/g, " ");
+    expect(prose).toMatch(/hides what you said, not that you said it/);
+  });
+});
+
+describe("the browser stage asks for the verdicts that exist", () => {
+  it("lists every headline describeReadiness can return", () => {
+    // The browser test matches the verdict by its exact sentence, because the
+    // loose pattern it started with also matched the panel's explanatory prose
+    // — text that renders whether or not the crypto machine answered — and so
+    // passed on a stack where the whole crypto stack was unreachable.
+    //
+    // Exactness bought precision and a drift risk: a headline reworded here
+    // would quietly stop being asserted there, and the browser stage would go
+    // green on a panel it could no longer read. This is the cheap half of that
+    // trade, run every time rather than only when a stack is up.
+    const spec = readFileSync(
+      join(__dirname, "..", "scripts", "e2e-browser.spec.ts"),
+      "utf8"
+    );
+
+    const states: Partial<CryptoReadiness>[] = [
+      { crossSigningReady: false },
+      { crossSigningReady: true, deviceVerified: false },
+      { crossSigningReady: true, deviceVerified: true, secretStorageReady: false },
+      {
+        crossSigningReady: true,
+        deviceVerified: true,
+        secretStorageReady: true,
+        keyBackupEnabled: false,
+      },
+      {
+        crossSigningReady: true,
+        deviceVerified: true,
+        secretStorageReady: true,
+        keyBackupEnabled: true,
+      },
+    ];
+
+    const missing = states
+      .map(state =>
+        describeReadiness({
+          crossSigningReady: false,
+          secretStorageReady: false,
+          keyBackupEnabled: false,
+          deviceVerified: false,
+          ...state,
+        }).headline
+      )
+      .filter(headline => !spec.includes(headline.replace(/\./g, "\\.")));
+
+    expect(
+      missing,
+      "the browser stage cannot recognise these verdicts; it would pass on a panel showing one of them"
+    ).toEqual([]);
+  });
+});
+
+describe("the encryption setup can be reached, not just seen", () => {
+  const dashboard = readFileSync(
+    join(__dirname, "..", "client", "src", "pages", "Dashboard.tsx"),
+    "utf8"
+  );
+
+  /**
+   * Every tooltip-wrapped control in the left rail, as source text.
+   *
+   * Sliced on the element boundary rather than matched with a windowed regex.
+   * The first version used `[\s\S]{0,900}?>` and reported the encryption button
+   * unnamed while it was sitting there named — the window was shorter than the
+   * comment above the attribute, and `>` closes early on the `=>` in `onClick`.
+   * A guard that fails on comment length is measuring the wrong thing.
+   */
+  function railTriggers(): string[] {
+    const rail = dashboard.slice(
+      dashboard.indexOf("<aside"),
+      dashboard.indexOf("</aside>")
+    );
+    return rail
+      .split("<TooltipTrigger asChild>")
+      .slice(1)
+      .map(part => part.slice(0, part.indexOf("</TooltipTrigger>")))
+      .filter(part => /^\s*<button\b/.test(part));
+  }
+
+  it("names the button that opens the encryption panel", () => {
+    // The rail is icon-only and every label in it lived in a Radix tooltip,
+    // which is not an accessible name — it enters the DOM on hover and leaves
+    // again, so at rest each control announced as "button" and nothing more.
+    //
+    // The rest of this file guards against the instance *claiming* more
+    // protection than it has. This guards the opposite failure: the protection
+    // is real and the only door to it is unmarked. Device verification and the
+    // recovery key both sit behind this one button, and losing the recovery
+    // key loses every message already received — permanently, by design,
+    // because the server genuinely cannot get it back for you. A door that
+    // opens only to a mouse hover puts that whole story out of reach of
+    // anyone using a screen reader.
+    //
+    // Asserted against the source rather than a render because the claim worth
+    // making is "the label is on the control". The browser stage, which found
+    // this, is opt-in and needs a live stack; this runs every time.
+    const opener = railTriggers().filter(button =>
+      button.includes("setEncryptionPanelOpen(true)")
+    );
+
+    expect(
+      opener,
+      "no button in the rail opens the encryption panel"
+    ).toHaveLength(1);
+    expect(opener[0]).toMatch(/aria-label="Encryption"/);
+  });
+
+  it("leaves no icon-only button in the rail unnamed", () => {
+    // Six of them, one cause. Counting rather than listing each: a seventh
+    // added the same way should fail this too, which is the only version of
+    // the check that keeps working after today.
+    const triggers = railTriggers();
+    const unnamed = triggers.filter(button => !/aria-label=/.test(button));
+
+    expect(
+      triggers.length,
+      "no tooltip-wrapped buttons found — did the rail move out of <aside>?"
+    ).toBeGreaterThan(0);
+    expect(
+      unnamed.map(button => button.slice(0, 200)),
+      "a tooltip-wrapped button in the rail has no aria-label; the tooltip is not its name"
+    ).toEqual([]);
+  });
+});

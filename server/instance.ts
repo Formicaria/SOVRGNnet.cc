@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { deriveE2eeCapability } from "@shared/e2ee";
 import { PROTOCOL_VERSION, type InstanceDescriptor } from "@shared/protocol";
+import { IDENTITY_ORIGIN } from "@shared/identity";
 import { ENV } from "./_core/env";
 import { appserviceConfigured } from "./appservice";
 import { directSync } from "./matrixPublic";
@@ -62,12 +63,33 @@ export type InstanceInfo = {
  */
 export function instanceId(): string {
   const seed = ENV.matrixServerName || "unconfigured";
-  return createHash("sha256").update(`sovrgnnet:instance:${seed}`).digest("hex").slice(0, 16);
+  return createHash("sha256")
+    .update(`sovrgnnet:instance:${seed}`)
+    .digest("hex")
+    .slice(0, 16);
 }
 
 export type RegistrationVerdict =
   | { allowed: true; reason: "bootstrap" | "open" | "invite" }
   | { allowed: false; message: string };
+
+/**
+ * Constant-time comparison of the setup token.
+ *
+ * `===` on a secret leaks its length and prefix through timing, and this one
+ * is worth guessing: it is the difference between owning an instance and not.
+ * Hashing both sides first means the comparison is always over the same number
+ * of bytes, so a wrong length can't shortcut it.
+ */
+function presentedTokenMatches(
+  expected: string,
+  presented: string | undefined
+): boolean {
+  if (!expected || !presented) return false;
+  const a = createHash("sha256").update(expected).digest();
+  const b = createHash("sha256").update(presented).digest();
+  return timingSafeEqual(a, b);
+}
 
 /**
  * May this person create an account here?
@@ -84,8 +106,38 @@ export function canRegister(input: {
   policy: JoinPolicy;
   isFirstAccount: boolean;
   hasValidInvite: boolean;
+  /** The instance's configured setup token, empty when none is set. */
+  setupToken?: string;
+  /** What the registrant presented, if anything. */
+  presentedSetupToken?: string;
 }): RegistrationVerdict {
-  if (input.isFirstAccount) return { allowed: true, reason: "bootstrap" };
+  if (input.isFirstAccount) {
+    // The bootstrap exception is also the instance's front door: whoever takes
+    // it becomes the administrator. A server is normally reachable before its
+    // owner has registered — you point DNS at it, then go and sign up — so
+    // without a secret, the exception belongs to whoever scans the address
+    // first.
+    //
+    // Fail-closed when no token is configured. The cost of refusing is an
+    // operator reading an error that tells them exactly what to set; the cost
+    // of allowing is somebody else owning their instance.
+    if (!input.setupToken) {
+      return {
+        allowed: false,
+        message:
+          "This instance has no setup token, so the first account can't be created. " +
+          "Set SOVRGN_SETUP_TOKEN and restart — see docs/INSTALL or your .env.",
+      };
+    }
+    if (!presentedTokenMatches(input.setupToken, input.presentedSetupToken)) {
+      return {
+        allowed: false,
+        message:
+          "That setup code isn't right. It's in the instance's environment as SOVRGN_SETUP_TOKEN.",
+      };
+    }
+    return { allowed: true, reason: "bootstrap" };
+  }
 
   switch (input.policy) {
     case "open":
@@ -102,12 +154,15 @@ export function canRegister(input: {
         ? { allowed: true, reason: "invite" }
         : {
             allowed: false,
-            message: "This server is invite-only. You'll need an invite link to join.",
+            message:
+              "This server is invite-only. You'll need an invite link to join.",
           };
   }
 }
 
-export function normalizeJoinPolicy(raw: string | null | undefined): JoinPolicy {
+export function normalizeJoinPolicy(
+  raw: string | null | undefined
+): JoinPolicy {
   const value = (raw ?? "").toLowerCase();
   return value === "open" || value === "closed" ? value : "invite";
 }
@@ -227,7 +282,10 @@ export function instanceDescriptor(
   };
 }
 
-export function instanceInfo(version: string, stored: StoredSettings = null): InstanceInfo {
+export function instanceInfo(
+  version: string,
+  stored: StoredSettings = null
+): InstanceInfo {
   const publicMatrix = process.env.MATRIX_PUBLIC_URL?.trim();
 
   return {
@@ -242,20 +300,24 @@ export function instanceInfo(version: string, stored: StoredSettings = null): In
       ENV.matrixServerName ||
       "A SOVRGNnet server",
     description:
-      stored?.description?.trim() || process.env.INSTANCE_DESCRIPTION?.trim() || null,
+      stored?.description?.trim() ||
+      process.env.INSTANCE_DESCRIPTION?.trim() ||
+      null,
     matrixServerName: ENV.matrixServerName,
     // Only advertise the homeserver once an operator has published one.
     // Clients use its presence to decide whether direct sync (and therefore
     // encryption) is available here at all.
     matrixBaseUrl: publicMatrix || null,
-    joinPolicy: normalizeJoinPolicy(stored?.joinPolicy ?? process.env.INSTANCE_JOIN_POLICY),
+    joinPolicy: normalizeJoinPolicy(
+      stored?.joinPolicy ?? process.env.INSTANCE_JOIN_POLICY
+    ),
     encryption: e2eeAvailable(),
     listed: stored?.listed ?? process.env.INSTANCE_LISTED === "true",
     sso: {
       enabled: process.env.INSTANCE_ALLOW_SSO === "true",
       issuer:
         process.env.INSTANCE_ALLOW_SSO === "true"
-          ? process.env.IDENTITY_ISSUER?.trim() || "https://sovrgnnet.cc"
+          ? process.env.IDENTITY_ISSUER?.trim() || IDENTITY_ORIGIN
           : null,
     },
     software: { name: "sovrgnnet", version },

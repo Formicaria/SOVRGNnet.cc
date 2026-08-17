@@ -25,6 +25,9 @@ vi.mock("./db", () => ({
   pingDatabase: (...args: unknown[]) => pingDatabase(...args),
   getInstanceSettings: (...args: unknown[]) => getInstanceSettings(...args),
   getServerByInviteCode: (...args: unknown[]) => getServerByInviteCode(...args),
+  // /api/instance reports whether the instance still needs its first account.
+  // An instance with accounts is the ordinary case, so that's what's mocked.
+  countUsers: () => Promise.resolve(1),
 }));
 
 vi.mock("./matrixService", () => ({
@@ -95,7 +98,10 @@ describe("/ready — readiness", () => {
   });
 
   it("includes why the database is down", async () => {
-    pingDatabase.mockResolvedValue({ ok: false, error: "getaddrinfo ENOTFOUND db" });
+    pingDatabase.mockResolvedValue({
+      ok: false,
+      error: "getaddrinfo ENOTFOUND db",
+    });
     isHomeserverReachable.mockResolvedValue(true);
 
     const body = await (await fetch(`${base}/ready`)).json();
@@ -133,7 +139,10 @@ describe("/ready — readiness", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({ ready: true, checks: { database: "ok", matrix: "ok" } });
+    expect(body).toMatchObject({
+      ready: true,
+      checks: { database: "ok", matrix: "ok" },
+    });
   });
 
   it("answers even when the homeserver check never resolves", async () => {
@@ -229,7 +238,9 @@ describe("Matrix delegation", () => {
     process.env.MATRIX_PUBLIC_URL = "https://matrix.test.example";
     process.env.MATRIX_ALLOW_FEDERATION = "true";
     const response = await fetch(`${base}/.well-known/matrix/server`);
-    expect(await response.json()).toEqual({ "m.server": "matrix.test.example:443" });
+    expect(await response.json()).toEqual({
+      "m.server": "matrix.test.example:443",
+    });
   });
 });
 

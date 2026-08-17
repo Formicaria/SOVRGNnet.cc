@@ -267,14 +267,23 @@ export type BrokerMatch =
 /**
  * Which account a provider sign-in belongs to.
  *
- * The dangerous branch is matching by email. If someone signs in with a
- * provider that hasn't verified the address, and we attach that to an existing
- * account with the same address, then anyone who can set an unverified email
- * at any provider can take over anyone's account. GitHub's profile endpoint
- * hands out exactly such an address, which is why it's never trusted.
+ * **Matched by provider identity and by nothing else** — the same rule as
+ * `decideSsoLink` on the instance side, for the same reason, and the two should
+ * be changed together if either is.
  *
- * So: a provider identity we already know wins. An unknown one links only on a
- * verified address. Everything else creates a separate account or refuses.
+ * The dangerous branch is matching by email, and the earlier version of this
+ * function took it whenever a provider called the address verified. That is one
+ * compromised or careless provider away from total: whoever can make any
+ * configured provider assert `alice@example.com` inherits Alice's account.
+ * GitHub's profile endpoint hands out an unverified address, which is why it
+ * was never trusted here — but "trust it only when the provider says verified"
+ * still puts the account behind the provider's word rather than behind
+ * something Alice controls.
+ *
+ * So an email match is now a reason to stop. A known provider identity signs
+ * in; an unknown one creates a separate account; a collision refuses and points
+ * at deliberate linking, which happens from inside an authenticated session
+ * where the person has already proved the account is theirs.
  */
 export function matchBrokerAccount(input: {
   profile: Pick<NormalizedProfile, "email" | "emailVerified">;
@@ -291,15 +300,13 @@ export function matchBrokerAccount(input: {
     return { action: "create" };
   }
 
-  if (!input.profile.emailVerified) {
-    return {
-      action: "refuse",
-      message:
-        "An account already uses that email address, and this provider hasn't confirmed the address belongs to you. Sign in the way you did before, then link this provider from your account settings.",
-    };
-  }
-
-  return { action: "link", accountId: input.existingByEmail.id };
+  // Verified or not. `emailVerified` is deliberately not consulted here any
+  // more: it decides nothing, because the answer is the same either way.
+  return {
+    action: "refuse",
+    message:
+      "An account already uses that email address. Sign in the way you did before, then link this provider from your account settings.",
+  };
 }
 
 /** Which providers an operator has actually configured. */

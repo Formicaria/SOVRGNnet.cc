@@ -18,7 +18,7 @@ function descriptor(overrides: Record<string, unknown> = {}) {
       eventIngest: false,
       portableBackup: true,
     },
-    matrix: { serverName: "test.example", baseUrl: null },
+    matrix: { serverName: "test.example", baseUrl: null as string | null },
     joinPolicy: "invite",
     identityIssuer: null,
     ...overrides,
@@ -355,5 +355,85 @@ describe("summarize", () => {
       probes({ instance: { ok: true, status: 200, body: descriptor(), headers: {} } })
     );
     expect(summarize(results).conformant).toBe(false);
+  });
+});
+
+describe("the advertised Matrix address has to answer", () => {
+  /** A descriptor that tells clients to sync directly, at `url`. */
+  function syncingAt(url: string | null) {
+    const d = descriptor();
+    d.capabilities.clientMatrix = true;
+    d.matrix.baseUrl = url;
+    return d;
+  }
+
+  it("catches an address that only resolves inside the deployment", () => {
+    // The real defect this check exists for. `http://matrix:8008` is a
+    // compose-internal hostname: the app container resolves it, a browser
+    // never can. The old suite passed this for months because it only asked
+    // whether the string was present.
+    const results = runConformance({
+      ...probes({ instance: okProbe(syncingAt("http://matrix:8008")) }),
+      matrixVersions: {
+        ok: false,
+        status: 0,
+        body: null,
+        error: "fetch failed",
+      },
+    });
+
+    expect(find(results, "consistency-matrix-url")?.status).toBe("pass");
+    const reach = find(results, "matrix-reachable");
+    expect(reach?.status).toBe("fail");
+    expect(reach?.detail).toContain("http://matrix:8008");
+    expect(reach?.detail).toContain("fetch failed");
+    expect(summarize(results).conformant).toBe(false);
+  });
+
+  it("passes when the homeserver actually answers", () => {
+    const results = runConformance({
+      ...probes({ instance: okProbe(syncingAt("https://matrix.test.example")) }),
+      matrixVersions: okProbe({ versions: ["v1.10", "v1.11"] }),
+    });
+    const reach = find(results, "matrix-reachable");
+    expect(reach?.status).toBe("pass");
+    expect(reach?.detail).toContain("v1.11");
+  });
+
+  it("fails on something that answers but isn't a homeserver", () => {
+    // A reverse proxy or a captive portal returning 200 and HTML is reachable
+    // and useless. The endpoint exists to return a version list; no list means
+    // whatever is there does not speak Matrix.
+    const results = runConformance({
+      ...probes({ instance: okProbe(syncingAt("https://matrix.test.example")) }),
+      matrixVersions: okProbe({ hello: "i am a login page" }),
+    });
+    expect(find(results, "matrix-reachable")?.status).toBe("fail");
+  });
+
+  it("fails on an HTTP error from the homeserver", () => {
+    const results = runConformance({
+      ...probes({ instance: okProbe(syncingAt("https://matrix.test.example")) }),
+      matrixVersions: { ok: false, status: 502, body: null },
+    });
+    const reach = find(results, "matrix-reachable");
+    expect(reach?.status).toBe("fail");
+    expect(reach?.detail).toContain("502");
+  });
+
+  it("warns rather than passes when nobody looked", () => {
+    // The distinction the old check collapsed. An unverified address is not a
+    // working one, and reporting it green is how this went unnoticed.
+    const results = runConformance(
+      probes({ instance: okProbe(syncingAt("https://matrix.test.example")) })
+    );
+    const reach = find(results, "matrix-reachable");
+    expect(reach?.status).toBe("warn");
+    expect(reach?.detail).toContain("Not checked");
+  });
+
+  it("skips when clients aren't told to sync directly", () => {
+    const results = runConformance(probes());
+    expect(find(results, "matrix-reachable")?.status).toBe("skip");
   });
 });

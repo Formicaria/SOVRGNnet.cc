@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { canRegister, instanceInfo, instanceId, normalizeJoinPolicy } from "./instance";
+import {
+  canRegister,
+  instanceInfo,
+  instanceId,
+  normalizeJoinPolicy,
+} from "./instance";
 
 const ENV_KEYS = [
   "INSTANCE_NAME",
@@ -57,14 +62,20 @@ describe("instanceInfo", () => {
     expect(info.listed).toBe(false);
   });
 
-  it("never claims encryption, because this build has none", () => {
+  it("claims no encryption on a deployment that can't support it", () => {
+    // This read "because this build has none", which stopped being true when
+    // stage 4 shipped. What holds now is the derivation: no reachable
+    // homeserver and no appservice here, so the claim is false — and it has to
+    // be false for *that* reason rather than because a constant says so.
     expect(instanceInfo("0.1.0").encryption).toBe(false);
   });
 
-  it("does not start claiming encryption once the homeserver is public", () => {
-    // A reachable homeserver is a precondition for clients to sync directly,
-    // and therefore for encryption to become possible later. It is not
-    // encryption. These two must never be wired together again.
+  it("does not start claiming encryption on a public homeserver alone", () => {
+    // A reachable homeserver is one of three conditions, not the answer. It
+    // was briefly wired directly to the claim, which made every instance
+    // advertise E2EE the moment it got a public address; without the
+    // appservice there is still nowhere for an encrypted message to be
+    // recorded, so the claim stays false.
     process.env.MATRIX_PUBLIC_URL = "https://matrix.example.com";
 
     const info = instanceInfo("0.1.0");
@@ -76,7 +87,9 @@ describe("instanceInfo", () => {
     expect(instanceInfo("0.1.0").matrixBaseUrl).toBeNull();
 
     process.env.MATRIX_PUBLIC_URL = "https://matrix.example.com";
-    expect(instanceInfo("0.1.0").matrixBaseUrl).toBe("https://matrix.example.com");
+    expect(instanceInfo("0.1.0").matrixBaseUrl).toBe(
+      "https://matrix.example.com"
+    );
   });
 
   describe("settings precedence", () => {
@@ -139,21 +152,83 @@ describe("instanceInfo", () => {
 describe("canRegister", () => {
   describe("the very first account", () => {
     // The bootstrap case. A fresh install defaults to invite-only, so without
-    // this exception the owner would need an invite to a community that does
-    // not exist yet — the server could never be set up at all.
-    it("is allowed no matter what the policy says", () => {
+    // an exception the owner would need an invite to a community that doesn't
+    // exist yet and the server could never be set up at all.
+    //
+    // But the exception grants *administrator*, and a server is usually
+    // reachable before its owner has registered — so it's gated on a secret
+    // only the operator has.
+    const TOKEN = "s3tup-t0ken";
+
+    it("is allowed with the right token, whatever the policy says", () => {
       for (const policy of ["open", "invite", "closed"] as const) {
         expect(
-          canRegister({ policy, isFirstAccount: true, hasValidInvite: false })
+          canRegister({
+            policy,
+            isFirstAccount: true,
+            hasValidInvite: false,
+            setupToken: TOKEN,
+            presentedSetupToken: TOKEN,
+          })
         ).toEqual({ allowed: true, reason: "bootstrap" });
       }
+    });
+
+    it.each([
+      ["nothing presented", undefined],
+      ["the wrong token", "not-the-token"],
+      ["an empty string", ""],
+      ["a prefix of the real one", TOKEN.slice(0, 5)],
+    ])("is refused with %s", (_why, presented) => {
+      const verdict = canRegister({
+        policy: "open",
+        isFirstAccount: true,
+        hasValidInvite: false,
+        setupToken: TOKEN,
+        presentedSetupToken: presented,
+      });
+      expect(verdict.allowed).toBe(false);
+    });
+
+    it("is refused when the instance has no token configured", () => {
+      // Fail-closed. An operator who hasn't set one reads an error naming the
+      // variable; the alternative is somebody else owning their instance,
+      // which is not a recoverable mistake.
+      const verdict = canRegister({
+        policy: "open",
+        isFirstAccount: true,
+        hasValidInvite: false,
+        setupToken: "",
+        presentedSetupToken: "anything",
+      });
+      expect(verdict.allowed).toBe(false);
+      expect(verdict.allowed === false && verdict.message).toMatch(
+        /SOVRGN_SETUP_TOKEN/
+      );
+    });
+
+    it("stops mattering once an account exists", () => {
+      // This gates the bootstrap, not registration. An open instance keeps
+      // accepting people without anyone handing out the setup code.
+      expect(
+        canRegister({
+          policy: "open",
+          isFirstAccount: false,
+          hasValidInvite: false,
+          setupToken: TOKEN,
+        })
+      ).toEqual({ allowed: true, reason: "open" });
     });
   });
 
   describe("open", () => {
     it("lets anyone in", () => {
       expect(
-        canRegister({ policy: "open", isFirstAccount: false, hasValidInvite: false })
+        canRegister({
+          policy: "open",
+          isFirstAccount: false,
+          hasValidInvite: false,
+        })
       ).toMatchObject({ allowed: true });
     });
   });
@@ -161,7 +236,11 @@ describe("canRegister", () => {
   describe("invite", () => {
     it("accepts someone holding a valid invite", () => {
       expect(
-        canRegister({ policy: "invite", isFirstAccount: false, hasValidInvite: true })
+        canRegister({
+          policy: "invite",
+          isFirstAccount: false,
+          hasValidInvite: true,
+        })
       ).toEqual({ allowed: true, reason: "invite" });
     });
 
@@ -172,14 +251,21 @@ describe("canRegister", () => {
         hasValidInvite: false,
       });
       expect(verdict.allowed).toBe(false);
-      expect(verdict).toHaveProperty("message", expect.stringMatching(/invite/i));
+      expect(verdict).toHaveProperty(
+        "message",
+        expect.stringMatching(/invite/i)
+      );
     });
   });
 
   describe("closed", () => {
     it("turns everyone away", () => {
       expect(
-        canRegister({ policy: "closed", isFirstAccount: false, hasValidInvite: false })
+        canRegister({
+          policy: "closed",
+          isFirstAccount: false,
+          hasValidInvite: false,
+        })
       ).toMatchObject({ allowed: false });
     });
 
@@ -187,7 +273,11 @@ describe("canRegister", () => {
       // Closed means closed. An old invite link shouldn't reopen a server the
       // owner deliberately shut.
       expect(
-        canRegister({ policy: "closed", isFirstAccount: false, hasValidInvite: true })
+        canRegister({
+          policy: "closed",
+          isFirstAccount: false,
+          hasValidInvite: true,
+        })
       ).toMatchObject({ allowed: false });
     });
   });

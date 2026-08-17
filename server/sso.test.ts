@@ -147,7 +147,7 @@ describe("JwksCache", () => {
 });
 
 describe("decideSsoLink", () => {
-  const claims = { sub: "acct_1", email: "z@example.com", email_verified: true };
+  const claims = { sub: "acct_1", email: "z@example.com" };
 
   it("signs in an account already bound to this identity", () => {
     expect(
@@ -165,28 +165,45 @@ describe("decideSsoLink", () => {
     ).toEqual({ action: "create" });
   });
 
-  it("links to a local account when the provider verified the email", () => {
-    expect(
-      decideSsoLink({
-        claims,
-        existingBySubject: null,
-        existingByEmail: { id: 3, ssoSubject: null },
-      })
-    ).toEqual({ action: "link", userId: 3 });
-  });
-
   describe("the takeover it has to prevent", () => {
-    it("refuses to link on an unverified email", () => {
-      // Otherwise: register at sovrgnnet.cc with someone else's address and
-      // inherit their account on every server they belong to.
+    it("never links on a matching email, however the provider labels it", () => {
+      // This is the whole change. It used to return { action: "link" } here
+      // whenever the provider marked the address verified, which made every
+      // local account claimable by whoever could get the provider to assert
+      // that address — on every instance the person belongs to, at once.
+      //
+      // "Verified" means the provider believes it. That is worth exactly as
+      // much as the provider, which ADR 0003 says is optional and therefore
+      // must not be able to take over accounts.
       const decision = decideSsoLink({
-        claims: { ...claims, email_verified: false },
+        claims,
         existingBySubject: null,
         existingByEmail: { id: 3, ssoSubject: null },
       });
 
       expect(decision.action).toBe("refuse");
-      expect(decision).toHaveProperty("message", expect.stringMatching(/password first/i));
+      expect(decision).toHaveProperty(
+        "message",
+        expect.stringMatching(/sign in with your password/i)
+      );
+    });
+
+    it("never returns a link action at all", () => {
+      // Exhaustive over the shapes an email match can take. If any of them can
+      // produce a sign-in or a link, the takeover path is back.
+      const byEmail = [
+        { id: 3, ssoSubject: null },
+        { id: 3, ssoSubject: "somebody_else" },
+        { id: 3, ssoSubject: "acct_1" },
+      ];
+      for (const existingByEmail of byEmail) {
+        const decision = decideSsoLink({
+          claims,
+          existingBySubject: null,
+          existingByEmail,
+        });
+        expect(decision.action, JSON.stringify(existingByEmail)).toBe("refuse");
+      }
     });
 
     it("refuses when the email belongs to a different identity", () => {
@@ -200,15 +217,20 @@ describe("decideSsoLink", () => {
       expect(decision).toHaveProperty("message", expect.stringMatching(/different/i));
     });
 
-    it("still refuses a mismatched identity even with a verified email", () => {
-      // Verification proves the address, not that the account is yours to take.
-      expect(
-        decideSsoLink({
-          claims: { ...claims, email_verified: true },
-          existingBySubject: null,
-          existingByEmail: { id: 3, ssoSubject: "somebody_else" },
-        }).action
-      ).toBe("refuse");
+    it("says how to link deliberately rather than just refusing", () => {
+      // A refusal with no route forward is a dead end. Linking still exists —
+      // it moved to auth.linkSso, where the person proves they hold the local
+      // account first and the bind is an authenticated act rather than an
+      // inference drawn from a string.
+      const decision = decideSsoLink({
+        claims,
+        existingBySubject: null,
+        existingByEmail: { id: 3, ssoSubject: null },
+      });
+      expect(decision).toHaveProperty(
+        "message",
+        expect.stringMatching(/link your sovrgnnet\.cc account/i)
+      );
     });
   });
 

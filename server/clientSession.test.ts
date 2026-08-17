@@ -89,11 +89,12 @@ describe.skipIf(!process.env.DATABASE_URL)("matrix.clientSession (ADR 0008 stage
       json({ versions: ["v1.11"] })) as unknown as typeof fetch);
     await refreshDirectSync();
 
-    alice = (await db.createLocalUser(
-      `sync_${Date.now()}@test.cc`,
-      "x",
-      "Sync Alice"
-    )) as AuthenticatedUser;
+    alice = (await db.createLocalUser({
+      username: `sync${Date.now()}`,
+      passwordHash: "x",
+      email: `sync_${Date.now()}@test.cc`,
+      name: "Sync Alice",
+    })) as AuthenticatedUser;
   });
 
   afterAll(() => {

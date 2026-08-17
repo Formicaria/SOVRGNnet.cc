@@ -370,20 +370,53 @@ export default function Dashboard() {
         throw new Error(data?.error ?? `Upload failed (${res.status})`);
       }
       const share = (await res.json()) as {
+        id?: number;
         ipfsHash?: string;
         fileSize?: number;
       };
 
       if (sealed && channel?.matrixRoomId && share.ipfsHash) {
-        // The instance skips the notice for encrypted channels, so this is the
-        // only announcement — and the only copy of the key.
-        await sendFileOverMatrix(channel.matrixRoomId, {
-          filename: file.name,
-          cid: share.ipfsHash,
-          size: share.fileSize ?? plaintext.length,
-          mimeType: file.type || null,
-          encryption: sealed.info,
-        });
+        // The instance skips the notice for encrypted channels, so this event
+        // is the only announcement *and* the only copy of the key. The bytes
+        // are already pinned — they had to be, the CID doesn't exist until the
+        // upload finishes — so a failure here would leave ciphertext that
+        // nobody can ever open, including the person who just uploaded it.
+        //
+        // Try once more, and if that fails too, take the bytes back out. A
+        // visible failure the user can retry beats a file that sits in the
+        // list looking fine and is permanently unreadable.
+        const announce = () =>
+          sendFileOverMatrix(channel.matrixRoomId, {
+            filename: file.name,
+            cid: share.ipfsHash!,
+            size: share.fileSize ?? plaintext.length,
+            mimeType: file.type || null,
+            encryption: sealed.info,
+          });
+
+        try {
+          await announce();
+        } catch {
+          try {
+            await announce();
+          } catch {
+            if (share.id !== undefined) {
+              await fetch(`/api/uploads/${share.id}`, {
+                method: "DELETE",
+                credentials: "include",
+              }).catch(() => {
+                // The bytes outlive the attempt. Logged rather than shown:
+                // there's nothing the person can do about it, and they already
+                // have an error they *can* act on.
+                console.warn("[upload] couldn't abandon the orphaned upload");
+              });
+            }
+            throw new Error(
+              "That file uploaded, but its key couldn't be shared — it would have " +
+                "been unreadable by everyone. It's been removed. Try again."
+            );
+          }
+        }
       }
 
       await utils.fileShares.listByChannel.invalidate({
@@ -621,6 +654,12 @@ export default function Dashboard() {
                 <Tooltip key={connection.id}>
                   <TooltipTrigger asChild>
                     <button
+                      // The host belongs in the name here, not just the
+                      // tooltip: two connections can share a display name and
+                      // the thing that distinguishes them — which machine you
+                      // are about to be sent to — is the part only sighted
+                      // hover reveals.
+                      aria-label={`${connection.name} (${connection.host})`}
                       onClick={() => {
                         if (active) return;
                         // In a browser, another server is another origin with
@@ -655,6 +694,10 @@ export default function Dashboard() {
           <Tooltip key={server.id}>
             <TooltipTrigger asChild>
               <button
+                // The visible label is two initials, which is a name in the
+                // strict sense and useless as one — "E C button" tells you
+                // nothing about which server you are about to switch to.
+                aria-label={server.name}
                 onClick={() => {
                   setSelectedServerId(server.id);
                   setSelectedChannelId(null);
@@ -766,6 +809,7 @@ export default function Dashboard() {
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              aria-label="Add another server"
               onClick={() => setAddServerOpen(true)}
               className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 hover:rounded-xl flex items-center justify-center transition-all"
             >
@@ -782,6 +826,7 @@ export default function Dashboard() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  aria-label="Server settings"
                   onClick={() => setSettingsOpen(true)}
                   className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 hover:rounded-xl flex items-center justify-center transition-all"
                 >
@@ -802,6 +847,23 @@ export default function Dashboard() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
+                  // Every icon-only button in this rail had its only label in
+                  // the tooltip below it, and a tooltip is not a name: Radix
+                  // renders it into the DOM on hover and removes it again, so
+                  // at rest the control announces as "button" and nothing
+                  // else. Hovering is not something a screen reader does.
+                  //
+                  // Of the six, this is the one that matters most. It is the
+                  // only route to device verification and to setting up a
+                  // recovery key — the two things standing between a user and
+                  // silently losing every message they have received. An
+                  // unnamed button is a locked door for anyone not using a
+                  // mouse, and we locked it in front of the security setup.
+                  //
+                  // Found by the browser stage, asking for this button by name
+                  // and being told there wasn't one. The accessibility tree it
+                  // dumped on failure is the same tree assistive tech reads.
+                  aria-label="Encryption"
                   onClick={() => setEncryptionPanelOpen(true)}
                   className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 hover:rounded-xl flex items-center justify-center transition-all relative"
                 >
@@ -821,6 +883,7 @@ export default function Dashboard() {
           <Tooltip>
             <TooltipTrigger asChild>
               <button
+                aria-label="Log out"
                 onClick={async () => {
                   await logout();
                   setLocation("/");

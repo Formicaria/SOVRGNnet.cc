@@ -26,7 +26,7 @@ function keysOf(...pairs: Array<ReturnType<typeof generateKeypair>>) {
   return new Map(pairs.map(p => [p.kid, p.publicKey]));
 }
 
-function token(overrides: Parameters<typeof issueToken>[1] = { subject: "u1", audience: SERVER }) {
+function token(overrides: Partial<Parameters<typeof issueToken>[1]> = {}) {
   return issueToken(provider, { subject: "u1", audience: SERVER, ...overrides });
 }
 
