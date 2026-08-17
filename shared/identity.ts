@@ -51,7 +51,10 @@ import {
  * A constant a browser needs should not be sat next to a private-key API.
  */
 export { IDENTITY_ORIGIN, TOKEN_ISSUER } from "./identityOrigin";
-import { IDENTITY_ORIGIN, TOKEN_ISSUER } from "./identityOrigin";
+// Only TOKEN_ISSUER is used below. Importing IDENTITY_ORIGIN as well "for
+// symmetry" is an unused local, which the root tsconfig tolerates and
+// identity/tsconfig.json does not — so it passed here and failed there.
+import { TOKEN_ISSUER } from "./identityOrigin";
 /** Deliberately short. These are bearer tokens; they get exchanged for a session. */
 export const TOKEN_TTL_SECONDS = 300;
 /** Tolerance for clock drift between the provider and a self-hosted server. */

@@ -2,6 +2,12 @@
 
 ## v0.6.1 — 2026-08-17
 
+**`pnpm verify` runs what CI runs.** Three workspaces carry three tsconfigs
+with three ideas of strict — the root leaves `noUnusedLocals` off, `identity`
+and `desktop` turn it on — and nothing bundled the webview outside a release.
+Checking the root and calling it verified sent three separate failures to CI in
+one afternoon, each a real defect that a local run simply never looked for.
+
 **The desktop release build was the first thing to bundle the desktop.** CI's
 desktop job ran `pnpm check` — typecheck only. `shared/identity.ts` opens with
 `import { ... } from "node:crypto"`, and the shell imports one constant from
