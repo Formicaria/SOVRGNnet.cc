@@ -2,6 +2,28 @@
 
 ## v0.6.1 — 2026-08-17
 
+**The apex advertised federation the homeserver refuses.**
+`server/instanceRoutes.ts` gates `/.well-known/matrix/server` on
+`MATRIX_ALLOW_FEDERATION`, with the reason written beside it: advertising a
+federation endpoint while refusing federated traffic invites other servers to
+try and then fail. That gate never runs on sovrgnnet.cc. Delegation is always
+fetched from the *server name*, and `sovrgnnet.cc` is a static Pages site — so
+the app's route is never asked and the static file answered unconditionally.
+The safety mechanism existed, was well argued, and was not in the path.
+
+The static `matrix/server` is now absent while federation is off;
+`matrix/client` stays, because telling a client which homeserver to log in to
+is true either way. `site/.well-known/README.md` carries the file to restore
+and the one-line check that proves it should exist —
+`/_matrix/key/v2/server` returning `M_UNRECOGNIZED` means federation is still
+off. `check-site.sh` reports on both.
+
+**The site kept advertising the previous version.** `check-versions.sh` watches
+six manifests; the static site is HTML and is not one of them, so v0.6.1
+shipped with a landing page offering v0.6.0 and download links pointing at
+release assets that do not exist under that tag. `bump-version.sh` now rewrites
+the site as well.
+
 **The identity service has tests now.** It was live, holding the key that mints
 tokens for every server trusting this issuer, with nothing exercising its own
 code — `server/identity.test.ts` covers the consumer side, verification. 40
