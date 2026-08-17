@@ -50,27 +50,56 @@ export function ssoConfigFromEnv(instanceId: string): SsoConfig {
 
 export type LinkDecision =
   | { action: "sign-in"; userId: number }
-  | { action: "link"; userId: number }
   | { action: "create" }
   | { action: "refuse"; message: string };
 
 /**
  * What to do when someone presents a valid identity token.
  *
- * Split out and tested because the unsafe path here is not obvious: matching
- * an SSO account to an existing local account **by email address** is an
- * account takeover unless the provider has verified that the person actually
- * controls the address. Otherwise anyone could register at sovrgnnet.cc with
- * your email and inherit your account on every server you belong to.
+ * **An account is matched by subject and by nothing else.**
  *
- * So an unverified email never links. It refuses and tells the person to sign
- * in locally first — mildly annoying, and the alternative is a vulnerability.
+ * The subject is an opaque, stable id the provider assigns and never reuses.
+ * An email address is neither: it is a routing label that changes hands. A
+ * corporate address goes back into the pool when someone leaves; a domain
+ * lapses and is re-registered; a provider is compromised and starts asserting
+ * whatever it likes.
+ *
+ * ## What matching by email would cost
+ *
+ * If a token carrying `alice@example.com` could sign into the local account
+ * holding that address, then whoever can make the provider emit that claim owns
+ * the account — on *every* instance Alice belongs to, at once. That is one
+ * compromise away from total, and the instance operator has no way to detect or
+ * prevent it. The provider is supposed to be optional here (ADR 0003); an
+ * optional component must not be able to take over accounts.
+ *
+ * The previous version linked on a *verified* email, reasoning that the
+ * provider had confirmed control. That reasoning has a hole: verified means the
+ * provider believes it, which is only worth as much as the provider. It also
+ * silently made every local account claimable by anyone who could register that
+ * address at sovrgnnet.cc first.
+ *
+ * ## What happens instead
+ *
+ * A matching email is now a *reason to stop*, not a reason to link. The person
+ * signs in with their password — proving they hold the local account — and
+ * links the provider deliberately from there (`auth.linkSso`). Linking becomes
+ * an authenticated act by the account's owner rather than an inference drawn
+ * from a string.
+ *
+ * That is one extra step, once. The alternative is a takeover path that nobody
+ * would find until it was used.
  */
 export function decideSsoLink(input: {
-  claims: Pick<IdentityClaims, "sub" | "email" | "email_verified">;
+  claims: Pick<IdentityClaims, "sub" | "email">;
   /** Existing account already bound to this subject, if any. */
   existingBySubject: { id: number } | null;
-  /** Existing local account with the same email, if any. */
+  /**
+   * Existing local account with the same email, if any.
+   *
+   * Consulted only to refuse. It can never cause a sign-in — if it could, this
+   * whole comment would be describing the bug rather than the fix.
+   */
   existingByEmail: { id: number; ssoSubject: string | null } | null;
 }): LinkDecision {
   if (input.existingBySubject) {
@@ -80,8 +109,8 @@ export function decideSsoLink(input: {
   const byEmail = input.existingByEmail;
   if (!byEmail) return { action: "create" };
 
-  // Already bound to a different sovrgnnet.cc account. Two identities can't
-  // share one local account, and silently rebinding would hand it over.
+  // Bound to some other provider identity already. Rebinding would hand that
+  // account to a different person.
   if (byEmail.ssoSubject && byEmail.ssoSubject !== input.claims.sub) {
     return {
       action: "refuse",
@@ -90,15 +119,15 @@ export function decideSsoLink(input: {
     };
   }
 
-  if (!input.claims.email_verified) {
-    return {
-      action: "refuse",
-      message:
-        "An account with that email already exists here. Sign in with your password first to link it to your sovrgnnet.cc account.",
-    };
-  }
-
-  return { action: "link", userId: byEmail.id };
+  // Unbound local account with the same address. The email column is unique, so
+  // creating alongside it is impossible anyway — but the reason to refuse is
+  // the takeover, not the constraint.
+  return {
+    action: "refuse",
+    message:
+      "An account with that email already exists here. Sign in with your password, " +
+      "then link your sovrgnnet.cc account from your profile.",
+  };
 }
 
 export class JwksCache {

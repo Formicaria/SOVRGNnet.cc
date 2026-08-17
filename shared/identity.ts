@@ -37,7 +37,41 @@ import {
  * dependency that either side could resolve to a different version.
  */
 
-export const TOKEN_ISSUER = "https://sovrgnnet.cc";
+/**
+ * Where the identity service lives.
+ *
+ * **Not deployed yet.** `sovrgnnet.cc` currently serves the marketing site, so
+ * this origin answers no API and publishes no JWKS. This constant does not
+ * pretend otherwise — the code that consumes it is written to degrade and say
+ * so, rather than to fail with a raw HTTP status.
+ *
+ * That was the bug it caused. The desktop POSTed to `/api/device/code` here, a
+ * static host answered `405 Method Not Allowed`, and the sign-in screen showed
+ * "Couldn't start sign-in (405)". Every instance enabling SSO without setting
+ * `IDENTITY_ISSUER` had the same problem one level down: JWKS fetched from a
+ * static site, no keys, nothing verifiable.
+ *
+ * `identity/DEPLOY.md` describes `id.sovrgnnet.cc`. When the service is really
+ * running, this is the single line to change — the consumers below read it
+ * instead of repeating the string, and a test fails if anyone writes the
+ * literal again.
+ *
+ * Overridable where it matters: instances set `IDENTITY_ISSUER`, the desktop
+ * reads `VITE_IDENTITY_URL` at build time. The identity service is supposed to
+ * be optional infrastructure (ADR 0003); one hardcoded origin with no way past
+ * it would contradict what the architecture claims about itself.
+ */
+export const IDENTITY_ORIGIN = "https://sovrgnnet.cc";
+
+/**
+ * The `iss` every token carries, and the value verifiers compare against.
+ *
+ * The same string as the origin today. They are two names because they are two
+ * ideas — "where the service is" versus "what it calls itself in a claim" — and
+ * a deployment that moves the service without invalidating tokens already in
+ * flight needs to be able to separate them.
+ */
+export const TOKEN_ISSUER = IDENTITY_ORIGIN;
 /** Deliberately short. These are bearer tokens; they get exchanged for a session. */
 export const TOKEN_TTL_SECONDS = 300;
 /** Tolerance for clock drift between the provider and a self-hosted server. */
