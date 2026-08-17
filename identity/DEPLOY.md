@@ -16,6 +16,9 @@ else. Nobody gets logged out, no server stops working.
 - A hostname — `id.sovrgnnet.cc` — with TLS.
 - Node 22.
 
+**Step-by-step commands are in [INSTALL.md](./INSTALL.md).** This page is the
+reasoning; that one is the runbook.
+
 ## Setting it up
 
 ```bash
@@ -112,8 +115,90 @@ ProtectHome=true
 WantedBy=multi-user.target
 ```
 
-Put TLS in front of it — Caddy, nginx, or a Cloudflare tunnel. It listens on
-`:4000` and should not be exposed directly.
+It listens on `:4000` and should not be exposed directly. Put TLS in front —
+Caddy, nginx, or a Cloudflare Tunnel. The tunnel is written out below, because
+it is what `sovrgnnet.cc` uses and because one detail of it is easy to get
+wrong in a way that fails intermittently.
+
+## On Proxmox, behind its own tunnel
+
+A Debian 12 unprivileged container is enough: 1 vCPU, 1 GB memory, 8 GB disk.
+No special features — no nesting, no keyctl — and nothing forwarded to it. Do
+the setup above inside the container, then give it a way out:
+
+```bash
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+  | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bookworm main" \
+  | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt update && sudo apt install -y cloudflared
+```
+
+### Give it a tunnel of its own
+
+**Not another connector on the tunnel an instance already uses.** This is the
+part worth reading twice.
+
+Every connector attached to a Cloudflare Tunnel serves that tunnel's *entire*
+ingress configuration, and Cloudflare balances requests across the healthy
+connectors. Add `id.sovrgnnet.cc → http://localhost:4000` to an existing tunnel
+and run a second connector here, and both machines advertise that route — but
+only one has anything listening on 4000. Roughly half of all sign-ins then fail,
+intermittently, with a 502 that reads like a flaky service rather than a routing
+mistake.
+
+One tunnel per machine keeps one ingress config per machine, which is the
+property actually wanted:
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create sovrgn-identity
+cloudflared tunnel route dns sovrgn-identity id.sovrgnnet.cc
+```
+
+`/etc/cloudflared/config.yml`:
+
+```yaml
+tunnel: sovrgn-identity
+credentials-file: /root/.cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: id.sovrgnnet.cc
+    service: http://localhost:4000
+  - service: http_status:404
+```
+
+```bash
+sudo cloudflared service install
+sudo systemctl enable --now cloudflared
+```
+
+Nothing is exposed on the container. `cloudflared` dials out, the origin address
+never appears in DNS, and there is no inbound port to forward or firewall.
+
+### Why not on the instance's machine
+
+It could be. The reason it isn't is [threat model T3](../docs/THREAT_MODEL.md):
+whoever controls the identity provider can mint a token for any account on
+*every* server that accepts it. Running it beside an instance means one
+compromised box yields both — the optional component's blast radius landing on
+the mandatory one. Separating them costs one small container.
+
+### What reaches it, and from where
+
+Nothing needs a route to this container, and no instance needs to know where it
+is. Everything is ordinary public HTTPS to Cloudflare's edge:
+
+- Any instance, anywhere, fetches
+  `https://id.sovrgnnet.cc/.well-known/jwks.json` to verify token signatures. A
+  cached public key is all a server ever needs from this service.
+- A person's browser visits `id.sovrgnnet.cc` to approve a sign-in, and is
+  redirected back to *their own* instance afterwards.
+
+Instances never connect to each other, and this service never connects out to an
+instance. No VPN, no static IP, no port forwarding anywhere in the design —
+the same reason an instance behind a home router works without touching the
+router.
 
 ## Pointing servers at it
 

@@ -203,6 +203,25 @@ export const grants = pgTable("grants", {
   accountId: integer("accountId").notNull(),
   instanceId: varchar("instanceId", { length: 64 }).notNull(),
   instanceName: varchar("instanceName", { length: 120 }),
+  /**
+   * Where this instance was when this service last resolved it itself.
+   *
+   * The grant list is where a person decides whether to keep trusting a
+   * server, and until now it offered them a sixteen-character hex id and a
+   * display name the server chose for itself. That is not enough to recognise
+   * anything — least of all after a desktop host is restored or changes port,
+   * where an unreadable id may be the only thing telling two grants apart.
+   *
+   * **Only ever written from an origin resolved here** — the `returnUrl`
+   * target in the browser flow, whose descriptor this service fetched. Never
+   * from a request body. An address chosen by the party being authorised and
+   * then displayed inside a security screen is a phishing primitive; the value
+   * of this column is precisely that it is an observation rather than a claim.
+   *
+   * Null means this grant has only ever been seen through the API token flow,
+   * which carries no origin. The list says so rather than showing a blank.
+   */
+  instanceUrl: varchar("instanceUrl", { length: 255 }),
   firstUsedAt: timestamp("firstUsedAt").defaultNow().notNull(),
   lastUsedAt: timestamp("lastUsedAt").defaultNow().notNull(),
   revokedAt: timestamp("revokedAt"),
