@@ -1,5 +1,142 @@
 # Changelog
 
+## Unreleased — release blockers from the pre-release audit
+
+**A Conduit-era machine upgraded to Dendrite and kept running Conduit.** ADR
+0006 replaced the homeserver and gave Dendrite the same port, 6167, but nothing
+ever retired `conduit.service`. On those machines Conduit keeps the port,
+Dendrite dies with `bind: address already in use` every five seconds, and
+because `Restart=always` never lets it settle, systemd reports it as
+`activating` rather than `failed`. The homeserver answers throughout — it is
+simply the wrong one, under the old server name, no longer the one being
+configured. `install-lxc.sh` now stops and disables Conduit before writing
+Dendrite's unit, and leaves its database alone: an installer does not get to
+delete somebody's only copy of their history during an upgrade.
+
+**Dendrite's internal event stream lived in a directory systemd wipes.** With
+no `jetstream.storage_path` Dendrite picks a temporary directory and warns that
+data could be lost on reboot; the unit sets `PrivateTmp=true`, so it was lost
+on every restart instead. JetStream is how Dendrite's components hand events to
+each other, which makes the failure mode an event that was accepted and then
+never arrived — not a crash, and not visible anywhere. Now stored under
+`/var/lib/dendrite/jetstream`.
+
+**`sovrgnnet start` could not start a native install.** The control script
+managed a `conduit` unit; ADR 0006 replaced Conduit with Dendrite and
+`install-lxc.sh` has written `dendrite.service` ever since. Nothing connects
+those two files, so the list was never updated. Under `set -e`, `systemctl
+start postgresql conduit ipfs sovrgnnet` aborted on the missing unit — before
+reaching IPFS or the app — meaning the documented way to start an LXC install
+had to be worked around by hand. A test now asserts every unit the control
+script manages is one the installer creates.
+
+`sovrgnnet update --force` for the two cases the boring path can't handle: a
+repository that won't fast-forward, and images that are stale despite the
+version being current (`up -d --build` reuses the local cache, so a version tag
+rebuilt upstream never arrives). It takes a backup first and aborts if that
+fails, prints the commits and tracked files it will discard, and refuses to run
+`git clean` — `.env` is untracked, and deleting `MATRIX_SERVER_NAME` is
+unrecoverable in the strict sense. On native installs it also refreshes
+`cloudflared`, which `install-lxc.sh` fetches only when absent and therefore
+never updates.
+
+**Signing in never brought your servers with you.** The desktop reads the
+grants list after sign-in and reconnects each instance, keyed on a field called
+`address` — which `/api/grants` has never returned. The property was declared
+optional, so the type checker was satisfied, the guard skipped every grant, and
+the feature the first-run screen advertises did nothing at all from the day it
+was written. Grants now carry an `instanceUrl`, written only from an origin the
+identity service resolved itself, and the desktop reads that. An optional field
+the server never sends is invisible to every tool we have; the only thing that
+catches it is running the path.
+
+**The upgrade doc described a stack we don't have.** It claimed every image was
+"pinned by digest" and that two operators on the same version "run the same
+bytes." No image carried a digest — all six were mutable version tags, and the
+Dockerfile's `node:22-alpine` floats across every 22.x patch. Corrected to say
+what is actually true, with the cost of real digest pinning written down rather
+than implied. `docs/DEPLOYMENT.md` separately showed `cloudflared:latest` in a
+snippet people copy, making the rule true where it was enforced and false where
+it was taught. Both are now covered by tests.
+
+`cloudflared` bumped 2024.12.2 → 2026.8.2. Of everything in the compose file it
+is the only process with an unsolicited path to the internet, which makes it
+the pin whose age matters most. `docs/UPGRADING.md` gains a section on what
+should update automatically (host security packages), what must not (Postgres
+and Dendrite both migrate one-way, which is why Watchtower is the wrong tool
+here), and the shape that works for the rest — a bot proposes the bump, the e2e
+harness proves it, a person merges it.
+
+**Voice has a constraint worth knowing before it is designed.** Cloudflare
+Tunnel carries no UDP, and WebRTC media is UDP, so the transport everything
+else here depends on cannot carry audio. `docs/ROADMAP.md` records the three
+ways out and what each costs — including that self-hosting an SFU makes the
+"no port forwarding anywhere in the design" claim false and would need
+correcting in the same commit. `voice: false` remains accurate.
+
+
+**A stranger could claim a freshly deployed instance.** The first registration
+becomes the administrator, and it was decided by `countUsers() === 0` followed
+by a separate insert — a check and an act with a gap between them. Two
+registrations arriving together both read zero and both became admins, and the
+whole window is open on a server that has just been pointed at a public address
+by an owner who hasn't signed up yet.
+
+The bootstrap now needs `SOVRGN_SETUP_TOKEN`, compared in constant time, and
+the count and the insert happen in one transaction under
+`pg_advisory_xact_lock`. An instance with no accounts and no token configured
+refuses to create one and names the variable — fail-closed, because the cost of
+refusing is an operator reading an error and the cost of allowing is losing the
+server. `install.sh` generates one and prints it; the compose template, the
+example env and the e2e harness set it. Bootstrapping through SSO is refused
+outright: a token can't cross a provider redirect without leaking, and closing
+that path removes the race on it rather than gating it more weakly.
+
+**Recovery codes and device codes weren't single-use.** Both checked a row and
+wrote it in separate statements, so concurrent requests spent the same code
+twice — one recovery code, two password resets; one approval, several desktop
+sessions nobody knows about. Both claim conditionally now
+(`usedAt IS NULL`, `DELETE … RETURNING`), so the database picks a winner and
+the loser changes nothing. Recovery also spends the code *before* touching the
+password, which is the ordering a crash makes matter. The same one-line fix
+went to the email verification and password-reset tokens, which had it too.
+
+**Device approval loaded every pending code and scanned it in memory**, making
+the endpoint's cost grow with a queue anyone can lengthen by requesting device
+codes. One indexed query now; the generated alphabet excludes O, I, 0 and 1, so
+normalising in SQL is safe and needed no migration.
+
+**The identity service had no rate limiting at all.** Registration, sign-in,
+recovery, password reset and device-code creation were each a way to spend an
+operator's CPU on scrypt, and recovery-code guessing was free. All bounded now,
+per address *and* per account where guessing is the risk — address-only
+limiting lets a botnet try one password against ten thousand accounts.
+In-process and per-instance, matching the main app, with that limitation
+written down rather than left to be discovered.
+
+**Encrypted uploads could be orphaned.** Introduced by v0.6.0. Ciphertext is
+pinned before the event carrying its key is sent — the CID doesn't exist until
+the upload finishes, so there is no other order — and a failed send left bytes
+nobody could ever read and no way to remove them. The client retries once and
+then abandons the upload through a new owner-scoped delete, which unpins only
+when no other share points at the same CID.
+
+**A file shared into two channels could 403 the wrong person.** Lookup by CID
+took the first row and checked membership against *its* channel, so the answer
+depended on insertion order. Every share is considered now.
+
+**Two ordering bugs surfaced while making the harness assert this.** The
+encryption refusal in `messages.send` ran before the membership check, so a
+stranger learned a channel was encrypted before being told they weren't a
+member — and the harness's "non-members can't post" assertion was passing on
+the wrong branch. And `messages.edit` had no encryption guard at all: editing
+through the API would have written plaintext into a row the index is meant to
+hold content-blind.
+
+Still open from that audit: the `pnpm audit --prod` advisories, the shared
+`sovrgn.host` identity across desktop-hosted servers, and grants carrying no
+address for the desktop to restore.
+
 ## v0.6.0 — 2026-08-16
 
 **End-to-end encryption, on by default (ADR 0008 stage 4, ADR 0011).** Every
@@ -56,10 +193,14 @@ message never did.
 
 *What it doesn't do ships in the same commit as what it does.* Metadata is
 readable in every channel. The instance can still mint a Matrix device for any
-user, because the derived password still exists — so room keys are shared only
-with cross-signed devices, which turns "you would have been warned" into "that
-device received nothing", and leaves the last step with a person clicking a
-button. The threat model gains T20 and T21 and rewrites T1 and T17 around it.
+user, because the derived password still exists, and that device **receives
+room keys like any other** — withholding them from unverified devices was built
+first and then reverted, because it makes encrypted channels unreadable by
+everyone until every pair of members has verified each other. What stands
+between a minted device and the conversation is an entry in a device list that
+somebody has to notice. The threat model gains T20 and T21 and rewrites T1 and
+T17 around it; ADR 0011 decision 3 records the reversal and why the stronger
+setting can't ship.
 
 *matrix-js-sdk arrives and the hand-rolled sync engine leaves.* Stage 3 said
 the SDK would earn its bundle weight when crypto landed. Running both would

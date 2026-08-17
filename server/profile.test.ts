@@ -42,3 +42,27 @@ describe("displayName", () => {
     expect(displayName("🦀", "Zachary")).toBe("🦀");
   });
 });
+
+describe("displayName falls back to the username", () => {
+  it("prefers nickname, then account name, then username", () => {
+    expect(displayName("Nick", "Account", "uname")).toBe("Nick");
+    expect(displayName(null, "Account", "uname")).toBe("Account");
+    expect(displayName(null, null, "uname")).toBe("uname");
+  });
+
+  it("gives a local account with no display name a name to show", () => {
+    // Before usernames existed this returned null, and the member list showed
+    // "Unknown" while the message list showed the raw MXID — to the person's
+    // own community, for the crime of not filling in an optional field.
+    expect(displayName(null, null, "alice")).toBe("alice");
+    expect(displayName("  ", null, "alice")).toBe("alice");
+  });
+
+  it("still returns null when there is nothing at all", () => {
+    // A federated sender: no local row, so no name and no username. The caller
+    // substitutes the Matrix ID, which is the honest answer there (ADR 0010).
+    expect(displayName(null, null, null)).toBeNull();
+    expect(displayName(null, null)).toBeNull();
+    expect(displayName(undefined, undefined, undefined)).toBeNull();
+  });
+});

@@ -172,6 +172,17 @@ export interface CryptoSession {
   recoverWithKey(
     recoveryKey: string
   ): Promise<{ imported: number; total: number }>;
+  /**
+   * How many room keys the server-side backup currently holds.
+   *
+   * Uploading to backup is a background loop, not part of sending — so there
+   * is a window after a message goes out in which its key is not recoverable
+   * yet, and a device signing in during that window restores nothing. This is
+   * the only way to tell the difference between "the backup is empty" and
+   * "the backup hasn't caught up", which are the same symptom and very
+   * different problems.
+   */
+  backedUpKeyCount(): Promise<number>;
   listDevices(): Promise<DeviceEntry[]>;
   /** Ask another of this user's devices to verify this one. */
   requestOwnVerification(): Promise<VerificationRequest>;
@@ -195,6 +206,84 @@ function cryptoStorePrefix(userId: string): string {
   // Colons and slashes are legal in a Matrix ID and awkward in a database
   // name; the substitution only needs to be injective, not pretty.
   return `sovrgn-crypto-${userId.replace(/[^a-zA-Z0-9]/g, "_")}`;
+}
+
+/**
+ * Wait for the other side to start the verification.
+ *
+ * The accepting party has no `verifier` until the initiator sends its start
+ * event, and there is no event on `VerificationRequest` for "a verifier now
+ * exists" — `Change` fires for phase transitions and the verifier appears
+ * alongside one. Polling a getter is unlovely and is the honest reading of
+ * the API surface.
+ *
+ * Bounded, because the other side may simply never start: a user who opened
+ * the dialog and walked away leaves this pending forever otherwise.
+ */
+async function waitForVerifier(
+  request: VerificationRequest,
+  timeoutMs = 30_000
+): Promise<NonNullable<VerificationRequest["verifier"]>> {
+  return await pollRequest(
+    request,
+    () => request.verifier,
+    "The other device didn't start the verification in time.",
+    timeoutMs
+  );
+}
+
+/**
+ * Wait for the other side to answer the request.
+ *
+ * The initiator cannot call `startVerification` the moment it sends a request.
+ * The SDK checks `getOtherDevice()` first and throws a flat
+ * "startVerification(): other device is unknown" when that comes back empty —
+ * and it is empty until the other side's `m.key.verification.ready` arrives,
+ * because until then nobody has said *which* device is answering. A request
+ * goes to every device on the account; the reply is what picks one.
+ *
+ * So this is a step in the protocol, not a race to paper over. It surfaced by
+ * driving both sides from a script, where nothing sits between "send the
+ * request" and "start the exchange" — but any UI that starts SAS on its own
+ * rather than on a second click would hit it just as reliably.
+ */
+async function waitForReady(
+  request: VerificationRequest,
+  timeoutMs = 30_000
+): Promise<void> {
+  await pollRequest(
+    request,
+    () => (request.phase === VerificationPhase.Ready ? true : undefined),
+    "The other device didn't answer the verification request in time.",
+    timeoutMs
+  );
+}
+
+/**
+ * Poll until something is true, the request is cancelled, or time runs out.
+ *
+ * Polling rather than listening: `Change` means "something happened", so a
+ * listener would re-read exactly the getters this reads. Bounded in every
+ * case, because the other side may never answer at all — someone who opened
+ * the dialog and walked away must not leave a promise pending for the life of
+ * the tab.
+ */
+async function pollRequest<T>(
+  request: VerificationRequest,
+  read: () => T | undefined,
+  timeoutMessage: string,
+  timeoutMs: number
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = read();
+    if (value !== undefined) return value;
+    if (request.phase === VerificationPhase.Cancelled) {
+      throw new Error("The other device cancelled the verification.");
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error(timeoutMessage);
 }
 
 /** Reads the UIA session id out of a 401 the way the spec describes it. */
@@ -267,29 +356,40 @@ export async function startCryptoSession(
   }
 
   /**
-   * Room keys go to cross-signed devices and nowhere else.
+   * A device its owner has cross-signed counts as verified.
    *
-   * This is the setting that decides what ADR 0008 called the difference
-   * between a passive and an active operator. An instance can mint a Matrix
-   * device for any user whenever it likes — the derived password guarantees
-   * that — and under the SDK's default the minted device receives room keys
-   * like any other, with a warning as the only protection. Withholding them
-   * means it gets nothing until a real device belonging to that user signs it,
-   * which is an action a person has to take and can refuse.
+   * This is the setting that makes verification scale: verify a *person* once
+   * and their future devices inherit it, instead of verifying every device of
+   * everyone you talk to. It changes what "verified" means; it does not
+   * withhold anything.
    *
-   * **Two settings, doing different jobs, and it is easy to set the wrong
-   * one.** `globalBlacklistUnverifiedDevices` is what actually withholds keys;
-   * it defaults to false. `setTrustCrossSignedDevices` decides what counts as
-   * verified — with it on, a device its owner has cross-signed qualifies, so
-   * people verify each of their own devices once rather than verifying every
-   * device of every person they talk to. Setting only the second one changes a
-   * shield icon and sends the keys anyway.
+   * **`globalBlacklistUnverifiedDevices` is deliberately left false, and that
+   * is a reversal.** It was set true here, on the reasoning that an
+   * operator-minted device should receive no room keys at all rather than
+   * merely be flagged — the difference ADR 0008 drew between a passive and an
+   * active operator. The reasoning was right about what it buys and wrong
+   * about what it costs.
    *
-   * The cost is real and is not hidden: an unverified device of your own reads
-   * nothing until you verify it, and someone who verifies nothing sees holes.
-   * That cost is what buys the property the whole stage exists for.
+   * What it actually costs, as the e2e crypto stage demonstrated the first
+   * time it ran: on a fresh instance nobody has cross-signed anything, so
+   * every device is unverified, so every room key is withheld from everyone
+   * and no encrypted message is readable by anybody. Encryption on by default
+   * plus keys withheld from unverified devices is a product that does not
+   * work.
+   *
+   * Nor does cross-signing rescue it. For Alice to treat Bob's device as
+   * verified she must have verified *Bob* — so with the flag on, every pair of
+   * people in a community would have to compare emoji before they could talk.
+   * That is a defensible arrangement for two journalists and an impossible one
+   * for a chat server.
+   *
+   * So the honest position is the one ADR 0008 originally wrote down: against
+   * an active operator, encryption reduces to "you would have been warned",
+   * and the warning is the device list. It is weaker than withholding. It is
+   * what a working group-chat product can offer, and pretending otherwise
+   * while shipping something unusable would have been worse than both.
    */
-  crypto.globalBlacklistUnverifiedDevices = true;
+  crypto.globalBlacklistUnverifiedDevices = false;
   crypto.setTrustCrossSignedDevices(true);
 
   // ── decrypted message index ────────────────────────────────────────────────
@@ -565,6 +665,23 @@ export async function startCryptoSession(
 
       secretStorageKeys.set(keyId, privateKey);
 
+      // Download our own identity before importing anything into it.
+      //
+      // The private cross-signing keys can only be imported against the
+      // matching *public* identity, and a device that just signed in may not
+      // have fetched it yet. The rust store is explicit about this — "No
+      // public identity found while importing cross-signing keys, a
+      // /keys/query needs to be done" — but the SDK turns it into a bare
+      // `importCrossSigningKeys failed to import the keys`, which reads like
+      // a bad recovery key rather than a missing prerequisite.
+      //
+      // That misreading is the damage. Someone told their recovery key failed
+      // will go looking for another copy of it, or conclude their history is
+      // gone, when in fact the key was right and the device simply wasn't
+      // ready. Recovery is exactly the moment not to shake someone's
+      // confidence in the one secret they kept.
+      await crypto.getUserDeviceInfo([opts.userId], true);
+
       // Cross-signing secrets come out of storage first: they are what make
       // this device trusted, and an untrusted device restoring a backup is a
       // device that still won't be sent new keys.
@@ -576,6 +693,17 @@ export async function startCryptoSession(
       onKeysImported();
       opts.onChange();
       return { imported: result.imported, total: result.total };
+    },
+
+    async backedUpKeyCount() {
+      // Forced, not cached. `getKeyBackupInfo()` alone goes through
+      // `checkKeyBackupAndEnable(false)`, which returns the *stored* info once
+      // a check has happened — so polling it to watch a count climb returns
+      // the same stale number forever. `checkKeyBackupAndEnable()` on the
+      // public API passes force=true and re-fetches from the server.
+      const checked = await crypto.checkKeyBackupAndEnable();
+      const info = checked?.backupInfo ?? (await crypto.getKeyBackupInfo());
+      return info?.count ?? 0;
     },
 
     async listDevices() {
@@ -602,6 +730,27 @@ export async function startCryptoSession(
     },
 
     async requestOwnVerification() {
+      // Publish this device before asking anyone to verify it.
+      //
+      // The rust machine drops a verification request whose sender it has
+      // never heard of — "Could not retrieve the device data for the incoming
+      // verification request, ignoring it" — and drops it *silently*. So a
+      // device that signs in and immediately asks to be verified can have the
+      // request vanish: nothing appears on the other device, and this one
+      // waits for an answer to a question nobody was asked.
+      //
+      // The window is small and entirely real. It is widest exactly when
+      // verification matters most — a device seconds old, which is both the
+      // case a person hits after signing in and the case ADR 0011 leans on for
+      // noticing an operator-minted device.
+      //
+      // Downloading our own user's device list flushes the pending key upload
+      // and confirms the server has us, which is the precondition for the
+      // other side being able to look us up. It does not *guarantee* they have
+      // re-queried yet — only their next sync does that — so a caller that
+      // sees no response should let the person try again rather than assume
+      // the protocol is broken.
+      await crypto.getUserDeviceInfo([opts.userId], true);
       return await crypto.requestOwnUserVerification();
     },
 
@@ -613,8 +762,24 @@ export async function startCryptoSession(
         await request.accept();
       }
 
+      // Exactly one side may call `startVerification`.
+      //
+      // Both calling it is a glare: two verifiers for one request, and the
+      // protocol stalls or cancels. The initiator starts; the accepting side
+      // waits for the verifier that arrives with the initiator's start event.
+      // Deciding by `initiatedByMe` rather than by who happens to run first is
+      // what makes this safe to drive from both ends simultaneously — which is
+      // how it is tested, and how two real clients behave.
       const verifier =
-        request.verifier ?? (await request.startVerification("m.sas.v1"));
+        request.verifier ??
+        (request.initiatedByMe
+          ? await (async () => {
+              // Ready first, then start. See `waitForReady`: the initiator has
+              // no other device to start *with* until the reply names one.
+              await waitForReady(request);
+              return await request.startVerification("m.sas.v1");
+            })()
+          : await waitForVerifier(request));
 
       const sas = await new Promise<ShowSasCallbacks>((resolve, reject) => {
         const existing = verifier.getShowSasCallbacks();

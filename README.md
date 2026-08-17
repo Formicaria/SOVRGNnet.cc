@@ -159,8 +159,9 @@ Three things worth knowing before relying on it:
   filenames, reactions. With contents encrypted, this is all an operator sees —
   and it's still a lot.
 - **The operator can still mint a device on your account** — Matrix passwords
-  here are derived from the app secret. It receives no keys until one of your
-  devices signs it, so the defence is real, and it ends in you reading a dialog.
+  here are derived from the app secret. That device gets the keys — refusing
+  them breaks encrypted channels for everyone, so we don't. It appears in your
+  device list as unverified, and noticing it is the entire defence.
 - **The instance's own API can't write to an encrypted channel.** It holds no
   keys, so it refuses rather than sending plaintext. That's deliberate, and it
   means bots and integrations posting through the API won't work there.

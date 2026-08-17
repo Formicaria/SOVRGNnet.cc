@@ -27,6 +27,24 @@ services:
 
   matrix:
     restart: "no"
+    ports: !override
+      # The base file binds this to 127.0.0.1 so the homeserver is reachable
+      # only from the host, and never from the LAN — exposing 8008 publicly
+      # bypasses every app-side membership check. That stays right for a real
+      # install and is deliberately relaxed here, for one reason.
+      #
+      # `MATRIX_PUBLIC_URL` is one variable read by two consumers with
+      # different views of the network: the app container, which probes it to
+      # decide `clientMatrix`, and the browser, which makes every homeserver
+      # request against it. `http://matrix:8008` satisfies the first and is
+      # unresolvable to the second; `http://127.0.0.1:8008` satisfies the
+      # second and is the container itself to the first. A host address
+      # published on all interfaces is reachable from both, which is the only
+      # value that lets the browser stage exercise the client's view at all.
+      #
+      # This is a test stack holding disposable accounts for the length of one
+      # run. It is not a pattern to copy into a deployment.
+      - "8008:8008"
     volumes:
       # Appended to the main file's mounts (compose merges volume lists).
       - ./dendrite/appservice-e2e.yaml:/etc/dendrite/appservice-e2e.yaml:ro

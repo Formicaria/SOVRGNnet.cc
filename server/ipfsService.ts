@@ -7,7 +7,10 @@ import { ENV } from "./_core/env";
  */
 
 export class IpfsError extends Error {
-  constructor(message: string, public readonly status?: number) {
+  constructor(
+    message: string,
+    public readonly status?: number
+  ) {
     super(message);
     this.name = "IpfsError";
   }
@@ -62,6 +65,36 @@ export async function catFile(cid: string): Promise<Buffer> {
     throw new IpfsError(`IPFS cat failed (${res.status})`, res.status);
   }
   return Buffer.from(await res.arrayBuffer());
+}
+
+/**
+ * Unpin a CID, so the node stops keeping it and it can be collected.
+ *
+ * Exists for one case: an encrypted upload whose key never got published. The
+ * ciphertext has to be pinned before the room event carrying its decryption
+ * key can be sent, because the CID doesn't exist until the upload finishes —
+ * so if that send fails, the node is holding bytes nobody, including the
+ * person who uploaded them, will ever be able to read. Keeping them is pure
+ * cost with no possible benefit, and leaving them quietly is how a server
+ * whose whole point is that you run it yourself fills your disk with garbage
+ * you can't identify.
+ *
+ * Best-effort by design. A CID that was never pinned, or a node that is
+ * briefly unreachable, must not turn a cleanup into an error the user sees.
+ * The boolean is for logging, not for branching on.
+ */
+export async function unpinFile(cid: string): Promise<boolean> {
+  try {
+    const res = await fetchImpl(
+      apiUrl(`/api/v0/pin/rm?arg=${encodeURIComponent(cid)}`),
+      {
+        method: "POST",
+      }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function isIpfsReachable(): Promise<boolean> {

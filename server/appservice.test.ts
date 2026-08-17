@@ -1,4 +1,6 @@
 import express from "express";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -244,5 +246,74 @@ describe("appservice transactions — ingest", () => {
     ]);
     expect(response.status).toBe(200);
     expect(ingestMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("the appservice user namespace", () => {
+  /**
+   * The registration files, read as text.
+   *
+   * Parsed with a regex rather than a YAML library because the assertion is
+   * about one line and adding a parser dependency to check it would be a
+   * bigger change than the thing being checked.
+   */
+  const files = [
+    "dendrite/appservice.yaml.template",
+    "dendrite/appservice-e2e.yaml",
+  ];
+
+  function userRegex(file: string): { pattern: string; exclusive: boolean } {
+    const text = readFileSync(join(__dirname, "..", file), "utf8");
+    const users = text.slice(text.indexOf("users:"));
+    const pattern = /regex:\s*"([^"]*)"/.exec(users)?.[1];
+    const exclusive = /exclusive:\s*(true|false)/.exec(users)?.[1] === "true";
+    if (pattern === undefined) throw new Error(`no user regex in ${file}`);
+    return { pattern, exclusive };
+  }
+
+  for (const file of files) {
+    describe(file, () => {
+      it("matches an ordinary username's Matrix ID", () => {
+        // The whole reason this test exists. Localparts are usernames now
+        // (task #31), and the namespace was "@sovrgn_.*" while they were
+        // `sovrgn_<id>`. A stale pattern here fails silently in the worst way:
+        // rooms work, messages send, and the database just stops being told
+        // about any of it — an index drifting from the homeserver it mirrors,
+        // with nothing in any log to say so.
+        const { pattern } = userRegex(file);
+        const re = new RegExp(pattern);
+        for (const mxid of [
+          "@alice:e2e.local",
+          "@alice.hart:chat.example.com",
+          "@zwright:sovrgnnet.cc",
+        ]) {
+          expect(re.test(mxid), `${pattern} must match ${mxid}`).toBe(true);
+        }
+      });
+
+      it("does not claim the namespace exclusively", () => {
+        // Load-bearing. exclusive: true on a pattern this broad would hand the
+        // appservice ownership of every user id on the homeserver and stop it
+        // letting anything else register at all.
+        expect(userRegex(file).exclusive).toBe(false);
+      });
+
+      it("still matches the legacy sovrgn_ localparts", () => {
+        // Accounts predating usernames keep their MXIDs forever, so widening
+        // the pattern must not have narrowed it anywhere.
+        expect(new RegExp(userRegex(file).pattern).test("@sovrgn_7:e2e.local")).toBe(
+          true
+        );
+      });
+    });
+  }
+
+  it("keeps both registration files in agreement", () => {
+    // The e2e file is a copy of the template with real tokens. They drift
+    // silently, and the harness is the only thing that would notice — after
+    // a full stack came up.
+    const [template, e2e] = files.map(userRegex);
+    expect(e2e.pattern).toBe(template.pattern);
+    expect(e2e.exclusive).toBe(template.exclusive);
   });
 });

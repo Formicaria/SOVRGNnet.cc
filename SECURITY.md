@@ -29,9 +29,10 @@ Three things encryption here does not do, said now rather than discovered later:
   filenames, file sizes, reactions. With contents encrypted everywhere, this is
   the whole of what an operator sees — and it is not a little.
 - **The instance can still mint a Matrix device on your account**, because
-  passwords here are derived from the app secret. It receives no room keys
-  until one of your own devices verifies it, so the defence is real — and it
-  ends with a person reading a dialog and deciding.
+  passwords here are derived from the app secret. That device **does receive
+  room keys** — withholding them from unverified devices makes encrypted
+  channels unreadable for everyone, so it was tried and reverted. It shows up
+  in your device list as unverified, and noticing it is the whole defence.
 - **Lose every device without a recovery key and the messages are gone.** The
   app asks you to set one up the first time it can, and you can decline.
 
@@ -57,7 +58,7 @@ support branches.
 | Matrix sessions | Device-scoped and named; listable and individually revocable |
 | Encrypted channels | Megolm, on by default; keys on devices, ciphertext on the instance, index stores them content-blind |
 | Attachments | AES-CTR in the browser before upload; key travels in the encrypted event, hash checked before decryption |
-| Room keys | Shared only with cross-signed devices — an unverified device receives none |
+| Device trust | Cross-signed devices inherit their owner's verification, so verifying is per-person; unverified devices are listed first and flagged |
 | Key recovery | Recovery key + server-side key backup, both encrypted to a key the instance never sees |
 | Desktop credentials | OS keychain, not browser storage |
 | Authorization | Role checked server-side on every mutation |

@@ -27,7 +27,12 @@ describe.skipIf(!process.env.DATABASE_URL)("Database Functions", () => {
   let userId: number;
 
   beforeAll(async () => {
-    const user = await db.createLocalUser(`dbtest_${Date.now()}@test.cc`, "x", "DB Test");
+    const user = await db.createLocalUser({
+      username: `dbtest${Date.now()}`,
+      passwordHash: "x",
+      email: `dbtest_${Date.now()}@test.cc`,
+      name: "DB Test",
+    });
     userId = user.id;
   });
 

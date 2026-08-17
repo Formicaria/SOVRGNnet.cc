@@ -277,21 +277,45 @@ describe("matchBrokerAccount", () => {
     ).toEqual({ action: "create" });
   });
 
-  it("links a new provider to an account on a verified address", () => {
-    // This is what makes a second provider possible, and what stops one
-    // suspension costing someone every server they belong to.
-    expect(
-      matchBrokerAccount({
-        profile: verified,
-        existingByIdentity: null,
-        existingByEmail: { id: 3 },
-      })
-    ).toEqual({ action: "link", accountId: 3 });
+  it("refuses on a matching address even when the provider verified it", () => {
+    // This used to link, on the reasoning that a verified address proves the
+    // person. It proves what the provider asserts, which is a different claim:
+    // whoever can make any configured provider emit that address inherits the
+    // account. Adding a second provider is still possible — from inside an
+    // authenticated session, where the account has already been proved.
+    const match = matchBrokerAccount({
+      profile: verified,
+      existingByIdentity: null,
+      existingByEmail: { id: 3 },
+    });
+
+    expect(match.action).toBe("refuse");
+    expect(match).toHaveProperty(
+      "message",
+      expect.stringMatching(/link this provider from your account settings/i)
+    );
+  });
+
+  it("gives the same answer whether or not the address is verified", () => {
+    // `emailVerified` decides nothing here now. If these two ever diverge, the
+    // provider's word is back to being load-bearing.
+    const forVerified = matchBrokerAccount({
+      profile: verified,
+      existingByIdentity: null,
+      existingByEmail: { id: 3 },
+    });
+    const forUnverified = matchBrokerAccount({
+      profile: unverified,
+      existingByIdentity: null,
+      existingByEmail: { id: 3 },
+    });
+
+    expect(forVerified).toEqual(forUnverified);
   });
 
   it("refuses to link on an unverified address", () => {
-    // The takeover: set an unverified email at any provider to someone else's
-    // address, and inherit their account everywhere.
+    // The original takeover: set an unverified email at any provider to
+    // someone else's address, and inherit their account everywhere.
     const match = matchBrokerAccount({
       profile: unverified,
       existingByIdentity: null,
@@ -299,7 +323,6 @@ describe("matchBrokerAccount", () => {
     });
 
     expect(match.action).toBe("refuse");
-    expect(match).toHaveProperty("message", expect.stringMatching(/confirmed/i));
   });
 
   it("creates rather than refuses when the address is new", () => {

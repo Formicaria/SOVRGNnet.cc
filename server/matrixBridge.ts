@@ -54,15 +54,19 @@ export async function createChannelRoom(
  * Bridge between SOVRGNnet users and their Matrix accounts.
  * Provisions on first use; credentials live only in our database.
  */
-export async function ensureMatrixCredentials(
-  appUserId: number
-): Promise<matrix.MatrixCredentials> {
-  const existing = await db.getMatrixCredentials(appUserId);
+export async function ensureMatrixCredentials(user: {
+  id: number;
+  username: string;
+}): Promise<matrix.MatrixCredentials> {
+  const existing = await db.getMatrixCredentials(user.id);
   if (existing) return existing;
 
   try {
-    const creds = await matrix.registerOrLogin(appUserId);
-    await db.saveMatrixCredentials(appUserId, creds.userId, creds.accessToken);
+    // Takes the account rather than an id, because provisioning now needs the
+    // username as well. An object also means a caller can't quietly transpose
+    // two arguments that are both about the same person and both typecheck.
+    const creds = await matrix.registerOrLogin(user);
+    await db.saveMatrixCredentials(user.id, creds.userId, creds.accessToken);
     return creds;
   } catch (err) {
     const message =

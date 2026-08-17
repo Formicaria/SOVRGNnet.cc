@@ -1,12 +1,25 @@
 {
   "include": ["client/src/**/*", "shared/**/*", "server/**/*", "scripts/**/*.ts"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
+  // Tests are typechecked too. They used to be excluded, and that hid two real
+  // bugs in one afternoon: `createLocalUser` and `registerOrLogin` both changed
+  // signature, five test call sites kept passing the old arguments, and nothing
+  // said so — the three files that would have failed at runtime skip themselves
+  // when there's no DATABASE_URL, so the suite stayed green while the calls were
+  // wrong. `noEmit` is set, so this only ever costs typechecking time.
+  "exclude": ["node_modules", "build", "dist"],
   "compilerOptions": {
     "incremental": true,
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
     "noEmit": true,
     "module": "ESNext",
     "strict": true,
+    // Was unset, which means ES5 — while `lib` below says esnext. That
+    // mismatch let `for (const x of aSet)` typecheck as an error requiring
+    // --downlevelIteration in the only files that do it, the tests, which were
+    // excluded and so never checked. Nothing actually transpiles to ES5:
+    // esbuild does the real build, Node is 22, and the browser targets are
+    // modern. Stating the truth removes a class of phantom error.
+    "target": "ES2022",
     "lib": ["esnext", "dom", "dom.iterable"],
     "jsx": "preserve",
     "esModuleInterop": true,

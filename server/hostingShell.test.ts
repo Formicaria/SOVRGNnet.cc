@@ -214,3 +214,68 @@ describe("what the person is told stays honest", () => {
     expect(targets).not.toContain("appimage");
   });
 });
+
+describe("each desktop host gets its own Matrix identity", () => {
+  it("never hands a hardcoded server name to Dendrite or the app", () => {
+    // Both used to read "sovrgn.host" literally, and that one shared string
+    // took two security guards down with it: instance ids are a hash of this
+    // value and identity tokens are audience-bound to the instance id, so a
+    // token for one desktop verified on all of them; and backup restore
+    // compares server names, so the check that stops a restore onto the wrong
+    // machine passed between strangers.
+    //
+    // The literal still appears in the file — in the grandfathering branch and
+    // in comments — so this asserts on the *call sites* rather than the file.
+    for (const line of supervisor.split("\n")) {
+      if (!line.includes("MATRIX_SERVER_NAME")) continue;
+      if (line.trimStart().startsWith("//") || line.trimStart().startsWith("///")) continue;
+
+      // The property is "no hardcoded name reaches a component", not "the call
+      // is inline" — one of these two sites reads a variable assigned from
+      // matrix_server_name() a few lines earlier, and demanding the call on the
+      // same line rejected correct code. So: strip the key's own name, and
+      // assert nothing quoted is left to be a value.
+      const withoutKey = line
+        .replace(/"__MATRIX_SERVER_NAME__"/g, "")
+        .replace(/"MATRIX_SERVER_NAME"/g, "");
+      expect(
+        withoutKey,
+        "a literal server name is being handed to a component — it must come from matrix_server_name()"
+      ).not.toMatch(/"[^"]+"/);
+    }
+  });
+
+  it("agrees with the frontend on the field name", () => {
+    // A serde seam. The Rust struct deserializes what the webview sends, so a
+    // rename on one side is a silently empty string on the other — and an empty
+    // proposed name is indistinguishable from "an older install" unless you
+    // already know to look.
+    expect(supervisor).toMatch(/pub matrix_server_name: String/);
+    expect(bridge).toMatch(/matrix_server_name: string/);
+    expect(bridge).toMatch(/matrix_server_name: freshServerName\(\)/);
+  });
+
+  it("proposes a well-formed hostname that isn't the shared one", () => {
+    // Matrix IDs embed the server name permanently, so a malformed one is not a
+    // bug to fix later — every ID minted under it is already wrong.
+    const suffix = /`\$\{randomHex\((\d+)\)\}\.desktop\.sovrgn\.host`/.exec(bridge);
+    expect(suffix, "freshServerName no longer builds a .desktop.sovrgn.host name").toBeTruthy();
+    // Enough randomness that two machines colliding — which would recreate the
+    // exact bug this replaced — is not something to think about.
+    expect(Number(suffix![1])).toBeGreaterThanOrEqual(8);
+  });
+
+  it("keeps the decision in Rust, next to the data directory", () => {
+    // The frontend proposes; only the supervisor can see whether this machine
+    // has hosted before, and renaming an install that already has a Dendrite
+    // database orphans every account and room in it.
+    expect(supervisor).toMatch(/matrix-server-name/);
+    const code = supervisor;
+    const readsFile = code.indexOf("read_to_string(&path)");
+    const writesFile = code.indexOf("std::fs::write(&path");
+    expect(readsFile).toBeGreaterThan(-1);
+    // Read before write: the whole correctness argument is that an existing
+    // name always wins.
+    expect(writesFile).toBeGreaterThan(readsFile);
+  });
+});

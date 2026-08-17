@@ -48,6 +48,16 @@ export interface Probes {
   version?: Probe;
   health?: Probe;
   ready?: Probe;
+  /**
+   * `GET <matrix.baseUrl>/_matrix/client/versions`, if the descriptor named a
+   * base URL.
+   *
+   * Second-hop: unlike every other probe it goes to the homeserver rather than
+   * the instance, and the caller can only build it after reading the
+   * descriptor. Optional because a caller may not be able to make it — but
+   * absent is reported as "not checked", never as "fine".
+   */
+  matrixVersions?: Probe;
 }
 
 const pass = (id: string, title: string, detail: string): CheckResult => ({
@@ -172,7 +182,7 @@ export function runConformance(probes: Probes): CheckResult[] {
 
   // -- Self-consistency -------------------------------------------------------
 
-  results.push(...checkConsistency(descriptor));
+  results.push(...checkConsistency(descriptor, probes.matrixVersions));
   results.push(checkNoLeakage(raw));
 
   return results;
@@ -350,7 +360,16 @@ function checkCors(probe: Probe): CheckResult {
  * acts on; two promises that can't both be true means the client will do
  * something wrong, and the operator will never see why.
  */
-function checkConsistency(descriptor: InstanceDescriptor): CheckResult[] {
+function checkConsistency(
+  descriptor: InstanceDescriptor,
+  /**
+   * The homeserver's own response, when the caller was able to fetch it. Every
+   * other check here reasons about the descriptor alone; this one needs a
+   * second hop, because whether an advertised address works is not something
+   * the advertisement can tell you.
+   */
+  matrixVersions?: Probe
+): CheckResult[] {
   const results: CheckResult[] = [];
   const caps = descriptor.capabilities;
 
@@ -440,6 +459,90 @@ function checkConsistency(descriptor: InstanceDescriptor): CheckResult[] {
     );
   }
 
+  /*
+   * Whether that address answers.
+   *
+   * The check above only asks whether a string is present, and for months this
+   * suite passed an instance advertising `http://matrix:8008` — a
+   * compose-internal hostname that resolves for the app container and for
+   * nothing else. Every Node-based test could be told to ignore the advertised
+   * address and used the published port instead, so nothing noticed until a
+   * browser tried it and failed every request with "Failed to fetch".
+   *
+   * An address a client cannot reach is not an address. This performs the
+   * first request a real client makes.
+   */
+  if (!caps.clientMatrix) {
+    results.push(
+      skip(
+        "matrix-reachable",
+        "The Matrix address answers",
+        "clientMatrix is false — clients are not told to sync directly."
+      )
+    );
+  } else if (!descriptor.matrix.baseUrl) {
+    results.push(
+      skip(
+        "matrix-reachable",
+        "The Matrix address answers",
+        "No address to try; see the check above."
+      )
+    );
+  } else if (!matrixVersions) {
+    // Not "pass". The distinction between "reachable" and "nobody looked" is
+    // the entire lesson of this check existing.
+    results.push(
+      warn(
+        "matrix-reachable",
+        "The Matrix address answers",
+        `Not checked — no probe of ${descriptor.matrix.baseUrl} was supplied. ` +
+          "The address is advertised but unverified."
+      )
+    );
+  } else if (matrixVersions.error) {
+    results.push(
+      fail(
+        "matrix-reachable",
+        "The Matrix address answers",
+        `${descriptor.matrix.baseUrl} is advertised to clients but could not be reached: ` +
+          `${matrixVersions.error}. A client told to sync here fails every request. ` +
+          "This is usually an address that only resolves inside the deployment."
+      )
+    );
+  } else if (!matrixVersions.ok) {
+    results.push(
+      fail(
+        "matrix-reachable",
+        "The Matrix address answers",
+        `${descriptor.matrix.baseUrl}/_matrix/client/versions returned ` +
+          `HTTP ${matrixVersions.status}. Reachable, but not answering as a homeserver.`
+      )
+    );
+  } else {
+    // A 200 from something that isn't a homeserver is still a failure: the
+    // body has to carry the one field the endpoint exists to provide.
+    const body = matrixVersions.body as { versions?: unknown } | null;
+    const versions = Array.isArray(body?.versions) ? body.versions : null;
+    if (!versions || versions.length === 0) {
+      results.push(
+        fail(
+          "matrix-reachable",
+          "The Matrix address answers",
+          `${descriptor.matrix.baseUrl} answered, but not with a Matrix version list. ` +
+            "Something is there; it is not a homeserver."
+        )
+      );
+    } else {
+      results.push(
+        pass(
+          "matrix-reachable",
+          "The Matrix address answers",
+          `${descriptor.matrix.baseUrl} — ${versions.length} spec version(s), latest ${String(versions[versions.length - 1])}`
+        )
+      );
+    }
+  }
+
   if (caps.sso && !descriptor.identityIssuer) {
     results.push(
       fail(
@@ -489,6 +592,11 @@ function checkNoLeakage(raw: Record<string, unknown>): CheckResult {
     "channels",
     "accounts",
     "emails",
+    // Usernames are the sign-in identifier and the Matrix localpart, so a
+    // public list of them is worth more to an attacker than the email list
+    // this check was originally written to catch: it is a ready-made target
+    // list for credential stuffing that also needs no guessing at MXIDs.
+    "usernames",
     "servers",
     "communities",
   ];

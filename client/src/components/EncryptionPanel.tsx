@@ -77,6 +77,10 @@ export function EncryptionPanel({
 }: Props) {
   const [verdict, setVerdict] = useState<ReadinessVerdict | null>(null);
   const [devices, setDevices] = useState<DeviceEntry[]>([]);
+  // Whether the readiness check is in flight, and why it last failed. Both
+  // exist because the panel used to have no way to say either — see `refresh`.
+  const [checking, setChecking] = useState(false);
+  const [checkFailed, setCheckFailed] = useState<string | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
@@ -94,6 +98,7 @@ export function EncryptionPanel({
       setDevices([]);
       return;
     }
+    setChecking(true);
     try {
       const [readiness, list] = await Promise.all([
         session.readiness(),
@@ -101,9 +106,27 @@ export function EncryptionPanel({
       ]);
       setVerdict(readiness.verdict);
       setDevices(list);
-    } catch {
-      // A readiness check that fails tells the user nothing they can use; the
-      // panel keeps its last state rather than flashing an error at them.
+      setCheckFailed(null);
+    } catch (err) {
+      // This used to be an empty catch, on the reasoning that a failed
+      // readiness check tells the user nothing they can use, so the panel
+      // should keep its last state instead of flashing an error.
+      //
+      // On the first open there is no last state. The panel kept nothing: a
+      // heading, a sentence about keys living on your devices, "No devices
+      // reported yet", and a Close button — no verdict, no setup button, no
+      // recovery key field, and nothing at all to say a check had been run and
+      // failed. Silently. Forever. The one screen standing between a person
+      // and losing their entire history rendered as a shrug.
+      //
+      // Saying nothing is not the gentle option here. It is the same
+      // overstatement this project keeps correcting, wearing the opposite
+      // face: a panel that shows no warnings reads as a panel with no problems
+      // to report. Found by the browser stage, which opened it and asked what
+      // it said.
+      setCheckFailed(err instanceof Error ? err.message : String(err));
+    } finally {
+      setChecking(false);
     }
   }, [session]);
 
@@ -258,6 +281,30 @@ export function EncryptionPanel({
                 Setting up now gives you a recovery key and backs up your
                 message keys, so a new device can read your history.
               </p>
+            )}
+
+            {/* No verdict means the check is still running or it failed, and
+                those are different enough to say out loud. Every control below
+                is gated on `verdict`, so without this the panel renders as an
+                empty box either way — which is how a broken readiness check
+                spent a release looking exactly like a clean bill of health. */}
+            {!verdict && (
+              <div className="rounded-md border border-amber-900 bg-amber-950/30 p-3">
+                <p className="text-sm text-slate-100">
+                  {checking
+                    ? "Checking this device's encryption…"
+                    : "Couldn't check this device's encryption."}
+                </p>
+                {!checking && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    {checkFailed ?? "The crypto session didn't answer."} Nothing
+                    here can be set up until that works, and until it does this
+                    device has no recovery key and no verified status —
+                    whatever it may have had before. Reloading is worth trying
+                    first.
+                  </p>
+                )}
+              </div>
             )}
 
             {verdict && (
