@@ -2,6 +2,30 @@
 
 ## v0.6.1 — 2026-08-17
 
+**The identity service has tests now.** It was live, holding the key that mints
+tokens for every server trusting this issuer, with nothing exercising its own
+code — `server/identity.test.ts` covers the consumer side, verification. 40
+tests across the three parts where a quiet mistake is worst.
+
+Keys: refusing to start without one rather than generating an ephemeral key
+nobody can verify against; the rotation overlap that keeps old tokens valid
+while their key is still published; and JWKS never carrying a duplicate `kid`
+or a private half. Including a test for a PEM folded onto one line with literal
+`\n`, because systemd's `EnvironmentFile` cannot hold a multi-line value and
+every systemd deployment therefore depends on that path working.
+
+Accounts: that a malformed stored hash fails the login rather than throwing —
+`timingSafeEqual` throws on a length mismatch, so the guard in front of it
+decides whether a truncated row is a rejection or a 500. And that email
+normalization does *not* strip dots or plus-addressing: those are Gmail's rules
+rather than the internet's, and folding `a.b@` into `ab@` at most providers is
+an account takeover.
+
+Rate limiting: that each endpoint keeps its own counter, that the 429 discloses
+neither the limit nor the window, and that keying on the account as well as the
+address bounds what a botnet can do to one person — the case address-only
+limiting is blind to.
+
 **Backups now run on their own, and say when they haven't left the box.**
 `scripts/backup.sh` has always worked and nothing ever called it — no cron, no
 timer, and the only archive on the production instance was sitting on the disk

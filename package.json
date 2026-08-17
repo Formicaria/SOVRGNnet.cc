@@ -11,7 +11,7 @@
     "check": "tsc --noEmit",
     "format": "prettier --write .",
     "test": "vitest run",
-    "verify": "pnpm check && pnpm test && pnpm --dir identity check && pnpm --dir desktop build",
+    "verify": "pnpm check && pnpm test && pnpm --dir identity check && pnpm --dir identity test && pnpm --dir desktop build",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "conformance": "tsx scripts/conformance.ts",
     "preflight": "./scripts/preflight.sh",

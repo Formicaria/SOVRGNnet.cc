@@ -190,6 +190,13 @@ jobs:
         working-directory: identity
         run: pnpm check
 
+      # The service holds the key that mints tokens for every server that
+      # trusts this issuer. It ran in production for a while with no tests of
+      # its own — typechecked, never exercised.
+      - name: Test
+        working-directory: identity
+        run: pnpm test
+
   # Version strings live in five files and drift silently. Cheap to check,
   # miserable to discover during a release.
   versions:
