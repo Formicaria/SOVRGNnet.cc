@@ -149,6 +149,10 @@ fi
 step "Identity provider"
 if [ -d identity/node_modules ]; then
   run_in identity "typecheck" pnpm exec tsc --noEmit
+  # Typecheck alone was all this stage did while the service was already live
+  # holding the key that mints tokens for every server trusting this issuer.
+  # It proved the types lined up and exercised nothing.
+  run_in identity "unit tests" pnpm exec vitest run
 else
   skip "identity dependencies not installed (cd identity && pnpm install)"
 fi

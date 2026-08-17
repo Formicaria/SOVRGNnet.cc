@@ -75,11 +75,20 @@ of the failures people actually keep backups for.
 that stops happening produces no error anywhere: the timer is healthy, the disk
 is fine, and the last one just keeps getting older.
 
-**`pnpm verify` runs what CI runs.** Three workspaces carry three tsconfigs
-with three ideas of strict — the root leaves `noUnusedLocals` off, `identity`
-and `desktop` turn it on — and nothing bundled the webview outside a release.
-Checking the root and calling it verified sent three separate failures to CI in
-one afternoon, each a real defect that a local run simply never looked for.
+**`pnpm preflight` runs the identity tests too.** Three workspaces carry three
+tsconfigs with three ideas of strict — the root leaves `noUnusedLocals` off,
+`identity` and `desktop` turn it on — and checking only the root sent three
+separate failures to CI in one afternoon, each a real defect a narrower local
+run never looked for.
+
+The fix was already in the repository: `scripts/preflight.sh` has covered every
+workspace for a while, in eleven stages. A `pnpm verify` script was added here
+before noticing that, which is the same mistake in a different direction — it
+duplicated preflight badly, and two commands that almost mean the same thing is
+how one of them silently stops matching CI. Removed. What preflight was
+genuinely missing is now added: stage 8 ran a typecheck against the identity
+service and nothing else, while that service was live holding the signing key
+for the whole network.
 
 **The desktop release build was the first thing to bundle the desktop.** CI's
 desktop job ran `pnpm check` — typecheck only. `shared/identity.ts` opens with
