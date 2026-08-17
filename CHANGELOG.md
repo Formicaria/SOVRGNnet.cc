@@ -2,6 +2,33 @@
 
 ## v0.6.1 — 2026-08-17
 
+**The desktop release build was the first thing to bundle the desktop.** CI's
+desktop job ran `pnpm check` — typecheck only. `shared/identity.ts` opens with
+`import { ... } from "node:crypto"`, and the shell imports one constant from
+it, which pulls the whole module into a browser bundle: Vite externalises
+node:crypto, Rollup fails on the missing `generateKeyPairSync`, and all three
+platforms died at `beforeBuildCommand` after the tag was pushed. The constants
+moved to `shared/identityOrigin.ts`, which a browser can load, and
+`shared/identity.ts` re-exports them so server callers are unchanged. CI's
+desktop job now runs `pnpm build`. That is the same lesson the `desktop-rust`
+job already existed for — "code that only compiles during a release fails
+during a release" — applied to the half of the shell that is JavaScript.
+
+**IDENTITY_ORIGIN still pointed at the marketing site.** It was honest when
+nothing was deployed and the comment said so. `id.sovrgnnet.cc` is running now,
+so it is `https://id.sovrgnnet.cc` — meaning SSO no longer defaults to fetching
+JWKS from a static page with no keys.
+
+**Four tests could only pass on a machine that had run the e2e harness.**
+`server/appservice.test.ts` read `dendrite/appservice-e2e.yaml`, which
+`scripts/e2e.sh` generates and `.gitignore` excludes because it carries real
+tokens. On any clean checkout it does not exist, so the tests threw ENOENT. The
+property they guarded — that the generated registration's user namespace
+matches the template's — is now checked from committed files: the generator is
+a `sed` over two token placeholders, so the namespace can only drift if a
+placeholder appears inside it. The direct comparison still runs for anyone who
+has the generated file.
+
 **CI caught a dependency we never declared.** `scripts/e2e-crypto.ts` imported
 `loglevel`, which arrives transitively through matrix-js-sdk. It resolved on
 the machine that wrote the code and not on a clean install, so `tsc --noEmit`

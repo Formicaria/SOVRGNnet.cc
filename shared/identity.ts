@@ -38,40 +38,20 @@ import {
  */
 
 /**
- * Where the identity service lives.
+ * The origin and the issuer now live in `./identityOrigin`, and are re-exported
+ * here so existing server-side imports keep working.
  *
- * **Not deployed yet.** `sovrgnnet.cc` currently serves the marketing site, so
- * this origin answers no API and publishes no JWKS. This constant does not
- * pretend otherwise — the code that consumes it is written to degrade and say
- * so, rather than to fail with a raw HTTP status.
+ * They moved because this module starts with `import { ... } from "node:crypto"`.
+ * The desktop shell wants one constant from it; importing that constant pulled
+ * the whole module into a browser bundle, where Vite externalises node:crypto
+ * and Rollup then fails on the missing `generateKeyPairSync`. The desktop build
+ * broke on all three platforms during a release — and only during a release,
+ * because CI typechecked the desktop without ever bundling it.
  *
- * That was the bug it caused. The desktop POSTed to `/api/device/code` here, a
- * static host answered `405 Method Not Allowed`, and the sign-in screen showed
- * "Couldn't start sign-in (405)". Every instance enabling SSO without setting
- * `IDENTITY_ISSUER` had the same problem one level down: JWKS fetched from a
- * static site, no keys, nothing verifiable.
- *
- * `identity/DEPLOY.md` describes `id.sovrgnnet.cc`. When the service is really
- * running, this is the single line to change — the consumers below read it
- * instead of repeating the string, and a test fails if anyone writes the
- * literal again.
- *
- * Overridable where it matters: instances set `IDENTITY_ISSUER`, the desktop
- * reads `VITE_IDENTITY_URL` at build time. The identity service is supposed to
- * be optional infrastructure (ADR 0003); one hardcoded origin with no way past
- * it would contradict what the architecture claims about itself.
+ * A constant a browser needs should not be sat next to a private-key API.
  */
-export const IDENTITY_ORIGIN = "https://sovrgnnet.cc";
-
-/**
- * The `iss` every token carries, and the value verifiers compare against.
- *
- * The same string as the origin today. They are two names because they are two
- * ideas — "where the service is" versus "what it calls itself in a claim" — and
- * a deployment that moves the service without invalidating tokens already in
- * flight needs to be able to separate them.
- */
-export const TOKEN_ISSUER = IDENTITY_ORIGIN;
+export { IDENTITY_ORIGIN, TOKEN_ISSUER } from "./identityOrigin";
+import { IDENTITY_ORIGIN, TOKEN_ISSUER } from "./identityOrigin";
 /** Deliberately short. These are bearer tokens; they get exchanged for a session. */
 export const TOKEN_TTL_SECONDS = 300;
 /** Tolerance for clock drift between the provider and a self-hosted server. */

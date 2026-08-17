@@ -121,9 +121,17 @@ jobs:
         working-directory: desktop
         run: pnpm install --no-frozen-lockfile
 
-      - name: Typecheck
+      # `build`, not `check`. Typechecking the desktop proves the types line up;
+      # it does not prove the webview bundles. v0.6.1 shipped a shared module
+      # that imports node:crypto, which typechecks perfectly and cannot be
+      # rolled up for a browser — so the first thing to notice was the release
+      # build, on all three platforms, after the tag was already pushed.
+      #
+      # Same lesson the desktop-rust job below was created for, applied to the
+      # half of the shell that is JavaScript.
+      - name: Typecheck and bundle
         working-directory: desktop
-        run: pnpm check
+        run: pnpm build
 
   # The shell's Rust, checked on push rather than discovered on tag day.
   #

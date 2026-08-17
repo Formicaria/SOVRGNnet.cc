@@ -121,8 +121,10 @@ describe("the identity origin is written once", () => {
       ...sourceFiles("shared"),
       ...sourceFiles("desktop/src"),
     ]) {
-      // shared/identity.ts is where the constant lives.
-      if (file.endsWith(join("shared", "identity.ts"))) continue;
+      // shared/identityOrigin.ts is where the constant lives. It moved out of
+      // shared/identity.ts because that module imports node:crypto, and the
+      // desktop pulling one constant from it broke the browser bundle.
+      if (file.endsWith(join("shared", "identityOrigin.ts"))) continue;
       const text = readFileSync(join(ROOT, file), "utf8");
       for (const [index, line] of text.split("\n").entries()) {
         const code = line.split("//")[0];

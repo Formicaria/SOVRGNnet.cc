@@ -1,4 +1,4 @@
-import { IDENTITY_ORIGIN } from "@shared/identity";
+import { IDENTITY_ORIGIN } from "@shared/identityOrigin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ConnectionManager,
