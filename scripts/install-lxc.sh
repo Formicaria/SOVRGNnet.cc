@@ -298,6 +298,26 @@ else
   ok "Dendrite already installed"
 fi
 
+# Conduit-era installs still have a conduit.service, and ADR 0006 gave Dendrite
+# the same port. Nothing here ever retired the old unit, so on those machines
+# Conduit keeps 6167, Dendrite dies with "bind: address already in use" every
+# five seconds forever, and systemd reports it as `activating` rather than
+# `failed` because Restart=always never lets it settle.
+#
+# The homeserver appears to work throughout — because it is working. It is just
+# the wrong one, running the wrong server name, and no longer the one this
+# install is configuring.
+if [ -f /etc/systemd/system/conduit.service ] || \
+   systemctl list-unit-files conduit.service >/dev/null 2>&1; then
+  step "Retiring Conduit"
+  systemctl disable --now conduit >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/conduit.service
+  systemctl daemon-reload
+  # Its data is left in place. Deleting somebody's only copy of their history
+  # during an upgrade is not a decision an installer gets to make.
+  ok "Conduit stopped and disabled (its data left alone)"
+fi
+
 install -d -m 0755 /etc/dendrite
 install -d -o dendrite -g dendrite -m 0700 "$DENDRITE_DATA"
 install -d -o dendrite -g dendrite -m 0700 "$DENDRITE_DATA/media"

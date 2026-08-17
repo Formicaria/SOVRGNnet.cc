@@ -19,16 +19,31 @@
  *   - the Rust crypto stack starts and produces device keys
  *   - a message sent into an encrypted room leaves as `m.room.encrypted`
  *   - the instance's index records it content-blind, holding no plaintext
- *   - a second device receives the room key and decrypts it
+ *   - another user's device receives the room key and decrypts it
+ *   - cross-signing, secret storage and key backup can be set up
+ *   - two devices on one account complete an emoji verification
+ *   - a device that never existed when a message was sent can read it
+ *     afterwards, holding nothing but the recovery key
  *   - an attachment survives encrypt → upload → download → decrypt
  *   - tampering with stored bytes is refused rather than rendered
  *
- * What it does not prove: SAS verification and key backup, both of which need
- * two live sessions performing an interactive exchange, and neither of which
- * fits in a script that has to finish. Named here rather than implied.
+ * SAS and key backup were previously described here as needing "an interactive
+ * exchange a script can't drive". That was wrong: interactive describes the
+ * dialog, not the protocol. Both sides of a verification are ordinary API
+ * calls, and comparing the emoji is a string comparison — so they are driven
+ * here rather than left to a browser.
+ *
+ * What it still does not prove is the **browser runtime**: this runs the same
+ * module under Node, so the IndexedDB crypto store, the WASM as bundled by
+ * Vite, and the panel wiring are all untouched. That needs a browser, and has
+ * its own test.
  */
 
-import { startCryptoSession, type CryptoSession } from "@/lib/matrixCrypto";
+import {
+  startCryptoSession,
+  type CryptoSession,
+  type VerificationRequest,
+} from "@/lib/matrixCrypto";
 import { decryptAttachment, encryptAttachment } from "@shared/attachments";
 
 const BASE = process.env.E2E_BASE ?? "http://localhost:3999";
@@ -53,6 +68,14 @@ const detail = (message: string) => console.log(`    ${DIM}${message}${RESET}`);
 class CryptoCheckError extends Error {}
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new CryptoCheckError(message);
+}
+
+function assertEqual<T>(actual: T, expected: T, message: string): void {
+  if (actual !== expected) {
+    throw new CryptoCheckError(
+      `${message}\n      expected: ${String(expected)}\n      actual:   ${String(actual)}`
+    );
+  }
 }
 
 /** Poll until a predicate holds, because crypto is asynchronous everywhere. */
@@ -164,13 +187,25 @@ interface Credentials {
  * homeserver is the published port. The harness knows the topology, so the
  * advertised URL is overridden rather than trusted.
  */
-async function session(
-  caller: Caller,
-  label: string,
-  onChange: () => void = () => {}
-): Promise<{ session: CryptoSession; credentials: Credentials }> {
+interface Device {
+  session: CryptoSession;
+  credentials: Credentials;
+  /** Resolves with the first verification request another device sends here. */
+  incomingVerification: Promise<VerificationRequest>;
+}
+
+async function session(caller: Caller, label: string): Promise<Device> {
+  // No deviceId is passed, so the instance mints a fresh one. That is what
+  // makes a second call a separate *device* on the same account rather than a
+  // second session on the same device — which is the whole point for
+  // self-verification and for restoring from backup.
   const credentials = await caller.call<Credentials>("matrix.clientSession", {
     displayName: `e2e crypto ${label}`,
+  });
+
+  let resolveIncoming: (request: VerificationRequest) => void = () => {};
+  const incomingVerification = new Promise<VerificationRequest>(resolve => {
+    resolveIncoming = resolve;
   });
 
   const started = await startCryptoSession({
@@ -183,19 +218,46 @@ async function session(
         session: uiaSession,
       });
     },
-    onChange,
-    onVerificationRequest: () => {},
+    onChange: () => {},
+    onVerificationRequest: resolveIncoming,
     onTimelineEvent: () => {},
     // No IndexedDB in Node. The only line of this that differs from the browser.
     persistCryptoStore: false,
   });
 
-  return { session: started, credentials };
+  return { session: started, credentials, incomingVerification };
 }
 
 // ------------------------------------------------------------------- checks
 
+/**
+ * Turn the SDK's logging down to warnings.
+ *
+ * matrix-js-sdk logs every request, every key rotation and every one-time-key
+ * count at debug level, and the Rust layer adds its own. On a passing run that
+ * is a thousand lines burying eleven ticks, which makes the stage useless to
+ * read and therefore useless to trust. Warnings and errors still come through,
+ * which is what would matter on a failing run.
+ *
+ * `E2E_CRYPTO_VERBOSE=1` puts it all back for when something is actually
+ * wrong — the log was genuinely how the withheld-keys failure got diagnosed.
+ */
+async function quietTheSdk(): Promise<void> {
+  if (process.env.E2E_CRYPTO_VERBOSE === "1") return;
+
+  const loglevel = (await import("loglevel")).default;
+  // The SDK explicitly sets each of its loggers to DEBUG as it creates them,
+  // so a default level won't do — every one that exists has to be turned down,
+  // and any created later is caught by the default.
+  loglevel.setDefaultLevel("warn");
+  for (const named of Object.values(loglevel.getLoggers())) {
+    named.setLevel("warn", false);
+  }
+  loglevel.setLevel("warn", false);
+}
+
 async function main(): Promise<void> {
+  await quietTheSdk();
   console.log("\n  Crypto (real Olm/Megolm, real homeserver)");
 
   const state = STATE_FILE
@@ -253,6 +315,26 @@ async function main(): Promise<void> {
   );
   ok("Both devices joined and synced the encrypted room");
 
+  // -- setting encryption up -------------------------------------------------
+  //
+  // Cross-signing, secret storage and a server-side key backup, through the
+  // same call the encryption panel makes. ADR 0008 said `e2ee` doesn't flip
+  // until recovery works; this is the first time any of it has run.
+  const { recoveryKey } = await alice.session.bootstrapEncryption();
+  assert(
+    recoveryKey.replace(/\s/g, "").length >= 44,
+    `that doesn't look like a recovery key: ${recoveryKey}`
+  );
+  ok("Cross-signing, secret storage and key backup set up");
+
+  const ready = await until(
+    "key backup to come on",
+    () => alice.session.readiness(),
+    state => state.keyBackupEnabled && state.crossSigningReady
+  );
+  assert(ready.deviceVerified, "the setting-up device should verify itself");
+  ok("This device reports itself cross-signed, with backup running");
+
   const secret = `ciphertext round trip ${Date.now()}`;
   const eventId = await alice.session.send(room, secret);
   ok("Message sent through the shipped send path");
@@ -298,6 +380,148 @@ async function main(): Promise<void> {
     `decrypted to the wrong thing: ${JSON.stringify(decrypted!.body)}`
   );
   ok("A second device received the room key and decrypted it");
+
+  // -- emoji verification, driven from both ends -----------------------------
+  //
+  // "Interactive" describes the dialog, not the protocol. Both sides get the
+  // same `SasPrompt` the UI renders, the emoji are compared here instead of by
+  // a person, and both confirm. What this proves is the part the threat model
+  // leans on: that a second device on the same account can actually be
+  // verified, so the device list is a thing somebody can act on rather than
+  // just read.
+  const aliceSecond = await session(owner, "alice-second");
+  ok("A second device for the same account started");
+
+  // Wait for the first device to actually see the second one.
+  //
+  // Not padding. The rust machine ignores a verification request from a device
+  // it has no keys for, and says so only in a log line — so firing the request
+  // the instant the device exists produces a silent drop, which is what the
+  // first run of this check found. A person hits the same window: they sign in
+  // on a new device and the old one hasn't synced the device-list change yet.
+  //
+  // Waiting here models the human delay. `requestOwnVerification` also
+  // publishes this device first, which narrows the window from the other side.
+  await until(
+    "the first device to see the second",
+    () => alice.session.listDevices(),
+    devices =>
+      devices.some(d => d.deviceId === aliceSecond.credentials.deviceId)
+  );
+  ok("The first device can see the second in its device list");
+
+  const outgoing = await aliceSecond.session.requestOwnVerification();
+  const incoming = await Promise.race([
+    alice.incomingVerification,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new CryptoCheckError("the first device never saw the request")
+          ),
+        20_000
+      )
+    ),
+  ]);
+  ok("The request reached the other device");
+
+  // Both sides at once, which is the arrangement that used to glare: two
+  // parties each calling startVerification produce two verifiers and a stall.
+  const [promptA, promptB] = await Promise.all([
+    alice.session.sasFor(incoming),
+    aliceSecond.session.sasFor(outgoing),
+  ]);
+
+  assert(promptA.emoji.length > 0, "no emoji were produced");
+  assertEqual(
+    promptA.emoji.map(([glyph]) => glyph).join(" "),
+    promptB.emoji.map(([glyph]) => glyph).join(" "),
+    "the two devices are showing different emoji"
+  );
+  detail(promptA.emoji.map(([glyph, name]) => `${glyph} ${name}`).join("  "));
+  ok(
+    `Both devices show the same ${promptA.emoji.length} emoji, in the same order`
+  );
+
+  await Promise.all([promptA.confirm(), promptB.confirm()]);
+
+  const verified = await until(
+    "the second device to be marked verified",
+    () => aliceSecond.session.listDevices(),
+    devices => devices.some(d => d.isOwnDevice && d.verified)
+  );
+  assert(
+    verified.find(d => d.isOwnDevice)?.verified,
+    "the device verified itself with emoji and still reports unverified"
+  );
+  ok("The second device is now verified, on both sides of the exchange");
+
+  // -- recovery on a device that didn't exist yet ----------------------------
+  //
+  // The "lost my laptop" path, and the one ADR 0008 made a precondition for
+  // flipping `e2ee`. A brand-new device, no shared crypto store, holding
+  // nothing but the recovery key — it should end up able to read a message
+  // sent before it existed.
+  // Wait for the key to actually be *in* the backup before asking for it.
+  //
+  // Uploading to key backup is a background loop, not part of sending. The
+  // first run of this check restored "0 of 0 keys" and then sat for twenty
+  // seconds waiting to decrypt; the PUT that put the key in the backup landed
+  // afterwards. Nothing was broken — the harness was simply asking before
+  // there was an answer.
+  //
+  // So this is a check in its own right, not a sleep: it asserts the room key
+  // reaches the server-side backup at all, which is the thing recovery depends
+  // on and which nothing else here proves. It also names the real limitation —
+  // a device that signs in during that window recovers nothing, and the only
+  // remedy is to try again once the sending device has caught up.
+  // Generous, because the delay is deliberate and larger than it looks. The
+  // SDK's backup loop sleeps a *random* 0–10s before each pass, to stop every
+  // client in a room stampeding the server when a key rotates. And
+  // `maybeUploadKey` is a no-op while a pass is already in flight, so a key
+  // created just after one starts waits for the pass after that. Two jitters
+  // plus round trips overruns 20s often enough to have done it on the first
+  // run here.
+  await until(
+    "the room key to reach the server-side backup",
+    () => alice.session.backedUpKeyCount(),
+    count => count > 0,
+    { tries: 90, waitMs: 1000 }
+  );
+  ok("The room key reached the server-side backup");
+
+  const charlie = await session(owner, "charlie-recovered");
+  const beforeRecovery = charlie.session.lookup(eventId);
+  assert(
+    beforeRecovery?.verdict.state !== "decrypted",
+    "a fresh device could read the history before restoring anything"
+  );
+  ok("A fresh device can't read the earlier message, as expected");
+
+  const restored = await charlie.session.recoverWithKey(recoveryKey);
+  // Asserted rather than reported. "Restored 0 of 0" is a pass-shaped line for
+  // a total failure, and left alone it turns into a twenty-second timeout on
+  // the next step that says nothing about why.
+  assert(
+    restored.imported > 0,
+    `the backup gave back nothing (${restored.imported} of ${restored.total}) — the key never reached it, or this device can't read it`
+  );
+  ok(`Restored ${restored.imported} of ${restored.total} keys from backup`);
+
+  const recovered = await until(
+    "the restored device to decrypt the earlier message",
+    () => charlie.session.lookup(eventId),
+    found => found?.verdict.state === "decrypted" && found.body.length > 0
+  );
+  assertEqual(
+    recovered!.body,
+    secret,
+    "the restored device decrypted to the wrong thing"
+  );
+  ok("The recovery key alone recovered history the device never received");
+
+  await charlie.session.stop();
+  await aliceSecond.session.stop();
 
   // -- attachments -----------------------------------------------------------
   const payload = Buffer.from(`attachment bytes ${Date.now()}\n`.repeat(64));
@@ -382,7 +606,16 @@ async function main(): Promise<void> {
  * preflight rather than fail it, and a check that can hang is a check people
  * stop running. Two minutes is far beyond a passing run.
  */
-const WATCHDOG_MS = 120_000;
+/**
+ * Raised from 120s once key backup joined the run.
+ *
+ * The backup upload loop jitters 0–10s per pass by design, and the recovery
+ * check has to wait for a real one — so the floor for this stage moved by tens
+ * of seconds through no fault of the code under test. The watchdog exists to
+ * stop a hang from wedging CI forever, not to enforce a budget, so it should
+ * sit well clear of the slowest honest run.
+ */
+const WATCHDOG_MS = 240_000;
 const watchdog = setTimeout(() => {
   console.error(
     `\n  ${RED}✗ crypto checks exceeded ${WATCHDOG_MS / 1000}s and were stopped.` +

@@ -140,3 +140,14 @@ dendrite/fed-*/
 # never committed. The README stays so the directory exists for dev builds.
 desktop/src-tauri/host/*
 !desktop/src-tauri/host/README
+
+# Local operational runbooks — deployment specifics for machines we actually
+# run belong on the machines, not in a public repository. The code that gets
+# deployed is here; the record of where and with what hostnames is not.
+*-INSTALL.md
+identity/INSTALL.md
+
+# Playwright run output. Regenerated on every run, meaningless in a diff, and
+# on a failing run it contains screenshots of a real session.
+/test-results/
+/playwright-report/

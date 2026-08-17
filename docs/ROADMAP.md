@@ -116,11 +116,13 @@ Done: the token format, signing, and verification in `shared/identity.ts` — sh
 
 Also done: the server side. `JwksCache` fetches signing keys and — the property the whole design exists for — **keeps serving cached keys when the provider is unreachable**, indefinitely, rather than failing closed. Failing closed would mean one failed HTTP request logging out a network of unrelated servers; a signature check against a key that rotated last week is a much smaller problem. An unfamiliar key id triggers one refresh and retry, so ordinary rotation needs no operator. 23 tests, including the outage path and both halves of rotation.
 
-`auth.ssoLogin` verifies, then links. The linking rule is the subtle part and has its own tested function: matching an SSO identity to an existing local account **by email is an account takeover** unless the provider verified the address — otherwise anyone could register at sovrgnnet.cc with your email and inherit your account on every server you belong to. An unverified email refuses and asks the person to sign in locally first. The join policy applies to SSO exactly as to local sign-up, so a closed server stays closed regardless of where an identity came from.
+`auth.ssoLogin` verifies, then matches **by subject alone**. The linking rule is the subtle part and has its own tested function: matching an SSO identity to an existing local account **by email is an account takeover**, because it puts the account behind whatever the provider asserts. A verified address is no better — verified means the provider believes it. So an email collision refuses and asks the person to sign in with their password and link deliberately from their profile (`auth.linkSso`), which requires holding both the account and a valid token at once. A provider identity nobody has seen before creates a new account, and stops to ask for a username first, because that name becomes a permanent Matrix ID. The join policy applies to SSO exactly as to local sign-up, so a closed server stays closed regardless of where an identity came from.
+
+Usernames can be changed, and the change is smaller than it looks. Matrix fixes a localpart at registration — the protocol has no rename — so `auth.changeUsername` moves what this instance calls you and leaves the Matrix ID exactly where it was. `@alice:example.org` stays `@alice:example.org` no matter what the profile says, and every message already sent keeps that attribution on servers we do not run. [ADR 0012](adr/0012-username-rename.md) records why the alternative was rejected: registering a fresh Matrix account on rename would cost every room membership, silently drop moderators' power levels, and make encrypted history unreadable without a manual key export — and the old ID would *still* be on every past message, so it pays the whole price and doesn't deliver the thing people rename for. `renameConsequences()` returns that disclosure as data, the server hands it to the confirmation dialog, and a test asserts the Matrix address is named in it. The same change fixed a latent bug three call sites deep: device login, UIA and device deletion all re-derived the localpart from the current username, which was correct only for as long as usernames couldn't change.
 
 The service is built: accounts, sessions, the token endpoint, JWKS, grants a person can see and revoke, and recovery. It runs on its own machine — deliberately not co-located with a server, since identity going down with somebody's instance would be the worst of both arrangements — and is documented in [identity/DEPLOY.md](../identity/DEPLOY.md).
 
-**It runs without email**, which is a chosen configuration rather than a missing feature, and makes two things permanently true: no address is verified, so servers never auto-link an identity to an existing local account; and recovery codes are the only way back. Both are stated at startup, at signup, and in the reset endpoint, which returns "this service doesn't send email" rather than the much crueller "check your inbox." Codes can be regenerated with the current password, and their count is queryable so a client can nag before it matters.
+**It runs without email**, which is a chosen configuration rather than a missing feature, and makes two things permanently true: no address is verified — though that no longer changes anything, since servers never auto-link by email in either case; and recovery codes are the only way back. Both are stated at startup, at signup, and in the reset endpoint, which returns "this service doesn't send email" rather than the much crueller "check your inbox." Codes can be regenerated with the current password, and their count is queryable so a client can nag before it matters.
 
 The hand-off is built and is the part worth reviewing. A server sends someone to `/authorize?return=<its own callback>` — and, deliberately, **does not say which server the token is for.** The provider fetches `/api/instance` from the return origin and uses the id that origin reports. Taking the audience as a parameter would let anyone request a token for someone else's server and have it delivered to a URL they control; a token names one server, but that is exactly enough to sign in as that person there. Deriving it means obtaining a token for a server requires already controlling that server. 20 tests cover it, including `javascript:` and `file:` schemes, plain http on the public internet, and destinations that aren't SOVRGNnet servers.
 
@@ -340,8 +342,49 @@ don't operate.
 
 ## Later
 
-Voice (MatrixRTC signalling with a LiveKit SFU — needs a TURN relay for hostile
-NAT, a real ongoing bandwidth cost to decide on deliberately). Screen sharing.
+Voice, which is a bigger architectural decision than a feature list suggests,
+so the constraint is written down here rather than discovered later.
+
+**The Cloudflare Tunnel cannot carry it.** The tunnel is HTTP-oriented and has
+no public UDP support, and WebRTC media is UDP. Everything else in this project
+reaches the internet through that tunnel, which is what lets an instance run
+behind a home router with nothing forwarded — a property `identity/DEPLOY.md`
+states outright as "no VPN, no static IP, no port forwarding anywhere in the
+design." Voice is the first thing that does not fit through it, and shipping
+self-hosted voice makes that sentence false. It would need correcting in the
+same commit, not afterwards.
+
+Three ways out, none free:
+
+- **A managed SFU/TURN (Cloudflare Realtime or equivalent).** No ports opened,
+  no new machine, and it fits the topology already in place — the account and
+  the zone are the same ones the tunnel uses. TURN is bundled free with the
+  SFU, and egress is metered per GB after a sizeable free tier, so the ongoing
+  cost is real but starts near zero.
+
+  The cost that is not measured in dollars: call audio flows through a third
+  party. Media is DTLS-SRTP encrypted hop-by-hop and can be end-to-end
+  encrypted above that, so this is not a plaintext exposure — but it does put
+  a vendor in the path of conversations on a project whose entire claim is that
+  nobody is. Worth being precise rather than pious about it: Cloudflare already
+  terminates TLS for every instance via the tunnel, so this is a smaller step
+  than it first sounds. If this is the choice, the capability disclosure says
+  so plainly rather than reporting `voice: true` and leaving people to guess
+  where their audio goes.
+- **Self-hosted LiveKit plus coturn.** Sovereign, and the honest fit for the
+  rest of the design. Costs a real machine, real inbound UDP port forwarding,
+  and ongoing relay bandwidth that someone pays for whenever NAT is hostile.
+- **TURN over TCP/443 only.** Traverses nearly everything, needs no UDP, and
+  degrades badly under packet loss because TCP retransmits audio nobody will
+  ever hear in time. A fallback, not a plan.
+
+`voice: false` in the capability protocol is accurate today, and
+`explainMissing` already tells someone on an instance without it why the button
+is absent rather than hiding it. That stays true until an SFU actually exists;
+flipping the flag on signalling alone would be the exact overstatement this
+project exists to avoid.
+
+Screen sharing.
 Plugins and integrations. Optional wallet linking and ENS display names. The
 soundboard. The scaffold's speculative NFT-subscription tables are gone
 (migration 0007) — they carried a third party's product name, and nothing

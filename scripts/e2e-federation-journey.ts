@@ -296,8 +296,10 @@ async function setupA(): Promise<void> {
 
   const alice = new Session("alice@A", BASE_A);
   const aliceEmail = `alice-${stamp}@fed.local`;
+  const aliceUsername = `alice${stamp}`;
 
   const registered = await alice.mutate<{ id: number; role?: string }>("auth.register", {
+    username: aliceUsername,
     email: aliceEmail,
     password,
     name: "Alice",
@@ -344,7 +346,7 @@ async function setupA(): Promise<void> {
     password,
     aliceEmail,
     aliceId: registered.id,
-    aliceMatrixId: `@sovrgn_${registered.id}:${NAME_A}`,
+    aliceMatrixId: `@${aliceUsername}:${NAME_A}`,
     aliceMatrixToken: minted.accessToken,
     serverIdA: created.server.id,
     channelIdA: channel.id,
@@ -359,8 +361,10 @@ async function joinB(): Promise<void> {
   const state = readState();
   const bob = new Session("bob@B", BASE_B);
   const bobEmail = `bob-${stamp}@fed.local`;
+  const bobUsername = `bob${stamp}`;
 
   const registered = await bob.mutate<{ id: number; role?: string }>("auth.register", {
+    username: bobUsername,
     email: bobEmail,
     password,
     name: "Bob",
@@ -378,7 +382,7 @@ async function joinB(): Promise<void> {
   await awaitCapabilities(BASE_B, "B");
 
   const minted = await mintMatrixSession(bob, "federation harness (B)");
-  const bobMatrixId = `@sovrgn_${registered.id}:${NAME_B}`;
+  const bobMatrixId = `@${bobUsername}:${NAME_B}`;
   ok(`Device-scoped Matrix session minted for ${bobMatrixId}`);
 
   // The invite crosses first: A's homeserver must deliver it to B's. Channel

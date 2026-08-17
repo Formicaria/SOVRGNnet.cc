@@ -38,15 +38,28 @@ sender_localpart: sovrgnnet_service
 # The instance is not a rate-limited guest of its own homeserver.
 rate_limited: false
 
-# Empty claims: this appservice exists to receive events, not to own user ids,
-# aliases, or rooms. The homeserver pushes events for rooms its sender or
-# namespaced users are in — the service user is invited to nothing, so what
-# actually drives delivery is the registration's presence plus Dendrite
-# pushing all local events to interested appservices with empty namespaces
-# marked exclusive=false.
+# This appservice exists to receive events, not to own user ids, aliases, or
+# rooms — hence exclusive: false everywhere. It claims no name; it only asks to
+# be told about things.
+#
+# The user regex is what drives delivery. A homeserver pushes a room's events to
+# an appservice when that appservice's sender is a member, or when a user
+# matching one of its namespaces is. The service user is invited to nothing, so
+# the namespace is doing all of the work.
+#
+# It was "@sovrgn_.*" while every account's localpart was `sovrgn_<id>`. Once
+# localparts became usernames (task #31) that pattern stopped matching anyone,
+# and the effect would have been silent: rooms still work, messages still send,
+# and the database simply stops being told about any of it — an index that
+# quietly drifts from the homeserver it is supposed to mirror.
+#
+# ".*" matches every local user, which is the honest expression of what an
+# ingest appservice wants. exclusive: false is load-bearing: exclusive: true on
+# this pattern would hand the appservice ownership of the entire user namespace
+# and stop the homeserver letting anyone else register at all.
 namespaces:
   users:
     - exclusive: false
-      regex: "@sovrgn_.*"
+      regex: ".*"
   aliases: []
   rooms: []

@@ -271,7 +271,7 @@ write_env() {
 
   # Keep secrets across re-runs — regenerating them would orphan every
   # existing account and lock people out of the database.
-  local jwt db_pass matrix_token
+  local jwt db_pass matrix_token setup_token
   jwt="$(env_get JWT_SECRET)";                 [ -z "$jwt" ]          && jwt="$(secret)"
   db_pass="$(env_get DB_PASSWORD)";            [ -z "$db_pass" ]      && db_pass="$(secret)"
   # Read the old name too, so upgrading from a Conduit-era install keeps
@@ -279,6 +279,11 @@ write_env() {
   matrix_token="$(env_get MATRIX_SHARED_SECRET)"
   [ -z "$matrix_token" ] && matrix_token="$(env_get MATRIX_REGISTRATION_TOKEN)"
   [ -z "$matrix_token" ] && matrix_token="$(secret)"
+  # Gates the very first account, which becomes the administrator. Kept across
+  # re-runs, because an operator who hasn't registered yet still needs the one
+  # that was printed the first time.
+  setup_token="$(env_get SOVRGN_SETUP_TOKEN)"
+  [ -z "$setup_token" ] && setup_token="$(secret)"
 
   if [ -f "$ENV_FILE" ]; then
     cp "$ENV_FILE" "$ENV_FILE.backup.$(date +%Y%m%d%H%M%S)"
@@ -297,6 +302,10 @@ DB_PASSWORD=$db_pass
 # Lets the app create Matrix accounts. Public registration on the homeserver
 # is disabled entirely, so this is the only way accounts come into existence.
 MATRIX_SHARED_SECRET=$matrix_token
+# Required to create the FIRST account, which becomes the administrator.
+# Without it, whoever reaches a freshly deployed instance first takes it.
+# Stops being needed once that account exists.
+SOVRGN_SETUP_TOKEN=$setup_token
 
 # --- your instance ---
 # The Matrix domain baked into every user and room ID. Changing this after
@@ -442,7 +451,15 @@ finish() {
     printf '  Open   %s%s%s\n' "$BOLD" "$url" "$RESET"
   fi
 
+  # Printed rather than left in the file for them to find, because this is the
+  # one thing they need in the next sixty seconds — and because an instance
+  # that's reachable before its owner has registered is one a stranger can
+  # claim. The setup code is what stops that.
   printf '\n  %sThe first account you create becomes the admin.%s\n' "$DIM" "$RESET"
+  printf '  %sIt needs this setup code:%s  %s%s%s\n' \
+    "$DIM" "$RESET" "$BOLD" "$(env_get SOVRGN_SETUP_TOKEN)" "$RESET"
+  printf '  %sNobody else can create that first account without it. It stops%s\n' "$DIM" "$RESET"
+  printf '  %smattering once you have signed up; it stays in .env if you lose it.%s\n' "$DIM" "$RESET"
 
   case "$ACCESS_MODE" in
     local)
