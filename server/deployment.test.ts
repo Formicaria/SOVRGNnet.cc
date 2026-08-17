@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -239,5 +239,67 @@ describe("scheduled backups", () => {
     // alert, just an archive that keeps getting older.
     expect(CONTROL).toContain("backup_line");
     expect(CONTROL).toMatch(/never taken/);
+  });
+});
+
+describe("matrix delegation on the apex", () => {
+  const README = readFileSync(join(ROOT, "site/.well-known/README.md"), "utf8");
+  const CHECK = readFileSync(join(ROOT, "scripts/check-site.sh"), "utf8");
+  const BUMP = readFileSync(join(ROOT, "scripts/bump-version.sh"), "utf8");
+
+  const clientDelegation = join(ROOT, "site/.well-known/matrix/client");
+  const serverDelegation = join(ROOT, "site/.well-known/matrix/server");
+
+  it("always serves client delegation", () => {
+    // True regardless of federation: a Matrix client resolving @you:sovrgnnet.cc
+    // needs to be told which homeserver to log in to. Removing this breaks
+    // every third-party client without breaking anything visible in the app.
+    expect(existsSync(clientDelegation)).toBe(true);
+    const doc = JSON.parse(readFileSync(clientDelegation, "utf8")) as {
+      "m.homeserver": { base_url: string };
+    };
+    expect(doc["m.homeserver"].base_url).toMatch(/^https:\/\//);
+  });
+
+  it("documents that this file, not the app's route, is the live delegation", () => {
+    // server/instanceRoutes.ts gates its own /.well-known/matrix/server on
+    // MATRIX_ALLOW_FEDERATION, for a good reason written next to it. That gate
+    // is bypassed whenever the server name and the app's hostname differ,
+    // because delegation is always fetched from the server name — so on this
+    // deployment the switch guards a route nobody asks.
+    //
+    // The gate is not wrong; it is the live delegation for an ordinary
+    // single-hostname install. It just is not in the path here, and that is
+    // the sort of thing that has to be written down or rediscovered.
+    expect(README).toMatch(/app.*(own copy|has its own)/i);
+    expect(README).toMatch(/MATRIX_ALLOW_FEDERATION/);
+  });
+
+  it("does not advertise federation the homeserver refuses", () => {
+    // The static file cannot read the instance's config, so its presence is a
+    // standing claim that federation is on. While it is off, following that
+    // claim gets a remote server told exactly where to go and then refused.
+    //
+    // If federation is enabled, this test is what should change — restore the
+    // file and update the README, together.
+    if (existsSync(serverDelegation)) {
+      expect(
+        README,
+        "matrix/server is present, so the README must stop describing it as absent"
+      ).not.toMatch(/Absent on purpose/);
+    }
+  });
+
+  it("check-site.sh looks at both", () => {
+    expect(CHECK).toContain(".well-known/matrix/client");
+    expect(CHECK).toContain(".well-known/matrix/server");
+  });
+
+  it("bumping the version updates the site too", () => {
+    // v0.6.1 shipped with a site advertising v0.6.0 and download links
+    // pointing at assets that do not exist under that tag. check-versions.sh
+    // watches six manifests and the site is not one of them, because it is
+    // HTML — which is exactly how it drifted.
+    expect(BUMP).toMatch(/site --include=\*\.html/);
   });
 });

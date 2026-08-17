@@ -65,6 +65,20 @@ Cloudflare creates the DNS records automatically. TLS terminates at Cloudflare's
 
 So `@user:sovrgnnet.cc` resolves while Dendrite lives on a subdomain, the apex must serve two well-known files. These ship as static files in `site/.well-known/matrix/` and deploy automatically with the Pages site:
 
+These two files are the *only* delegation for this domain. The app serves its
+own copy of both and gates the federation one on `MATRIX_ALLOW_FEDERATION` —
+but delegation is always fetched from the server name, and `sovrgnnet.cc` is
+the static site, so nothing ever reaches the app's route. Its switch has no
+effect on what other servers see. On a single-hostname install, where the
+server name *is* the app's hostname, the opposite is true and the app's gate is
+the live one.
+
+`matrix/server` is currently absent, deliberately: Dendrite runs with
+federation off, and a delegation pointing at a homeserver that refuses
+federated traffic sends other servers to an address that will turn them away.
+`site/.well-known/README.md` has the file to restore and the check to run when
+federation is switched on.
+
 `https://sovrgnnet.cc/.well-known/matrix/server`
 ```json
 { "m.server": "matrix.sovrgnnet.cc:443" }

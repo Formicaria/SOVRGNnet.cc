@@ -102,6 +102,20 @@ rewrite shared/const.ts '/^export const APP_VERSION = "[^"]*";$/m' \
   "export const APP_VERSION = \\\"$NEXT\\\";"
 
 printf '\n'
+# The static site names the version too, in prose and in download URLs. It is
+# not in check-versions.sh's list of six because it is HTML rather than a
+# manifest — which is exactly why it drifted: v0.6.1 shipped with a site still
+# advertising v0.6.0 and download links pointing at release assets that do not
+# exist under that tag. scripts/check-site.sh catches it after the fact; this
+# stops it happening.
+if [ -d site ]; then
+  PREVIOUS_TAG="v$CURRENT"
+  grep -rl "$PREVIOUS_TAG\|SOVRGNnet_${CURRENT}_" site --include=*.html 2>/dev/null | while read -r page; do
+    sed -i "s|$PREVIOUS_TAG|v$NEXT|g; s|SOVRGNnet_${CURRENT}_|SOVRGNnet_${NEXT}_|g" "$page"
+    printf '  %ssite/%s%s\n' "$DIM" "${page#site/}" "$RESET"
+  done
+fi
+
 ./scripts/check-versions.sh
 
 cat <<EOF

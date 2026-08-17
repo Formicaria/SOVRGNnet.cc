@@ -177,6 +177,33 @@ done
 # ------------------------------------------------------------------ verdict
 
 printf '\n'
+# ------------------------------------------------------- matrix delegation
+
+# These two files are the live delegation for every MXID ending in this
+# domain, and they are the only one — the app serves its own copy on a
+# different hostname that nothing ever asks. See site/.well-known/README.md.
+
+if [ ! -f .well-known/matrix/client ]; then
+  printf '  %s✗%s .well-known/matrix/client is missing\n' "$RED" "$RESET"
+  printf '    %sWithout it a Matrix client cannot find the homeserver for this domain.%s\n' "$DIM" "$RESET"
+  PROBLEMS=$((PROBLEMS + 1))
+else
+  printf '  %s✓%s matrix/client delegation present\n' "$GREEN" "$RESET"
+fi
+
+# matrix/server is federation, and its presence is a claim about a setting
+# that lives on the instance rather than in this repository. Nothing here can
+# read MATRIX_ALLOW_FEDERATION, so this cannot be an error either way — but it
+# can refuse to let the file be silent about what it commits you to.
+if [ -f .well-known/matrix/server ]; then
+  printf '  %s!%s matrix/server present — this advertises federation\n' "$YELLOW" "$RESET"
+  printf '    %sOnly correct if MATRIX_ALLOW_FEDERATION=true on the instance. Check:%s\n' "$DIM" "$RESET"
+  printf '    %scurl -s https://matrix.sovrgnnet.cc/_matrix/key/v2/server%s\n' "$DIM" "$RESET"
+  printf '    %sM_UNRECOGNIZED there means federation is off and this file is lying.%s\n' "$DIM" "$RESET"
+else
+  printf '  %s✓%s matrix/server absent — not advertising federation\n' "$GREEN" "$RESET"
+fi
+
 if [ "$PROBLEMS" -gt 0 ]; then
   printf '%s%s%d problem(s).%s' "$BOLD" "$RED" "$PROBLEMS" "$RESET"
   [ "$WARNINGS" -gt 0 ] && printf ' %s%d warning(s).%s' "$DIM" "$WARNINGS" "$RESET"

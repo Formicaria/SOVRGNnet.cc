@@ -200,6 +200,17 @@ export function registerInstanceRoutes(app: Express): void {
     // Gated on federation actually being on. Advertising a federation
     // endpoint while refusing federated traffic invites other servers to try
     // and then fail, which is worse than saying nothing.
+    //
+    // Worth knowing where this gate does and does not apply. Delegation is
+    // always fetched from the *server name* — the part after the colon in an
+    // MXID. Where that is the hostname this app answers on, which is the
+    // ordinary single-hostname install, this is the live delegation and the
+    // gate does its job.
+    //
+    // Where the two differ, it is bypassed entirely: sovrgnnet.cc resolves to
+    // a static site, so nothing ever asks this route and the switch below has
+    // no effect on what the world sees. See site/.well-known/README.md, which
+    // is the delegation that deployment actually serves.
     const document = serverDelegation(
       process.env.MATRIX_PUBLIC_URL ?? null,
       process.env.MATRIX_ALLOW_FEDERATION === "true"
