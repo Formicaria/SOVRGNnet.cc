@@ -29,6 +29,63 @@ the verifier states explicitly rather than letting you discover later.
 in plaintext. Archives are written `0600`; the tooling does not encrypt them,
 which is a known gap. If one leaves your control, encrypt it first.
 
+## Running them automatically
+
+`install-lxc.sh` installs `sovrgnnet-backup.timer`, which runs nightly at
+03:20 and does four things in an order that matters:
+
+1. Takes the backup.
+2. Verifies it — a truncated archive, an unreadable schema, or a server name
+   that will not match on restore all fail here.
+3. Copies it to `SOVRGN_BACKUP_DEST` over `scp`.
+4. Prunes down to `SOVRGN_BACKUP_KEEP` archives (default 7).
+
+Pruning is last on purpose. Pruning first means a run that fails to produce a
+good archive has already deleted the ones that were good, and the backup system
+becomes the thing that loses the data.
+
+```bash
+systemctl list-timers sovrgnnet-backup
+journalctl -u sovrgnnet-backup -n 40
+```
+
+### Set a destination
+
+```
+SOVRGN_BACKUP_DEST=user@nas:/volume1/backups/sovrgnnet
+SOVRGN_BACKUP_KEEP=7
+```
+
+Needs key-based SSH from the instance to that host; the job runs `scp -B` and
+will never prompt. Without a destination the timer still runs and still says,
+every night, that the archive did not leave the machine — and `sovrgnnet
+status` shows `local only`.
+
+That warning is not pedantry. An archive on the disk it is protecting survives
+someone deleting the wrong channel. It does not survive the disk, the machine,
+the container, ransomware, or the filesystem. Those are the reasons people have
+backups.
+
+### What verification does and does not prove
+
+`verify-backup.sh` answers one question: if I restore this onto this machine, do
+I get a working instance? It reads the manifest, the schema version and the
+server name.
+
+It does not read the messages. A backup is only really tested by restoring it
+somewhere, and that is worth doing by hand every so often — onto a throwaway
+container, not onto anything you would mind breaking.
+
+Encrypted archives are skipped, because `verify-backup.sh` cannot decrypt them.
+The job says so rather than reporting a check it did not perform.
+
+## Watching that it kept happening
+
+`sovrgnnet status` prints the age of the newest archive. This exists because a
+backup that stops running generates no error of any kind: the timer is healthy,
+the disk is fine, and the last archive simply keeps getting older. Nothing tells
+you. The only way to notice is to be shown the date, somewhere you already look.
+
 ## The one rule about moving machines
 
 **`MATRIX_SERVER_NAME` must be the same on the new machine.**

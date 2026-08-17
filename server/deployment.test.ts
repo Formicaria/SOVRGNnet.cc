@@ -195,3 +195,49 @@ describe("the Conduit-to-Dendrite migration finishes", () => {
     expect(DENDRITE).toMatch(/jetstream:\s*\n\s*storage_path:\s*\/var\/lib\/dendrite/);
   });
 });
+
+describe("scheduled backups", () => {
+  const SCHEDULED = readFileSync(join(ROOT, "scripts/backup-scheduled.sh"), "utf8");
+  const INSTALLER = readFileSync(join(ROOT, "scripts/install-lxc.sh"), "utf8");
+  const CONTROL = readFileSync(join(ROOT, "sovrgnnet"), "utf8");
+
+  it("prunes only after the copy, never before", () => {
+    // Order is the whole design. Pruning first means a run that fails to
+    // produce a good archive has already deleted the ones that were good —
+    // the backup system becoming the thing that loses the data.
+    const copyAt = SCHEDULED.indexOf("SOVRGN_BACKUP_DEST");
+    const pruneAt = SCHEDULED.indexOf("rm -f \"$old\"");
+    expect(copyAt).toBeGreaterThan(-1);
+    expect(pruneAt).toBeGreaterThan(copyAt);
+  });
+
+  it("fails loudly rather than returning zero on a bad archive", () => {
+    // systemd only surfaces a unit that exits non-zero. A backup job that
+    // swallows its errors is worse than no backup job, because it also
+    // produces the reassuring absence of alerts.
+    expect(SCHEDULED).toMatch(/verify-backup\.sh[^\n]*\n\s*\|\| die/);
+    expect(SCHEDULED).toMatch(/die\(\)\s*\{[^}]*exit 1/);
+  });
+
+  it("does not silently accept having nowhere to send the archive", () => {
+    // Not fatal — refusing to back up because there is no offsite target
+    // would be worse. But it says so on every run, and `sovrgnnet status`
+    // shows it too, because a warning in a journal is not a warning.
+    expect(SCHEDULED).toMatch(/WARNING: SOVRGN_BACKUP_DEST is unset/);
+    expect(CONTROL).toMatch(/local only — set SOVRGN_BACKUP_DEST/);
+  });
+
+  it("installs a timer that catches up after downtime", () => {
+    // Persistent=true. Without it a machine that was off at 03:20 skips the
+    // day entirely and nothing anywhere records that it did.
+    expect(INSTALLER).toContain("sovrgnnet-backup.timer");
+    expect(INSTALLER).toMatch(/Persistent=true/);
+  });
+
+  it("reports the age of the last backup in status", () => {
+    // The failure this guards is a backup that stopped running: no error, no
+    // alert, just an archive that keeps getting older.
+    expect(CONTROL).toContain("backup_line");
+    expect(CONTROL).toMatch(/never taken/);
+  });
+});

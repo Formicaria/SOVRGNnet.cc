@@ -125,6 +125,40 @@ app_answering() {
   curl -fsS -o /dev/null http://127.0.0.1:3000 2>/dev/null
 }
 
+# How long since the last backup, and did it leave the machine?
+#
+# In `status` because that is where someone looks when they are worried, and
+# because a backup that stopped running produces no error anywhere — the timer
+# is fine, the disk is fine, and the last archive just keeps getting older. The
+# only way to notice is to be told the age.
+backup_line() {
+  local newest age days dest
+  newest="$(ls -1t "$REPO_DIR"/backups/sovrgnnet_backup_*.tar.gz* 2>/dev/null | head -1 || true)"
+
+  if [ -z "$newest" ]; then
+    printf '  %s✗%s %-18s %s\n' "$RED" "$RESET" "backup" "never taken"
+    hint "sovrgnnet backup"
+    return
+  fi
+
+  age=$(( $(date +%s) - $(stat -c %Y "$newest" 2>/dev/null || echo 0) ))
+  days=$(( age / 86400 ))
+
+  if [ "$days" -le 1 ]; then
+    printf '  %s✓%s %-18s %s\n' "$GREEN" "$RESET" "backup" "$(basename "$newest")"
+  else
+    printf '  %s✗%s %-18s %s\n' "$RED" "$RESET" "backup" "${days} days old"
+    hint "Is sovrgnnet-backup.timer running? systemctl list-timers sovrgnnet-backup"
+  fi
+
+  dest="$(read_env SOVRGN_BACKUP_DEST)"
+  if [ -z "$dest" ]; then
+    # Not an error, and not a pass either. A copy on the disk it protects
+    # survives a mistake and nothing else.
+    printf '  %s!%s %-18s %s\n' "$YELLOW" "$RESET" "" "local only — set SOVRGN_BACKUP_DEST"
+  fi
+}
+
 # shellcheck disable=SC2086
 case "${1:-help}" in
   start)
@@ -174,6 +208,8 @@ case "${1:-help}" in
     else
       $DC $PROFILES ps
     fi
+    printf '\n'
+    backup_line
     printf '\n'
     if app_answering; then
       ok "The app is answering."

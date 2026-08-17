@@ -2,6 +2,24 @@
 
 ## v0.6.1 — 2026-08-17
 
+**Backups now run on their own, and say when they haven't left the box.**
+`scripts/backup.sh` has always worked and nothing ever called it — no cron, no
+timer, and the only archive on the production instance was sitting on the disk
+it was protecting. `install-lxc.sh` installs `sovrgnnet-backup.timer`: take,
+verify, copy to `SOVRGN_BACKUP_DEST`, prune to `SOVRGN_BACKUP_KEEP`. Pruning is
+last so that a bad run cannot delete good history and replace it with nothing,
+and the job exits non-zero on a failed verification so systemd records it
+instead of the failure landing in a log nobody opens.
+
+With no destination set it still runs, and still says every night that the
+archive never left the machine — `sovrgnnet status` shows `local only` too. A
+copy on the disk it protects survives someone deleting the wrong thing and none
+of the failures people actually keep backups for.
+
+`sovrgnnet status` also prints the age of the newest archive, because a backup
+that stops happening produces no error anywhere: the timer is healthy, the disk
+is fine, and the last one just keeps getting older.
+
 **`pnpm verify` runs what CI runs.** Three workspaces carry three tsconfigs
 with three ideas of strict — the root leaves `noUnusedLocals` off, `identity`
 and `desktop` turn it on — and nothing bundled the webview outside a release.
