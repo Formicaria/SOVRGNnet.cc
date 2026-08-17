@@ -1,24 +1,35 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
+import type { inferRouterOutputs } from "@trpc/server";
+import type { AppRouter } from "../../../server/routers";
 import { trpc } from "@/lib/trpc";
 
-type AuthUser = {
-  id: number;
-  openId: string;
-  name: string | null;
-  email: string | null;
-  role: "user" | "admin";
-} | null;
+/**
+ * The signed-in account — taken from what `auth.me` actually returns.
+ *
+ * Inferred rather than declared. This was a hand-written mirror of the server
+ * shape, and it drifted the moment #29 added `username`: the field the entire
+ * identity model now turns on was invisible to every component, while the type
+ * still advertised `openId`, which no client code has ever read. Nothing broke
+ * loudly — the mirror was internally consistent, it was just describing an
+ * older server. Inferring it makes the compiler report that at the call site.
+ */
+type AuthUser = inferRouterOutputs<AppRouter>["auth"]["me"];
 
 interface AuthContextType {
   user: AuthUser;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** `identifier` is a username or an email address; the caller needn't know. */
+  login: (identifier: string, password: string) => Promise<void>;
   register: (
-    email: string,
+    username: string,
     password: string,
+    /** Optional: an account is its username, not its email address. */
+    email?: string,
     name?: string,
-    inviteCode?: string
+    inviteCode?: string,
+    /** Only the first account on an instance needs this. */
+    setupToken?: string
   ) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -36,28 +47,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const registerMutation = trpc.auth.register.useMutation();
   const logoutMutation = trpc.auth.logout.useMutation();
 
-  const login = async (email: string, password: string) => {
-    const user = await loginMutation.mutateAsync({ email, password });
+  /**
+   * Sign in with whichever the person typed.
+   *
+   * One field on the form, two on the wire: an entry containing `@` is sent as
+   * an email and anything else as a username. The server accepts either and
+   * gives the same answer when it fails, so guessing wrong here costs a failed
+   * attempt and nothing else. `@` is a safe discriminator because usernames
+   * cannot contain one.
+   */
+  const login = async (identifier: string, password: string) => {
+    const trimmed = identifier.trim();
+    const user = await loginMutation.mutateAsync(
+      trimmed.includes("@")
+        ? { email: trimmed, password }
+        : { username: trimmed, password }
+    );
     utils.auth.me.setData(undefined, user);
   };
 
   const register = async (
-    email: string,
+    username: string,
     password: string,
+    email?: string,
     name?: string,
-    inviteCode?: string
+    inviteCode?: string,
+    setupToken?: string
   ) => {
     // An invite-only instance needs the code at registration, not just at the
     // point of joining a server. A code typed into the form wins; otherwise
     // the one an invite link stashed before sending the visitor to sign up.
     const code =
-      inviteCode?.trim() || sessionStorage.getItem("pending_invite") || undefined;
+      inviteCode?.trim() ||
+      sessionStorage.getItem("pending_invite") ||
+      undefined;
 
     const user = await registerMutation.mutateAsync({
-      email,
+      username: username.trim(),
       password,
+      // Omitted rather than sent empty: the column is nullable and "" would
+      // be stored as an address nobody has, which the unique index then
+      // treats as a collision for the second person who skips it.
+      email: email?.trim() || undefined,
       name,
       inviteCode: code,
+      // Only the very first account is asked for this, and the server ignores
+      // it afterwards. Sent as undefined rather than "" so an empty field
+      // doesn't read as an attempt.
+      setupToken: setupToken?.trim() || undefined,
     });
     utils.auth.me.setData(undefined, user);
   };

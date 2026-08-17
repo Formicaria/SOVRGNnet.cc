@@ -64,6 +64,13 @@
       "when": 1786912381289,
       "tag": "0008_solid_exiles",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786964320965,
+      "tag": "0009_big_blizzard",
+      "breakpoints": true
     }
   ]
 }
