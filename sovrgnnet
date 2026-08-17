@@ -48,7 +48,14 @@ ACCESS_MODE="$(read_env SOVRGNNET_ACCESS_MODE)"
 DOMAIN="$(read_env DOMAIN)"
 
 # Native services, in dependency order.
-NATIVE_UNITS="postgresql conduit ipfs sovrgnnet"
+#
+# `dendrite`, not `conduit`. ADR 0006 replaced the homeserver and
+# install-lxc.sh has written a dendrite.service ever since; this list did not
+# follow. The consequence was not a cosmetic wrong label in `status` — because
+# this script runs under `set -e`, `systemctl start postgresql conduit ...`
+# aborted on the missing unit, so `sovrgnnet start` never reached ipfs or the
+# app itself. A native install could only be started by hand.
+NATIVE_UNITS="postgresql dendrite ipfs sovrgnnet"
 [ -f /etc/systemd/system/sovrgnnet-tunnel.service ] && \
   NATIVE_UNITS="$NATIVE_UNITS sovrgnnet-tunnel"
 
@@ -207,16 +214,117 @@ case "${1:-help}" in
 
   update)
     need_root "$@"
-    printf '  Fetching the latest version...\n'
-    git -C "$REPO_DIR" pull --ff-only || fail "Couldn't update. Try: git -C $REPO_DIR status"
-    if [ "$RUNTIME" = "native" ]; then
-      ( cd "$REPO_DIR" && pnpm install --frozen-lockfile --silent && pnpm build >/dev/null )
-      chown -R sovrgnnet:sovrgnnet "$REPO_DIR/dist"
-      systemctl restart sovrgnnet
+
+    FORCE=0; ASSUME_YES=0
+    for arg in "${@:2}"; do
+      case "$arg" in
+        -f|--force) FORCE=1 ;;
+        -y|--yes)   ASSUME_YES=1 ;;
+        *) fail "Unknown option $arg. Usage: sovrgnnet update [--force] [--yes]" ;;
+      esac
+    done
+
+    if [ "$FORCE" -eq 1 ]; then
+      # An ordinary update refuses to touch a repository with local edits, and
+      # that is the right default — silently discarding someone's change is
+      # worse than stopping. --force is the escape hatch for the case where you
+      # know the local state is disposable and you want the remote's version.
+      #
+      # It also re-pulls images. A plain `up -d --build` reuses whatever is
+      # already in the local image cache, so a version tag that was rebuilt
+      # upstream (an Alpine base-layer CVE fix, say) never arrives. That is
+      # invisible: everything reports the same version and runs older bytes.
+      BRANCH="$(git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD)"
+      git -C "$REPO_DIR" fetch --quiet origin
+
+      printf '\n  %sForce update%s — this discards local changes.\n\n' "$BOLD" "$RESET"
+      printf '  Branch:  %s\n' "$BRANCH"
+      printf '  Moving:  %s -> %s\n' \
+        "$(git -C "$REPO_DIR" rev-parse --short HEAD)" \
+        "$(git -C "$REPO_DIR" rev-parse --short "origin/$BRANCH")"
+
+      DIRTY="$(git -C "$REPO_DIR" status --porcelain)"
+      if [ -n "$DIRTY" ]; then
+        printf '\n  %sThese tracked files will be reset:%s\n' "$YELLOW" "$RESET"
+        printf '%s\n' "$DIRTY" | sed 's/^/    /'
+      fi
+
+      # Untracked files are left alone, on purpose. `git clean` is the reflex
+      # here and it would delete .env — the database password, the JWT secret,
+      # the Matrix shared secret. There is no version of "force update" that
+      # should destroy the instance's identity, so the option isn't offered.
+      hint ""
+      hint "Untracked files (including .env) are left alone."
+
+      if [ "$ASSUME_YES" -ne 1 ]; then
+        printf '\n  Type %syes%s to continue: ' "$BOLD" "$RESET"
+        read -r reply
+        [ "$reply" = "yes" ] || fail "Stopped. Nothing changed."
+      fi
+
+      printf '\n  Backing up first...\n'
+      # The way back. If this fails the force update does not happen — the
+      # whole point of the confirmation above is that you can undo the result.
+      "$REPO_DIR/scripts/backup.sh" >/dev/null \
+        || fail "Backup failed, so the update stopped. Fix that first: sovrgnnet backup"
+      ok "Backup taken"
+
+      git -C "$REPO_DIR" reset --hard "origin/$BRANCH" --quiet
+      ok "Reset to origin/$BRANCH"
+
+      if [ "$RUNTIME" = "native" ]; then
+        rm -rf "$REPO_DIR/node_modules" "$REPO_DIR/dist"
+        ( cd "$REPO_DIR" && pnpm install --frozen-lockfile --silent && pnpm build >/dev/null )
+        chown -R sovrgnnet:sovrgnnet "$REPO_DIR/dist"
+        systemctl restart sovrgnnet
+
+        # Refresh cloudflared too. install-lxc.sh fetches it only when the
+        # binary is absent, so on a native install it is downloaded once, at
+        # install time, and never again — no pin to bump, no package manager
+        # to notice, nothing that reports it as stale. A box installed a year
+        # ago is running a year-old build of the one process here with an
+        # unsolicited path to the internet.
+        if [ -x /usr/local/bin/cloudflared ]; then
+          case "$(uname -m)" in
+            x86_64)  CF_ARCH="amd64" ;;
+            aarch64) CF_ARCH="arm64" ;;
+            *)       CF_ARCH="" ;;
+          esac
+          if [ -n "$CF_ARCH" ] && curl -fsSL -o /tmp/cloudflared.new \
+              "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"; then
+            # Replace only after the download succeeded, so a network failure
+            # leaves a working tunnel rather than a truncated binary.
+            chmod +x /tmp/cloudflared.new
+            mv /tmp/cloudflared.new /usr/local/bin/cloudflared
+            systemctl restart sovrgnnet-tunnel 2>/dev/null || true
+            ok "cloudflared refreshed ($(/usr/local/bin/cloudflared --version 2>/dev/null | head -1))"
+          else
+            rm -f /tmp/cloudflared.new
+            warn "Couldn't refresh cloudflared — left the working one in place."
+          fi
+        fi
+      else
+        $DC $PROFILES pull
+        $DC $PROFILES build --pull --no-cache
+        $DC $PROFILES up -d --force-recreate
+      fi
+      ok "Force updated and restarted. (Database changes applied automatically.)"
+      hint "If this went badly: sovrgnnet restore"
     else
-      $DC $PROFILES up -d --build
+      printf '  Fetching the latest version...\n'
+      git -C "$REPO_DIR" pull --ff-only \
+        || fail "Couldn't update — the repository has local changes or has diverged.
+  Look:  git -C $REPO_DIR status
+  Or discard them and take the remote's version:  sovrgnnet update --force"
+      if [ "$RUNTIME" = "native" ]; then
+        ( cd "$REPO_DIR" && pnpm install --frozen-lockfile --silent && pnpm build >/dev/null )
+        chown -R sovrgnnet:sovrgnnet "$REPO_DIR/dist"
+        systemctl restart sovrgnnet
+      else
+        $DC $PROFILES up -d --build
+      fi
+      ok "Updated and restarted. (Database changes applied automatically.)"
     fi
-    ok "Updated and restarted. (Database changes applied automatically.)"
     ;;
 
   *)
@@ -231,6 +339,8 @@ case "${1:-help}" in
     printf '    %ssovrgnnet verify%s     check a backup without restoring it\n' "$BOLD" "$RESET"
     printf '    %ssovrgnnet restore%s    put a backup back\n' "$BOLD" "$RESET"
     printf '    %ssovrgnnet update%s     get the latest version\n' "$BOLD" "$RESET"
+    printf '    %ssovrgnnet update --force%s\n' "$BOLD" "$RESET"
+    printf '      %sdiscard local changes, re-pull images, rebuild from scratch%s\n' "$DIM" "$RESET"
     printf '\n'
     ;;
 esac

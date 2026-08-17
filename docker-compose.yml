@@ -26,13 +26,18 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://sovrgn:${DB_PASSWORD}@db:5432/sovrgnnet
       JWT_SECRET: ${JWT_SECRET}
+      # Gates the very first account, which becomes the administrator. Without
+      # it reaching the container the instance refuses to create that account
+      # at all — which is the intended fail-closed behaviour, and confusing if
+      # you've set it in .env and forgotten to pass it through.
+      SOVRGN_SETUP_TOKEN: ${SOVRGN_SETUP_TOKEN}
       VITE_APP_TITLE: ${VITE_APP_TITLE:-SOVRGNnet}
       VITE_APP_LOGO: ${VITE_APP_LOGO}
       VITE_ANALYTICS_ENDPOINT: ${VITE_ANALYTICS_ENDPOINT}
       VITE_ANALYTICS_WEBSITE_ID: ${VITE_ANALYTICS_WEBSITE_ID}
       MATRIX_HOMESERVER_URL: ${MATRIX_HOMESERVER_URL:-http://matrix:8008}
       # Must match CONDUIT_SERVER_NAME below — it becomes the domain in
-      # Matrix user IDs (@sovrgn_1:example.com) and the `via` on space links.
+      # Matrix user IDs (@alice:example.com) and the `via` on space links.
       MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-matrix.local}
       # Shared secret that lets the app — and only the app — create Matrix
       # accounts. Public registration on the homeserver is disabled outright.
@@ -167,7 +172,7 @@ services:
   # Cloudflare Tunnel — outbound-only ingress, no forwarded ports.
   # Runs only when started with: docker compose --profile tunnel up -d
   cloudflared:
-    image: cloudflare/cloudflared:2024.12.2
+    image: cloudflare/cloudflared:2026.8.2
     container_name: sovrgnnet-tunnel
     restart: unless-stopped
     profiles: ["tunnel"]
@@ -183,7 +188,7 @@ services:
   # restart, which is exactly the tradeoff for needing nothing at all.
   # Runs only when started with: docker compose --profile quick up -d
   cloudflared-quick:
-    image: cloudflare/cloudflared:2024.12.2
+    image: cloudflare/cloudflared:2026.8.2
     container_name: sovrgnnet-quicktunnel
     restart: unless-stopped
     profiles: ["quick"]

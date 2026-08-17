@@ -98,16 +98,58 @@ ENV_FILE="$(mktemp -t sovrgnnet-e2e-env.XXXXXX)"
 
 secret() { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 
+# The first account needs this, and only the first. Exported so the journey
+# can present it — a real operator reads it out of their own .env.
+SETUP_TOKEN="$(secret)"
+export E2E_SETUP_TOKEN="$SETUP_TOKEN"
+
+# An address for the homeserver that resolves the same from two places: inside
+# the app container, which probes it to decide `clientMatrix`, and in a browser
+# on this machine, which sends every homeserver request to it. `matrix` only
+# works in the first, `127.0.0.1` only in the second. The host's own address on
+# the docker bridge is the one both can reach, which is why the e2e override
+# publishes 8008 on all interfaces.
+#
+# Falls back to the loopback address, which keeps every stage but the browser
+# one working — a machine with no route out should still be able to run the
+# harness, and should fail on the check that genuinely needs the network
+# rather than at startup.
+# Read the token after `src` rather than a fixed column: `ip route get` prints
+# "1.1.1.1 via GW dev IF src ADDR" when there's a gateway and "1.1.1.1 dev IF
+# src ADDR" when the route is direct, so any hardcoded field number is right
+# on one kind of network and silently wrong on the other.
+HOST_ADDR="$(ip route get 1.1.1.1 2>/dev/null |
+  awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}')"
+[ -n "${HOST_ADDR:-}" ] || HOST_ADDR=127.0.0.1
+
 cat > "$ENV_FILE" <<EOF
 DB_PASSWORD=$(secret)
 JWT_SECRET=$(secret)
 MATRIX_SHARED_SECRET=$(secret)
+SOVRGN_SETUP_TOKEN=$SETUP_TOKEN
 MATRIX_SERVER_NAME=e2e.local
 MATRIX_HOMESERVER_URL=http://matrix:8008
-# Advertised to clients; true inside the compose network, which is where the
-# app's own reachability probe runs. The journey on the host talks to the
-# published 127.0.0.1:8008 instead and knows the difference.
-MATRIX_PUBLIC_URL=http://matrix:8008
+# Advertised to clients, and therefore an address a client can actually reach.
+#
+# This was http://matrix:8008 for a long time, with a note that the journey
+# "knows the difference" and used the published port instead. True, and that
+# is what hid the defect: every client the harness ran was a Node script that
+# could be told to ignore the advertised address. A browser cannot. Handed the
+# compose-internal hostname it failed every homeserver request with "Failed to
+# fetch" — the client crypto stack dead on arrival, on a stack reporting green
+# everywhere else, because nothing had ever looked from a browser.
+#
+# 127.0.0.1 is not the answer either: clientMatrix is directSync().available,
+# a probe made from inside the app container, where 127.0.0.1 is the container.
+# Hence the host address, reachable from both.
+#
+# No backticks in this heredoc. It is unquoted so that \$HOST_ADDR and the
+# secrets expand, which also means a backtick is command substitution, not
+# punctuation. Naming those two identifiers the way the rest of the codebase
+# does made bash try to run clientMatrix, print two errors at the top of every
+# run, and drop the words between the backticks out of the generated file. The
+# harness went green while its own first three lines were a stack trace.
+MATRIX_PUBLIC_URL=http://$HOST_ADDR:8008
 IPFS_API_URL=http://ipfs:5001
 INSTANCE_NAME=E2E instance
 # Invite-only is the default a real install gets, so it's what should be
@@ -123,7 +165,34 @@ cleanup() {
   local code=$?
   if [ "$KEEP" -eq 1 ] && [ "$code" -eq 0 ]; then
     printf '\n%sLeft running at %s%s\n' "$DIM" "$BASE" "$RESET"
-    printf '%sTear down with: %s -p %s down -v%s\n\n' "$DIM" "$DC" "$PROJECT" "$RESET"
+    # The browser tests need a live stack and an account on it, and both are
+    # thrown away on a normal run. Printed here so the documented workflow is
+    # copy-pasteable rather than a treasure hunt through a deleted temp file.
+    #
+    # Credentials, not the setup token. By the time this runs the journey has
+    # claimed the first account, so the token is spent and the sign-up form
+    # this instance offers asks for an invite code instead — a browser test
+    # handed the token would be trying to fill a field that isn't there. The
+    # journey's own state file has an account that certainly works, and it is
+    # deleted two lines below, so read it while it still exists.
+    local state="$WORK_DIR/journey-state.json"
+    local username password
+    # The username, not the email. Email is optional since #29, so quoting it
+    # here produced instructions that only worked because the journey happens
+    # to give its accounts an address. The sign-in field takes either.
+    username="$(sed -n 's/.*"ownerUsername": *"\([^"]*\)".*/\1/p' "$state" 2>/dev/null)"
+    password="$(sed -n 's/.*"password": *"\([^"]*\)".*/\1/p' "$state" 2>/dev/null)"
+    printf '\n%sBrowser tests against this stack:%s\n' "$DIM" "$RESET"
+    if [ -n "$username" ] && [ -n "$password" ]; then
+      printf '  E2E_BASE=%s \\\n' "$BASE"
+      printf '  E2E_USERNAME=%s \\\n' "$username"
+      printf '  E2E_PASSWORD=%s \\\n' "$password"
+      printf '    pnpm test:browser\n'
+    else
+      printf '  %sunavailable — the journey left no account behind%s\n' \
+        "$DIM" "$RESET"
+    fi
+    printf '\n%sTear down with: %s -p %s down -v%s\n\n' "$DIM" "$DC" "$PROJECT" "$RESET"
   else
     printf '\n%sTearing down...%s\n' "$DIM" "$RESET"
     # Belt and braces: never let this line run against anything else.
@@ -232,13 +301,71 @@ info "Postgres, Dendrite, Kubo, and the app. First run builds the image."
 # Start clean so a previous failed run can't make this one pass.
 compose down -v --remove-orphans >/dev/null 2>&1 || true
 
+# ...and check that it worked, rather than assuming.
+#
+# Every run generates new secrets, so a Postgres volume that outlives one run
+# is always fatal to the next: the cluster inside it was initialised with the
+# old DB_PASSWORD, `POSTGRES_PASSWORD` is only read when the data directory is
+# empty, and the app then fails authentication against its own database.
+#
+# `down -v` normally prevents that, but it is not sufficient on its own. It
+# only removes volumes declared in the compose files it is given, and it can
+# lose the race when a run is interrupted: Ctrl-C signals the whole foreground
+# process group, so the EXIT trap's teardown and a still-running `up` overlap,
+# and the volume can be recreated behind the teardown that just removed it.
+#
+# What that looked like was three minutes of waiting followed by "the stack
+# never became ready" and a buried `password authentication failed for user
+# "sovrgn"` — a legible message about the wrong layer, describing a state the
+# harness created for itself one run earlier.
+#
+# Asking Docker directly is authoritative and costs one command.
+stale_volumes="$(docker volume ls -q \
+  --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null || true)"
+if [ -n "$stale_volumes" ]; then
+  info "Removing volumes left by an earlier run"
+  printf '%s\n' "$stale_volumes" | xargs -r docker volume rm -f >/dev/null 2>&1 || true
+  stale_volumes="$(docker volume ls -q \
+    --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null || true)"
+  # Still there means something outside this script is holding them — most
+  # likely a container from a previous run that is still up. Stopping here is
+  # better than starting a stack whose database will reject its own password.
+  [ -z "$stale_volumes" ] || die "$(printf 'Volumes from a previous run could not be removed:\n%s\nSomething is still using them. Try: %s -p %s down -v' "$stale_volumes" "$DC" "$PROJECT")"
+fi
+
 if [ "$FRESH" -eq 1 ]; then
   info "Rebuilding the app image from scratch (--fresh)"
   compose build --no-cache app 2>&1 | tail -3 || die "The image failed to build."
 fi
 
+# Captured rather than piped, so the exit code survives.
+#
+# This was `compose up ... | grep -Ei 'error|warn' || true`, which threw the
+# exit code away twice over — once into the pipe, once into the `|| true` — and
+# filtered the output through a pattern that didn't match the failure. A build
+# that died on `ERR_PNPM_OUTDATED_LOCKFILE` produced no containers, no visible
+# error, and then a hundred and eighty seconds of waiting followed by "the
+# stack never became ready", which is a false diagnosis of a real problem.
+#
+# The filter was worth having: `compose up` is noisy and the interesting lines
+# are rare. It still runs — on success only.
+UP_LOG="$WORK_DIR/compose-up.log"
 # shellcheck disable=SC2086
-compose up -d $BUILD_ARG db matrix ipfs app 2>&1 | grep -Ei 'error|warn' || true
+if ! compose up -d $BUILD_ARG db matrix ipfs app > "$UP_LOG" 2>&1; then
+  printf '\n%sCompose output:%s\n' "$DIM" "$RESET"
+  tail -40 "$UP_LOG"
+  die "The stack didn't start. Nothing was built, so nothing could become ready."
+fi
+grep -Ei 'error|warn' "$UP_LOG" || true
+
+# A successful `compose up` that produced no app container is not success.
+# Belt and braces against the same class of silent failure arriving by some
+# other route.
+if [ -z "$(compose ps -q app 2>/dev/null)" ]; then
+  printf '\n%sCompose output:%s\n' "$DIM" "$RESET"
+  tail -40 "$UP_LOG"
+  die "Compose reported success but there is no app container."
+fi
 
 # --------------------------------------------------- check what was built
 #
@@ -291,7 +418,24 @@ done
   printf '\n%sLast /ready response:%s\n' "$DIM" "$RESET"
   curl -sS --max-time 5 "$BASE/ready" 2>&1 | head -5 || echo "  (no response)"
   printf '\n%sApp logs:%s\n' "$DIM" "$RESET"
-  compose logs --tail 40 app 2>&1 | tail -40
+  app_logs="$(compose logs --tail 40 app 2>&1 | tail -40)"
+  printf '%s\n' "$app_logs"
+
+  # Name the one cause this harness can create for itself. The startup check
+  # above should have made this impossible; if it appears anyway, that check
+  # has a hole in it and the message should say so rather than leave the next
+  # person reading Postgres logs for twenty minutes.
+  if printf '%s' "$app_logs" | grep -q "password authentication failed"; then
+    printf '\n%sThe database rejected the password this run generated.%s\n' "$BOLD" "$RESET"
+    printf '%s\n' "That means a Postgres volume outlived an earlier run: the cluster inside"
+    printf '%s\n' "it was initialised with different credentials, and POSTGRES_PASSWORD is"
+    printf '%s\n' "only read when the data directory is empty."
+    printf '%s\n' ""
+    printf '  %s -p %s down -v\n' "$DC" "$PROJECT"
+    printf '%s\n' ""
+    printf '%s\n' "The startup check is supposed to prevent this, so it also means that"
+    printf '%s\n' "check missed something worth fixing."
+  fi
   die "The stack never became ready."
 }
 
@@ -325,7 +469,8 @@ fi
 step "User journey"
 info "Register, create, post, upload, invite, join, permissions."
 
-E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" pnpm exec tsx scripts/e2e-journey.ts \
+E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" E2E_SETUP_TOKEN="$SETUP_TOKEN" \
+  pnpm exec tsx scripts/e2e-journey.ts \
   || die "The journey failed."
 
 # -------------------------------------------------------------------- crypto

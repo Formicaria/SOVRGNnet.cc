@@ -113,31 +113,54 @@ means:
 No Olm is needed for the probe either way: a master cross-signing key is a
 public key and carries no signature of its own.
 
-## Decision 3 — keys are shared only with cross-signed devices
+## Decision 3 — verification is inherited, and keys are not withheld
 
-`globalBlacklistUnverifiedDevices = true` and `setTrustCrossSignedDevices(true)`
-together, and neither configurable.
+`setTrustCrossSignedDevices(true)`, so a device its owner has cross-signed
+counts as verified and a person verifies *people* rather than devices.
+`globalBlacklistUnverifiedDevices` stays **false**.
 
-The pairing is worth stating because setting the wrong one of the two produces
-something that looks correct and isn't. `globalBlacklistUnverifiedDevices` is
-what withholds keys, and it defaults to false.
-`setTrustCrossSignedDevices` decides what counts as verified — with it on, a
-device its owner cross-signed qualifies, so a person verifies their own devices
-once instead of verifying every device of everyone they talk to. Setting only
-the second changes an icon and ships the keys regardless.
+**This reverses an earlier decision in this same ADR, and the reversal is the
+useful part.**
 
-ADR 0008 drew the line between a passive operator ("E2EE works") and an active
-one ("E2EE reduces to *you would have been warned*"), and observed that the
-defence "only works if people act on the warning". With the permissive default,
-an operator-minted device receives room keys from any client still configured
-to share with unverified devices, and the warning is the *only* protection.
-Requiring a cross-signature means the minted device gets nothing at all until a
-real device belonging to that user signs it — an action a person must take and
-can refuse.
+The flag was set true, reasoning that an operator-minted device should receive
+no room keys at all rather than merely be flagged — turning ADR 0008's "you
+would have been warned" into "that device received nothing". That reasoning was
+correct about what the setting buys and wrong about what it costs.
 
-The cost is not hidden: an unverified device of your own reads nothing until
-you verify it, and someone who never verifies anything sees holes in encrypted
-channels. The client says so, in those words, rather than showing a blank row.
+The e2e crypto stage found the cost the first time it ran. On a fresh instance
+nobody has cross-signed anything, so every device is unverified, so every room
+key is withheld from everyone, and no encrypted message is readable by anybody:
+
+```
+Created batch of to-device messages of type m.room_key.withheld
+Failed to decrypt: withheld code: Some("m.unverified")
+```
+
+Encryption on by default (decision above) plus keys withheld from unverified
+devices is a product that does not work at all.
+
+Cross-signing does not rescue it either. For Alice to treat Bob's device as
+verified she must have verified *Bob*, so with the flag on every pair of people
+in a community must compare emoji before they can exchange a message. That is a
+reasonable arrangement for two journalists and an impossible one for a chat
+server with thirty people in it.
+
+So the position is the one ADR 0008 wrote down before any of this was built:
+**against an active operator, encryption reduces to "you would have been
+warned", and the warning is the device list.** That is weaker than withholding.
+It is what a working group-chat product can offer. Shipping the stronger
+setting and an unusable product, or shipping the stronger claim over the weaker
+setting, would both have been worse.
+
+What survives is worth having: cross-signed devices are trusted automatically
+so verification is a per-person act that scales, unverified devices sort to the
+top of the device list, and the client says plainly that an unrecognised device
+may have been created by whoever runs the instance.
+
+The lesson generalises, which is why it's recorded rather than quietly fixed: a
+hardening setting that has never been run against a real two-device
+conversation is a hypothesis, not a mitigation. This one was written into the
+threat model as a mitigation before anything had executed it.
 
 ## Decision 4 — for an encrypted room, the index is not the source of content
 
@@ -263,10 +286,98 @@ that a second device receives the room key and decrypts to the same string,
 that stored file bytes are ciphertext, and that a tampered file is refused
 rather than rendered.
 
-Still unproven, and stated rather than implied: **SAS verification and key
-backup**, both of which need an interactive exchange between two live sessions;
-and **the browser path itself**, since Node exercises the same module but not
-the same runtime. A browser-driven run would close the second.
+It also covers **cross-signing setup, emoji verification between two devices,
+and recovery on a third from the recovery key alone** — the last being what ADR
+0008 made a precondition for flipping `e2ee`, and what had never run. These were
+once described here as needing an interactive exchange a script couldn't drive;
+that was wrong. Interactive describes the dialog. Both sides of a verification
+are ordinary API calls and the emoji comparison is a string comparison.
+
+**A verification request to a device nobody knows about is silently dropped.**
+Found by that check on its first run. The rust machine logs "Could not retrieve
+the device data for the incoming verification request, ignoring it" and does
+nothing else — no error, no cancellation, no phase change. So a device that
+signs in and immediately asks to be verified can wait forever for an answer to
+a question the other device discarded. The window is seconds wide and sits
+exactly where verification matters most: a device that just appeared, which is
+both the ordinary sign-in case and the operator-minted-device case. Mitigated
+by publishing the device before requesting; not eliminated, because only the
+other side's next sync closes it. A client that gets no response should let the
+person retry rather than report a failure.
+
+**A device that just signed in is not ready for anything that needs its own
+identity.** Three separate failures with one shape, all found by the same
+script and all invisible to a typecheck: a verification request from an unknown
+device is discarded, `startVerification` throws before the reply names a
+device, and importing cross-signing keys fails with no public identity to
+import them against. Each is fixed by downloading the user's own device list
+first. The pattern is worth stating on its own, because the next thing added to
+this module will hit it too: **the crypto machine's view of an account is not
+populated at sign-in, and any operation touching your own identity has to say
+so before it acts.**
+
+The third case matters most, because of what it *says*. The rust store logs "a
+/keys/query needs to be done"; the SDK surfaces "importCrossSigningKeys failed
+to import the keys"; a person reads "my recovery key is wrong" and goes looking
+for another copy of a key that was correct all along.
+
+**Key backup lags sending, by tens of seconds.** Uploading a room key to backup
+is a background loop, not part of `send`, and the loop sleeps a *random* 0–10s
+before each pass — deliberately, so that every client in a room doesn't hit the
+server at once when a key rotates. A key created just after a pass begins waits
+for the pass after that, so two jitters can stack.
+
+So there is a window, longer than it sounds, in which a message has been
+delivered and its key is not yet recoverable. A device signing in during it
+restores nothing and shows the message as undecryptable. It resolves itself
+when the sending device's next pass runs; the remedy is to wait and try again,
+not to re-enter the recovery key — worth stating plainly, because "recovery
+didn't work" is exactly when someone starts doubting the key they were given.
+
+Also worth knowing for anyone writing a check against this: `getKeyBackupInfo()`
+serves a *cached* answer once any check has run, so polling it to watch the
+count climb returns the same stale number indefinitely.
+`checkKeyBackupAndEnable()` forces a re-fetch.
+
+**What actually decrypts the message on the recovered device is not the restore
+call.** Worth recording, because the check reads as though it were. Handing
+`recoverWithKey` the recovery key gives the device the backup decryption
+secret, and the SDK's per-session downloader — which had been logging "no
+decryption key" and giving up — immediately fetches the one session it needs
+and retries the event. The bulk `restoreKeyBackup` that follows finds the key
+already present and the rust store discards it as a duplicate
+(`imported_count=0`), while the SDK still reports `1 of 1`, because its count
+is *keys the backup returned*, not *keys newly added*.
+
+Both paths hang off the same cause, so the check isn't lying about recovery
+working. But its two halves measure different things, and only one of them is
+what a person experiences: the assertion on `imported` proves the server gave
+the key back, and the decryption that follows proves the device could use it.
+Anyone tightening this check should not "fix" the zero — it is the correct
+answer to a question the check isn't asking.
+
+Still unproven: **the browser runtime**. Node exercises the same module, not the
+same environment — IndexedDB, the Vite-bundled WASM and the React wiring are
+untouched. `scripts/e2e-browser.spec.ts` covers those four claims and runs
+outside preflight, because it needs a browser download and a stack left
+standing.
+
+Its first execution failed four times, and every one of those failures was in
+the test. Worth recording as such: the Node stage found five defects in the
+product, and the honest report of the browser stage's debut is that it found one
+in itself. The spec registered a new account with the setup code, but the only
+stack a browser can reach is one `--keep` left behind, and such a stack has
+always already run the journey — its first account is claimed, its setup code
+spent, and the sign-up form it offers asks for an *invite code*. The spec spent
+fifteen seconds waiting for a field that instance can never render.
+
+The other three failures were the first one's missing session surfacing later,
+which is the more useful half. Sharing a signed-in browser context between tests
+turned one defect into four reports of it and hid which was real. Each test now
+reaches the dashboard on its own — necessary anyway, since one of them asserts
+the access token is kept *out* of web storage, and a file that assumed the
+context would remember a sign-in would be leaning on the thing it exists to
+disprove.
 
 ## References
 

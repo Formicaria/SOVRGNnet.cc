@@ -40,13 +40,20 @@ upload, so the instance pins ciphertext to IPFS and never holds the key.
 Against a **passive** operator — one who reads the database, or whose backups
 leak, or who is compelled to hand over what they have — this works.
 
-Against an **active** operator it is weaker, and the honest version is worth
-reading twice. The instance can mint a Matrix device for any of its users at
-any time (T17). Room keys are shared only with devices carrying a
-cross-signature, so a minted device receives nothing until a real device signs
-it — but *whether it gets signed is a decision a person makes in a dialog*. The
-cryptography can refuse to send keys to an unverified device. It cannot stop
-someone clicking through.
+Against an **active** operator it is much weaker, and this is the part to read
+twice. The instance can mint a Matrix device for any of its users at any time
+(T17), and that device **receives room keys like any other**. What it does not
+get is silence: it appears in the owner's device list as unverified, sorted to
+the top, described as something whoever runs the instance may have created.
+
+Withholding keys from unverified devices was tried and reverted — it makes
+encrypted channels unreadable by everyone until every pair of members has
+verified each other, which is not a working chat product. See
+[ADR 0011](adr/0011-crypto-machine.md) decision 3.
+
+So: against an active operator, encryption reduces to *you would have been
+warned*. The cryptography cannot refuse the minted device. The device list can
+only tell you it is there.
 
 Better than plaintext by a wide margin. Not the same as Signal.
 
@@ -203,13 +210,22 @@ it. Tokens return in the URL fragment, which never reaches a server or a log.
 **Capabilities:** Register with a victim's email at a provider, then sign in
 and inherit their existing local account.
 
-**Mitigations:** Automatic linking requires a **provider-verified** email.
-Unverified addresses refuse to link and require signing in locally first.
-GitHub's profile email is never trusted for this — only verified addresses
-from `/user/emails`. An email already bound to a different identity refuses
-outright.
+**Mitigations:** **Nothing links by email address, verified or not.** An
+identity is matched by provider subject alone; an email that matches an
+existing account is a reason to refuse, never a reason to link. Linking a
+provider to an existing account is an authenticated action taken from inside
+that account (`auth.linkSso`), so the person proves they hold the local account
+and holds a valid provider token at the same moment.
 
-**Residual risk: low.** Tested directly.
+This is stricter than the previous rule, which linked on a provider-verified
+address. "Verified" means the provider believes it — which places every account
+behind the provider's word, and ADR 0003 says the provider is optional. An
+optional component must not be able to take over accounts. The same rule now
+applies on both sides: `decideSsoLink` on an instance and `matchBrokerAccount`
+in the identity broker.
+
+**Residual risk: low.** Tested directly, including that verified and unverified
+addresses produce identical answers.
 
 ---
 
@@ -257,12 +273,13 @@ that whatever can compute the HMAC can authenticate as anyone.
 process, so this is not reachable from outside — it is a capability the
 *instance* has, not one an external attacker gains.
 
-For encrypted channels, `globalBlacklistUnverifiedDevices = true` paired with
-`setTrustCrossSignedDevices(true)` in the client, neither configurable. A
-minted device receives no room keys at all until a device belonging to that
-user cross-signs it. That is stronger than the SDK default, under which the
-minted device receives keys like any other and a warning is the only
-protection. The client
+For encrypted channels: **the minted device still receives room keys.**
+Withholding them from unverified devices was implemented and then reverted,
+because it makes every encrypted channel unreadable until every pair of members
+has verified each other (ADR 0011, decision 3). What remains is
+`setTrustCrossSignedDevices(true)`, which makes verification inherit across a
+person's devices so that verifying is a per-person act somebody might actually
+do. The client
 lists every device with its verification state, puts unverified ones at the
 top, and says in as many words that an unrecognised device may have been
 created by whoever runs the instance.
@@ -270,14 +287,14 @@ created by whoever runs the instance.
 **Residual risk: subsumed by T1 in a plaintext channel; the sharpest remaining
 edge in an encrypted one.** Where messages are plaintext this adds nothing —
 the operator can already read everything. In an encrypted channel it is the
-difference between a passive and an active adversary, and the defence now
-terminates in a person: the cryptography will refuse to send keys to an
-unverified device, and nothing stops someone verifying one they shouldn't.
+whole difference between a passive and an active adversary, and the defence is
+a list, not a refusal: the minted device gets the keys, and what stands between
+it and the conversation is somebody noticing an entry they don't recognise.
 
 Stated plainly, so the E2EE claim is accurate: against a **passive** operator,
 encryption works. Against an **active** one who mints a device and waits, it
-reduces to "you were shown a warning and had to act on it". A real improvement.
-Not the same as Signal.
+reduces to "you were shown a list and had to read it". That is a real
+improvement over plaintext and it is a long way from Signal.
 
 The fix is to remove the derived password, which requires solving Matrix
 account recovery without it. That is its own decision and has not been made.
@@ -341,8 +358,21 @@ already intercepted it.
 
 ### T13 — Credential stuffing
 
-**Mitigations:** scrypt hashing, ten attempts per IP+email per fifteen
+**Mitigations:** scrypt hashing, ten attempts per IP + identifier per fifteen
 minutes, identical responses whether or not an account exists.
+
+The identifier is the **folded** username (or the lowercased email). Folding
+matters: `alice.hart`, `alice_hart` and `a1ice-hart` all resolve to one account,
+so keying the limiter on the raw string would hand out a fresh bucket per
+spelling and the limit would never bite. The same fold that makes those spellings
+one account has to make them one rate-limit key.
+
+Usernames also changed what this threat looks like. They are guessable in a way
+email addresses are not, and they are visible in every member list and every
+Matrix ID — so the attacker's list of valid targets is much cheaper to build than
+it was. That raises the value of the per-identifier limit and of the identical
+responses, and it is why the conformance suite treats a public list of usernames
+as a leak (`no-leakage`).
 
 **Residual risk: moderate.** No 2FA on local accounts. Signing in through a
 provider inherits theirs, which is one of the better arguments for SSO.
@@ -519,7 +549,7 @@ improvement and has not been made.
 - Use an identity token minted for one instance against another
 - Sign up on a homeserver directly — public registration is disabled
 - Reach Postgres, the homeserver admin API, or the IPFS admin API from outside
-- Take over an account by claiming an unverified email
+- Take over an account by claiming someone's email at a provider, verified or not
 - Escalate to a role at or above the person acting
 
 ## Known gaps
@@ -543,6 +573,32 @@ improvement and has not been made.
     shell has an OS keychain and does not yet use it.
 11. **No independent security audit.** Careful review is not an audit, and the
     cryptography arriving in this release raises what an audit would be worth.
+    Separately, `pnpm audit --prod` reports 8 known advisories (3 high), down
+    from 43; each remaining one is triaged in
+    [DEPENDENCIES.md](DEPENDENCIES.md) with the reason it was not fixed. Five
+    are Express 4 denial-of-service issues awaiting an Express 5 migration.
+12. **Desktop hosts installed before v0.6.1 all answer to `sovrgn.host`.**
+    New installs generate their own permanent server name. Existing ones keep
+    the shared one, because a Matrix server name is embedded in every user and
+    room ID and renaming would orphan all of them. On those installs two guards
+    are inert: identity tokens are audience-bound to an instance id derived by
+    hashing the server name, so a token minted for one desktop host verifies on
+    every other one (defeating T3 and T6 for that population); and backup
+    restore compares server names, so the check that refuses a restore onto the
+    wrong machine passes between unrelated people. Anyone hosting from the
+    desktop who has enabled SSO should reset the host data directory to get a
+    unique name — the only fix that does not leave stale IDs behind.
+13. **A username change does not change the Matrix ID, and cannot.** Matrix
+    fixes a localpart at registration; there is no rename in the protocol.
+    Renaming here changes what this instance calls you — profile, mentions,
+    search, sign-in — while the account stays `@old:server` to Matrix and to
+    every federated server, and every message already sent keeps that
+    attribution on machines we do not run. Anyone renaming to get away from a
+    previous name should treat this as a limit on what a rename achieves: it is
+    not erasure, and a genuinely fresh identity means a new account. The
+    reasoning, including why minting a new Matrix account would cost more and
+    still not deliver it, is in [ADR 0012](adr/0012-username-rename.md); the
+    consequences are shown to the person before they confirm.
 
 ## Related
 

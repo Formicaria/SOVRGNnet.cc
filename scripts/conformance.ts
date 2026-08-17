@@ -80,12 +80,33 @@ async function main() {
     process.exit(2);
   }
 
+  const instance = await probe(base, "/api/instance");
+
+  /*
+   * The homeserver address the instance advertises, read back out of the
+   * descriptor so that it can actually be tried.
+   *
+   * The only probe here whose URL isn't a fixed path on the target, which is
+   * why it is built after the others rather than beside them — the address
+   * isn't known until the instance has been asked for it. Left undefined when
+   * there is nothing to try, and the suite reports that as unchecked rather
+   * than as fine.
+   */
+  const advertisedMatrix = (() => {
+    const body = instance.body as { matrix?: { baseUrl?: unknown } } | null;
+    const url = body?.matrix?.baseUrl;
+    return typeof url === "string" && url.length > 0 ? url : null;
+  })();
+
   const probes: Probes = {
-    instance: await probe(base, "/api/instance"),
+    instance,
     capabilities: await probe(base, "/api/capabilities"),
     version: await probe(base, "/api/version"),
     health: await probe(base, "/health"),
     ready: await probe(base, "/ready"),
+    matrixVersions: advertisedMatrix
+      ? await probe(advertisedMatrix, "/_matrix/client/versions")
+      : undefined,
   };
 
   const results = runConformance(probes);

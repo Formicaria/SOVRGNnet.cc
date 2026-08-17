@@ -264,6 +264,11 @@ async function runJourney(): Promise<void> {
 
   const ownerEmail = `owner-${stamp}@e2e.local`;
   const guestEmail = `guest-${stamp}@e2e.local`;
+  // Separate from the email local part on purpose: the two are independent
+  // identifiers now, and reusing one for the other would hide it if the server
+  // ever started deriving a username from an address again.
+  const ownerUsername = `owner${stamp}`;
+  const guestUsername = `guest${stamp}`;
   const password = "correct-horse-battery-staple";
 
   // -- accounts -------------------------------------------------------------
@@ -273,19 +278,75 @@ async function runJourney(): Promise<void> {
   // auth.register returns the user object *flat* — toPublicUser(user), not
   // { user }. Shapes here are read off the router rather than assumed; guessing
   // costs a full stack boot per mistake.
+  // The bootstrap is gated on a secret only the operator has, because the
+  // first account becomes the administrator and a server is usually reachable
+  // before its owner has signed up. Asserted from both sides.
+  const setupToken = process.env.E2E_SETUP_TOKEN ?? "";
+  assert(setupToken, "the harness didn't provide a setup token");
+
+  // Both refusals assert on the *reason*, not just that they were refused.
+  //
+  // An instance whose token never reached the container refuses everything
+  // with "no setup token is configured" — including these two, which would
+  // then pass while proving nothing about the gate and while the real
+  // registration below was about to fail. That happened on the first run of
+  // this check, so the assertions now reject that message explicitly.
+  const notConfigured = /no setup token/i;
+
+  const withoutToken = await new Session("stranger").expectDenied(
+    "auth.register",
+    {
+      username: `stranger${stamp}`,
+      email: `stranger-${stamp}@e2e.local`,
+      password,
+      name: "Stranger",
+    },
+    "Claiming a fresh instance without the setup code"
+  );
+  assert(
+    !notConfigured.test(withoutToken),
+    `the instance has no setup token configured, so this proved nothing: ${withoutToken}`
+  );
+  detail(withoutToken.slice(0, 90));
+  ok("A stranger can't claim the instance's first account");
+
+  const wrongToken = await new Session("stranger").expectDenied(
+    "auth.register",
+    {
+      username: `stranger2${stamp}`,
+      email: `stranger2-${stamp}@e2e.local`,
+      password,
+      name: "Stranger",
+      setupToken: "definitely-not-the-token",
+    },
+    "Claiming a fresh instance with a guessed setup code"
+  );
+  assert(
+    !notConfigured.test(wrongToken),
+    `refused for the wrong reason: ${wrongToken}`
+  );
+  assert(
+    /setup code/i.test(wrongToken),
+    `refused, but not for the setup code: ${wrongToken}`
+  );
+  detail(wrongToken.slice(0, 90));
+  ok("A guessed setup code doesn't work either");
+
   const registered = await owner.mutate<{ id: number; role?: string }>(
     "auth.register",
     {
+      username: ownerUsername,
       email: ownerEmail,
       password,
       name: "Owner",
+      setupToken,
     }
   );
   assert(
     registered?.id,
     `registration returned no id: ${JSON.stringify(registered)}`
   );
-  ok("First account registered");
+  ok("First account registered, with the setup code");
 
   const me = await owner.query<{ role?: string; email?: string }>("auth.me");
   assertEqual(me?.email, ownerEmail, "auth.me returned the wrong account");
@@ -301,7 +362,7 @@ async function runJourney(): Promise<void> {
   // Default join policy is invite-only, so a second signup must be refused.
   const denied = await guest.expectDenied(
     "auth.register",
-    { email: guestEmail, password, name: "Guest" },
+    { username: guestUsername, email: guestEmail, password, name: "Guest" },
     "Open registration on an invite-only instance"
   );
   detail(denied.slice(0, 90));
@@ -476,6 +537,25 @@ async function runJourney(): Promise<void> {
     `client session looks wrong: ${JSON.stringify({ ...session, accessToken: "…" })}`
   );
   ok("Device-scoped client session minted");
+
+  // The Matrix ID is the username (#31), checked against the real homeserver
+  // rather than against our own derivation function.
+  //
+  // The `@sovrgn_` half of this matters as much as the positive assertion. That
+  // was the old scheme, and it was also the appservice namespace regex — an
+  // instance left on the stale pattern keeps working while eventIngest silently
+  // stops receiving anything, which is the failure this whole harness exists to
+  // refuse to ship.
+  assertEqual(
+    session.matrixUserId,
+    `@${ownerUsername}:e2e.local`,
+    "the Matrix ID isn't derived from the username"
+  );
+  assert(
+    !session.matrixUserId.includes("sovrgn_"),
+    `MXID still uses the old opaque scheme: ${session.matrixUserId}`
+  );
+  ok("Matrix ID is the username, not an opaque id");
 
   // The advertised URL is the in-network address; from the host the same
   // homeserver is the published port. The journey knows the topology.
@@ -729,6 +809,7 @@ async function runJourney(): Promise<void> {
   const guestUser = await guest.mutate<{ id: number; role?: string }>(
     "auth.register",
     {
+      username: guestUsername,
       email: guestEmail,
       password,
       name: "Guest",
@@ -855,6 +936,90 @@ async function runJourney(): Promise<void> {
   detail(refusal.slice(0, 90));
   ok("The server's own session can't be signed out from here");
 
+  // -- renaming (#33, ADR 0012) ---------------------------------------------
+
+  // Last, deliberately: this changes the owner's identity, and every step above
+  // reads it. Running it earlier would make a failure here look like a failure
+  // there.
+  console.log("\n  Renaming");
+
+  const renamedTo = `renamed${stamp}`;
+
+  const preview = await owner.query<{
+    ok: boolean;
+    available?: boolean;
+    consequences?: Array<{ headline: string; detail: string }>;
+  }>("auth.renamePreview", { username: renamedTo });
+  assert(preview?.ok && preview.available, `rename preview refused: ${JSON.stringify(preview)}`);
+
+  // The disclosure has to name the address that is staying behind. A unit test
+  // covers the function; this covers the wire, because a warning that never
+  // reaches the client is the same as no warning.
+  const disclosure = (preview.consequences ?? [])
+    .map(c => `${c.headline} ${c.detail}`)
+    .join(" ");
+  assert(
+    disclosure.includes(session.matrixUserId),
+    `the rename preview didn't name the Matrix ID: ${disclosure}`
+  );
+  ok("Rename preview states the Matrix address that won't change");
+
+  await owner.mutate("auth.changeUsername", {
+    username: renamedTo,
+    acknowledgedMatrixId: true,
+  });
+  const renamedMe = await owner.query<{ username?: string }>("auth.me");
+  assertEqual(renamedMe?.username, renamedTo, "the rename didn't take");
+  ok(`Renamed to @${renamedTo}`);
+
+  // The regression this task existed to fix. Three call sites used to rebuild
+  // the localpart from the *current* username, so the first rename made them
+  // log into an account that was never registered — and Dendrite answers
+  // M_FORBIDDEN, which reads as a broken Matrix account rather than a stale
+  // derivation. Minting a session is the cheapest way to prove that path is
+  // still sound, and it only means anything against a real homeserver.
+  const afterRename = await owner.mutate<{ matrixUserId: string }>(
+    "matrix.clientSession",
+    { displayName: "e2e journey (after rename)" }
+  );
+  ok("A device can still log in to Matrix after the rename");
+
+  // And the property the ADR is about: Matrix has no rename, so the address is
+  // the one it was registered with. If this ever changes, the disclosure shown
+  // to people is wrong and ADR 0012 needs revisiting — not this assertion
+  // relaxing.
+  assertEqual(
+    afterRename.matrixUserId,
+    session.matrixUserId,
+    "the Matrix ID moved on rename — ADR 0012 says it cannot"
+  );
+  assert(
+    !afterRename.matrixUserId.includes(renamedTo),
+    `MXID picked up the new name: ${afterRename.matrixUserId}`
+  );
+  ok(`Matrix ID unchanged: ${afterRename.matrixUserId}`);
+
+  // Sign-in follows the username, both ways round.
+  await owner.mutate("auth.login", { username: renamedTo, password });
+  ok("Signing in with the new username works");
+
+  const oldNameRefused = await owner.expectDenied(
+    "auth.login",
+    { username: ownerUsername, password },
+    "Signing in with the old username"
+  );
+  detail(oldNameRefused.slice(0, 90));
+  ok("The old username no longer signs in");
+
+  // Put it back, so the restore check and anything reading the state file see
+  // the account it recorded.
+  await owner.mutate("auth.changeUsername", {
+    username: ownerUsername,
+    acknowledgedMatrixId: true,
+  });
+  await owner.mutate("auth.login", { username: ownerUsername, password });
+  ok("Renamed back; the old name was free again");
+
   // -- record for the restore check -----------------------------------------
 
   mkdirSync(WORK, { recursive: true });
@@ -862,6 +1027,13 @@ async function runJourney(): Promise<void> {
     STATE_FILE,
     JSON.stringify(
       {
+        // Username first: it is the identity column, and it is the only
+        // credential every account is guaranteed to have. Email is optional
+        // since #29, so anything that reads ownerEmail to sign in works only
+        // for accounts that happen to have one — which is why the browser-test
+        // instructions now quote the username.
+        ownerUsername,
+        guestUsername,
         ownerEmail,
         guestEmail,
         password,
@@ -888,11 +1060,29 @@ async function verifyRestore(): Promise<void> {
   console.log("\n  After restore");
 
   // Signing in at all proves accounts and password hashes came back.
+  //
+  // By username, because that is the identity column and the one field every
+  // account has. This used to sign in by email, which passed only because the
+  // journey happens to give its accounts one — on an instance where people
+  // took "email (optional)" at its word, the restore check would have been
+  // testing a path most accounts cannot use.
   await owner.mutate("auth.login", {
-    email: state.ownerEmail,
+    username: state.ownerUsername,
     password: state.password,
   });
   ok("The account still exists and the password still works");
+
+  // And the email path, once, deliberately. It is still supported and still
+  // worth a check — it just should not be the only way the harness knows how
+  // to sign in. Skipped rather than failed when there is no address, so this
+  // assertion cannot become the reason a no-email instance goes red.
+  if (state.ownerEmail) {
+    await owner.mutate("auth.login", {
+      email: state.ownerEmail,
+      password: state.password,
+    });
+    ok("Signing in by email still works too");
+  }
 
   const me = await owner.query<{ role?: string }>("auth.me");
   assertEqual(

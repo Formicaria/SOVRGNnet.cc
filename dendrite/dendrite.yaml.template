@@ -31,6 +31,18 @@ global:
   # otherwise — see MATRIX_ALLOW_FEDERATION.
   disable_federation: __DENDRITE_DISABLE_FEDERATION__
 
+  # Dendrite passes events between its own components over an embedded NATS
+  # JetStream. With no storage_path it picks a temporary directory and says so
+  # at startup — and the systemd unit sets PrivateTmp=true, so that directory
+  # is wiped on every restart. Events already accepted but not yet processed
+  # by the component they were destined for go with it.
+  #
+  # Losing them is not a crash; it is a message that was acknowledged and then
+  # quietly never arrived, which is the failure this project can least afford
+  # to have happen invisibly.
+  jetstream:
+    storage_path: /var/lib/dendrite/jetstream
+
   well_known_server_name: ""
   well_known_client_name: ""
 

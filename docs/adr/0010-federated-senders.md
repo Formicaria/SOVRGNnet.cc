@@ -13,7 +13,14 @@ sender who isn't a local account.**
 
 `messages.userId` is NOT NULL and joins to `users`. The appservice ingest
 resolves `@sovrgn_7:this.instance` through `userProfiles` and skips anything
-it can't attribute. Correct for a loopback instance — an unknown sender there
+it can't attribute.
+
+> **Note, later:** local Matrix IDs are no longer `@sovrgn_<id>` — a localpart
+> is the account's username now, so the example above reads `@alice:this.instance`
+> today. Nothing in the decision changes: the argument is about senders that
+> resolve to no local account at all, which is independent of how local ones are
+> named. Left as written rather than edited, because an ADR records what was
+> decided when it was decided. Correct for a loopback instance — an unknown sender there
 is noise — but under federation, an unknown sender is *the point*: a member
 of the same room whose account lives on someone else's homeserver.
 

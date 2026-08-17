@@ -31,11 +31,11 @@ Critical env values: `DB_PASSWORD` (strong random), `JWT_SECRET` (`openssl rand 
 
 ## 2. Cloudflare Tunnel
 
-In the Cloudflare dashboard (Zero Trust → Networks → Tunnels), create a tunnel named `sovrgnnet` and note the token. Add a `cloudflared` service to the compose stack:
+In the Cloudflare dashboard (Zero Trust → Networks → Tunnels), create a tunnel named `sovrgnnet` and note the token. The `cloudflared` service is already in `docker-compose.yml` behind the `tunnel` profile — start it with `docker compose --profile tunnel up -d` rather than pasting a second copy in. For reference, it is pinned:
 
 ```yaml
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.8.2
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     environment:
@@ -43,6 +43,12 @@ In the Cloudflare dashboard (Zero Trust → Networks → Tunnels), create a tunn
     networks:
       - sovrgnnet
 ```
+
+This snippet said `:latest` until now, which was wrong in two directions at
+once: it contradicted the pinning rule everything else in the stack follows,
+and — because `cloudflared` is the one process here with an unsolicited path to
+the internet — it made the most exposed component the least predictable. Pinned
+means you decide when it changes, and `docs/UPGRADING.md` covers how to decide.
 
 Then map public hostnames to internal services in the tunnel config:
 
