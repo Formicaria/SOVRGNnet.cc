@@ -1,6 +1,6 @@
 [package]
 name = "sovrgnnet-desktop"
-version = "0.6.0"
+version = "0.6.1"
 description = "SOVRGNnet desktop client"
 authors = ["Formicaria"]
 license = "MIT"
