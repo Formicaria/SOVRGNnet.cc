@@ -36,9 +36,51 @@ export default function SignIn({
     void (async () => {
       try {
         const res = await fetch(`${identityUrl}/api/device/code`, { method: "POST" });
+
+        // 404 and 405 both mean "nothing at this origin implements the device
+        // flow" — 405 in particular is what a *static* host answers a POST
+        // with, which is exactly what happens when this points at a marketing
+        // site instead of a running identity service. That was the real state
+        // of the default origin, and the screen used to report it as
+        // "Couldn't start sign-in (405)": a number that sends whoever reads it
+        // looking for a bug in the sign-in code rather than at a service that
+        // was never deployed.
+        //
+        // Say the true thing instead. It costs nothing when the service *is*
+        // running, and it is the difference between a dead end and a fact.
+        if (res.status === 404 || res.status === 405) {
+          throw new Error(
+            `No identity service at ${identityUrl.replace(/^https?:\/\//, "")} — ` +
+              "sovrgnnet.cc accounts aren't available yet. " +
+              "Connect to a server directly, or run one on this computer."
+          );
+        }
         if (!res.ok) throw new Error(`Couldn't start sign-in (${res.status})`);
 
-        const body = await res.json();
+        // A body that isn't JSON is the same class of problem wearing a 200:
+        // an index page, a redirect landing, a proxy notice. Reading it as JSON
+        // throws something about unexpected tokens, which is no more use than
+        // the status code was.
+        let body: {
+          device_code?: string;
+          user_code?: string;
+          verification_uri?: string;
+          expires_in?: number;
+          interval?: number;
+        };
+        try {
+          body = await res.json();
+        } catch {
+          throw new Error(
+            `${identityUrl.replace(/^https?:\/\//, "")} answered, but not with ` +
+              "a sign-in code — it doesn't look like an identity service."
+          );
+        }
+        if (!body.device_code || !body.user_code || !body.verification_uri) {
+          throw new Error(
+            "That sign-in response was missing fields the flow needs."
+          );
+        }
         const authorization: DeviceAuthorization = {
           deviceCode: body.device_code,
           userCode: body.user_code,

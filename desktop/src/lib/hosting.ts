@@ -28,6 +28,18 @@ export interface HostSecrets {
   db_password: string;
   jwt_secret: string;
   matrix_shared_secret: string;
+  /**
+   * This machine's Matrix server name. Not a secret — it ends up in every
+   * Matrix ID — but it lives here because it needs exactly the same
+   * generate-once-and-never-again treatment as the values around it.
+   *
+   * Every desktop host used to be `sovrgn.host`. Since the server derives its
+   * instance id by hashing this, and identity tokens are audience-bound to that
+   * id, one shared name meant a token minted for one person's desktop verified
+   * on everybody else's. It also made the backup-restore server-name guard pass
+   * between unrelated machines. See hosting.rs for the full account.
+   */
+  matrix_server_name: string;
 }
 
 interface ComponentReport {
@@ -50,6 +62,23 @@ function randomHex(bytes: number): string {
 }
 
 /**
+ * A server name for one machine.
+ *
+ * A subdomain of a name we control, so it is a well-formed hostname and
+ * obviously a desktop host. Federation is off for desktop hosts, so it never
+ * has to resolve — but a malformed server name would produce Matrix IDs other
+ * homeservers reject, and that is not a thing to discover after the IDs are
+ * permanent.
+ *
+ * 64 bits of randomness. Collisions here are not a security boundary — these
+ * servers do not federate — but two people sharing a name would reintroduce
+ * exactly the bug this replaced, so it is sized to not happen.
+ */
+export function freshServerName(): string {
+  return `${randomHex(8)}.desktop.sovrgn.host`;
+}
+
+/**
  * The keychain either already holds this machine's server secrets, or gains
  * them now. They are made exactly once: the database password in particular
  * is baked into the cluster at initdb, so "regenerate" would mean "lock
@@ -58,12 +87,24 @@ function randomHex(bytes: number): string {
 export async function hostSecrets(): Promise<HostSecrets> {
   const existing = await credentials.read(HOST_KEYCHAIN_ID);
   if (existing) {
-    return JSON.parse(existing) as HostSecrets;
+    const stored = JSON.parse(existing) as Partial<HostSecrets>;
+    // Backfilled rather than regenerated. Entries written before the server
+    // name lived here have no field, and the Rust side needs *something* to
+    // propose — but it only uses the proposal when there is no name on disk and
+    // no existing database, so backfilling cannot rename a working install.
+    // That decision stays in hosting.rs, next to the data directory that is the
+    // only authority on whether this machine has hosted before.
+    if (!stored.matrix_server_name) {
+      stored.matrix_server_name = freshServerName();
+      await credentials.store(HOST_KEYCHAIN_ID, JSON.stringify(stored));
+    }
+    return stored as HostSecrets;
   }
   const fresh: HostSecrets = {
     db_password: randomHex(24),
     jwt_secret: randomHex(32),
     matrix_shared_secret: randomHex(32),
+    matrix_server_name: freshServerName(),
   };
   await credentials.store(HOST_KEYCHAIN_ID, JSON.stringify(fresh));
   return fresh;

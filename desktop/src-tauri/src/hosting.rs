@@ -49,6 +49,18 @@ pub struct HostSecrets {
     pub db_password: String,
     pub jwt_secret: String,
     pub matrix_shared_secret: String,
+    /// This install's Matrix server name, proposed by the frontend.
+    ///
+    /// Generated in the webview with `crypto.getRandomValues`, like every other
+    /// value in this struct — this module deliberately carries no RNG crate.
+    /// Only consulted when there is no name on disk yet; see
+    /// `matrix_server_name`.
+    ///
+    /// `default` because keychain entries written before this field existed
+    /// must still deserialize; an empty value means "an older install", which
+    /// that function handles explicitly.
+    #[serde(default)]
+    pub matrix_server_name: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -63,6 +75,46 @@ pub struct PortPlan {
 
 // ---------------------------------------------------------------- filesystem
 
+/// Strip Windows' verbatim path prefix before a path reaches a child process.
+///
+/// Tauri's `resource_dir()` and `app_data_dir()` return canonicalised paths,
+/// and on Windows canonicalisation produces the extended-length form:
+/// `\\?\C:\Users\...`. That prefix is valid for the Win32 API and completely
+/// fine for anything using it through Rust — which is why this is invisible
+/// until a bundled program does its own path handling.
+///
+/// Postgres does. `initdb` locates its siblings by taking its own argv[0],
+/// stripping the filename and appending `postgres.exe`, and that logic does
+/// not understand `\\?\`. The failure it produces names the right file at the
+/// right path and still says it cannot be found:
+///
+/// ```text
+/// initdb: error: program "postgres" is needed by initdb but was not found in
+/// the same directory as "//?/C:/Users/.../host/postgres/bin/initdb.exe"
+/// ```
+///
+/// Which reads as a broken or incomplete bundle, and is not: every file is
+/// exactly where it should be. Only the prefix is wrong.
+///
+/// UNC paths (`\\?\UNC\server\share`) are left alone. Removing the prefix there
+/// yields `UNC\server\share`, which is not a path at all — a network install is
+/// rare enough that refusing to mangle it beats a clever conversion nobody
+/// tests.
+fn simplified(path: PathBuf) -> PathBuf {
+    if !cfg!(windows) {
+        return path;
+    }
+    match path.to_str() {
+        Some(text) => match text.strip_prefix(r"\\?\") {
+            Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
+            _ => path,
+        },
+        // Not valid UTF-8: leave it exactly as it came. A path we can't read
+        // is not one to start rewriting.
+        None => path,
+    }
+}
+
 /// Where the hosted server's mutable state lives: databases, IPFS repo,
 /// rendered configs. Survives app updates; removed only by an uninstall that
 /// asked first.
@@ -71,7 +123,74 @@ fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .path()
         .app_data_dir()
         .map_err(|e| format!("no app data dir: {e}"))?;
-    Ok(base.join("host"))
+    Ok(simplified(base.join("host")))
+}
+
+/// This install's Matrix server name, decided once and then permanent.
+///
+/// Every desktop host used to be called `sovrgn.host`. That was not cosmetic:
+///
+/// - `instanceId()` on the server side is a hash of `MATRIX_SERVER_NAME`, and
+///   sovrgnnet.cc identity tokens are **audience-bound to the instance id**.
+///   One shared name means one shared audience, so a token minted for somebody
+///   on one desktop host verified successfully on *every* desktop host. That is
+///   exactly the replay the audience check exists to stop, defeated for the
+///   entire desktop population at once.
+/// - Backup restore refuses a backup whose `matrixServerName` differs from the
+///   target's, because Matrix IDs embed the server name permanently. Identical
+///   names made that guard pass between two unrelated people's machines, so the
+///   check that prevents a catastrophic restore was inert too.
+/// - Matrix IDs and room IDs collided, so nothing downstream could tell two
+///   desktop hosts apart even in principle.
+///
+/// ## Why this is read-or-create, and never regenerated
+///
+/// A Matrix server name is baked into every user ID and room ID the moment they
+/// are created, and Matrix has no rename — the same constraint ADR 0012 records
+/// one level up. Generating a fresh name for an install that already has a
+/// Dendrite database would orphan every account and room in it: the data stays
+/// on disk, addressed by a name the server no longer answers to.
+///
+/// So the name is written once, on the first start without one, and read
+/// verbatim after that. If there is no name file but there *is* an existing
+/// database, the install predates this fix and keeps `sovrgn.host` —
+/// grandfathered rather than silently broken. Those installs still collide, and
+/// that is recorded in the threat model rather than papered over.
+fn matrix_server_name(data: &Path, proposed: &str) -> Result<String, String> {
+    let path = data.join("matrix-server-name");
+
+    if let Ok(existing) = std::fs::read_to_string(&path) {
+        let name = existing.trim().to_string();
+        if !name.is_empty() {
+            return Ok(name);
+        }
+    }
+
+    // An install from before this existed. Its Matrix IDs already say
+    // sovrgn.host, and changing that would lose them.
+    let legacy = data.join("dendrite").exists() || data.join("postgres").exists();
+    let name = if legacy {
+        "sovrgn.host".to_string()
+    } else if !proposed.trim().is_empty() {
+        proposed.trim().to_string()
+    } else {
+        // No name on disk, no existing database, and the frontend didn't offer
+        // one. Refusing beats guessing: inventing a name here would either
+        // reintroduce the shared one or need an RNG this module has no crate
+        // for, and a wrong permanent name is not a recoverable mistake.
+        return Err(
+            "no Matrix server name available — the app needs to supply one before hosting"
+                .to_string(),
+        );
+    };
+
+    std::fs::create_dir_all(data)
+        .map_err(|e| format!("couldn't create the host data dir: {e}"))?;
+    // Written before anything uses it: a crash between generating and starting
+    // Dendrite must not leave a database under a name we've forgotten.
+    std::fs::write(&path, format!("{name}\n"))
+        .map_err(|e| format!("couldn't record the server name: {e}"))?;
+    Ok(name)
 }
 
 /// Where the bundled, read-only components were installed with the app:
@@ -81,7 +200,7 @@ fn bundle_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .path()
         .resource_dir()
         .map_err(|e| format!("no resource dir: {e}"))?;
-    Ok(resources.join("host"))
+    Ok(simplified(resources.join("host")))
 }
 
 fn exe(name: &str) -> String {
@@ -323,8 +442,13 @@ fn render_dendrite_config(
         secrets.db_password, pg_port
     );
 
+    // Per-install, not the shared "sovrgn.host" this used to hardcode. Read
+    // from the data dir so Dendrite and the app cannot disagree about it —
+    // they would each produce different Matrix IDs for the same person.
+    let server_name = matrix_server_name(data, &secrets.matrix_server_name)?;
+
     let rendered = template
-        .replace("__MATRIX_SERVER_NAME__", "sovrgn.host")
+        .replace("__MATRIX_SERVER_NAME__", &server_name)
         .replace("__MATRIX_SHARED_SECRET__", &secrets.matrix_shared_secret)
         .replace("__DENDRITE_DISABLE_FEDERATION__", "true")
         .replace("__DENDRITE_DATABASE_URL__", &database_url);
@@ -505,7 +629,11 @@ pub async fn host_start(
             )
             .env("JWT_SECRET", &secrets.jwt_secret)
             .env("MATRIX_SHARED_SECRET", &secrets.matrix_shared_secret)
-            .env("MATRIX_SERVER_NAME", "sovrgn.host")
+            // Same value Dendrite was rendered with, from the same file. If
+            // these two ever diverge, the app mints @alice:a while the
+            // homeserver only knows @alice:b, and every login fails with
+            // M_FORBIDDEN saying nothing about why.
+            .env("MATRIX_SERVER_NAME", &matrix_server_name(&data, &secrets.matrix_server_name)?)
             .env("MATRIX_HOMESERVER_URL", format!("http://127.0.0.1:{matrix_port}"))
             .env("IPFS_API_URL", format!("http://127.0.0.1:{ipfs_port}"))
             .env("INSTANCE_NAME", "My computer")
