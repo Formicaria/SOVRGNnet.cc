@@ -2,6 +2,15 @@
 
 ## v0.6.1 — 2026-08-17
 
+**Both servers announced themselves as Express on every response.**
+`X-Powered-By` is on by default and neither app turned it off. Not an exploit,
+and hiding it keeps nobody out — but it names the framework to every scanner
+that touches the origin, which is unhelpful given that the deferred advisories
+in `docs/DEPENDENCIES.md` are Express 4 denial-of-service issues somebody would
+have to decide to aim at us. Disabled in both, with a test, because the two
+apps are created in different files and one of them being hardened alone is how
+this comes back.
+
 **The apex advertised federation the homeserver refuses.**
 `server/instanceRoutes.ts` gates `/.well-known/matrix/server` on
 `MATRIX_ALLOW_FEDERATION`, with the reason written beside it: advertising a

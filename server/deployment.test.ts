@@ -303,3 +303,20 @@ describe("matrix delegation on the apex", () => {
     expect(BUMP).toMatch(/site --include=\*\.html/);
   });
 });
+
+describe("the servers do not announce their framework", () => {
+  it("disables x-powered-by in both apps", () => {
+    // Found by reading a response header from production: every reply carried
+    // `x-powered-by: Express`. Not an exploit — but it names the framework to
+    // every scanner that touches the origin, and the whole reason Express 4's
+    // advisories are on the deferred list is that they are denial-of-service
+    // issues somebody would have to decide to aim at us.
+    //
+    // Asserted in both, because the two apps are created in different files
+    // and only one of them getting hardened is how this quietly comes back.
+    for (const file of ["server/_core/index.ts", "identity/src/index.ts"]) {
+      const text = readFileSync(join(ROOT, file), "utf8");
+      expect(text, file).toMatch(/app\.disable\(\s*["']x-powered-by["']\s*\)/);
+    }
+  });
+});
