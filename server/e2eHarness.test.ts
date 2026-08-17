@@ -552,3 +552,31 @@ describe("the browser stage runs against the stack --keep leaves behind", () => 
     expect(deleteAt).toBeGreaterThan(readAt);
   });
 });
+
+describe("the crypto stage's log quieting", () => {
+  const SOURCE = readFileSync(join(__dirname, "..", "scripts/e2e-crypto.ts"), "utf8");
+
+  it("clamps setLevel rather than setting a default", () => {
+    // The first version set a default level and turned down the loggers that
+    // existed, with a comment saying anything created later was caught by the
+    // default. Two things made that false, and a full --full run showed a
+    // thousand lines of SDK debug output with all eleven checks passing:
+    //
+    //   - quietTheSdk runs before matrix-js-sdk is imported, so getLoggers()
+    //     is empty and the loop turns down nothing
+    //   - the SDK's logger.js calls setLevel(DEBUG, false) on every logger it
+    //     creates, and an explicit level always beats a default
+    //
+    // Intercepting setLevel is the only form that holds for loggers created
+    // afterwards, which is all of them.
+    const quiet = SOURCE.slice(SOURCE.indexOf("async function quietTheSdk"));
+    expect(quiet).toMatch(/loglevel\.getLogger\s*=/);
+    expect(quiet).toMatch(/Math\.max\(asNumber\(level\), FLOOR\)/);
+  });
+
+  it("still has an escape hatch", () => {
+    // The log is how the withheld-keys failure got diagnosed. Quieting it by
+    // default is only defensible while turning it back on stays trivial.
+    expect(SOURCE).toMatch(/E2E_CRYPTO_VERBOSE/);
+  });
+});

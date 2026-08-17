@@ -246,14 +246,52 @@ async function quietTheSdk(): Promise<void> {
   if (process.env.E2E_CRYPTO_VERBOSE === "1") return;
 
   const loglevel = (await import("loglevel")).default;
-  // The SDK explicitly sets each of its loggers to DEBUG as it creates them,
-  // so a default level won't do — every one that exists has to be turned down,
-  // and any created later is caught by the default.
-  loglevel.setDefaultLevel("warn");
-  for (const named of Object.values(loglevel.getLoggers())) {
-    named.setLevel("warn", false);
-  }
-  loglevel.setLevel("warn", false);
+  const FLOOR = loglevel.levels.WARN;
+
+  // This used to set a default level and turn down the loggers that existed,
+  // with a comment claiming anything created later was "caught by the
+  // default". It wasn't, and the stage stayed a thousand lines long.
+  //
+  // Two things defeat that. This runs before matrix-js-sdk is imported, so
+  // `getLoggers()` is empty and the loop turns down nothing. And the SDK's
+  // logger.js does `prefixLogger.setLevel(loglevel.levels.DEBUG, false)` on
+  // every logger it creates — an explicit level always beats a default.
+  //
+  // So clamp `setLevel` itself. Whatever the SDK asks for, it cannot go below
+  // warnings. Intercepting the request rather than racing it is the only
+  // version that holds for loggers created later, which is all of them.
+  const asNumber = (level: unknown): number => {
+    if (typeof level === "number") return level;
+    if (typeof level === "string") {
+      const named = loglevel.levels[level.toUpperCase() as keyof typeof loglevel.levels];
+      if (typeof named === "number") return named;
+    }
+    return FLOOR;
+  };
+
+  type Clampable = {
+    setLevel: (level: unknown, persist?: boolean) => void;
+    __sovrgnClamped?: boolean;
+  };
+
+  const clamp = <T>(logger: T): T => {
+    const target = logger as T & Clampable;
+    if (target.__sovrgnClamped) return logger;
+    const original = target.setLevel.bind(target);
+    // Higher is quieter in loglevel: TRACE 0 … SILENT 5.
+    target.setLevel = (level: unknown, persist?: boolean) =>
+      original(Math.max(asNumber(level), FLOOR), persist);
+    target.__sovrgnClamped = true;
+    original(FLOOR, false);
+    return logger;
+  };
+
+  const getLogger = loglevel.getLogger.bind(loglevel);
+  loglevel.getLogger = (name: string | symbol) => clamp(getLogger(name));
+
+  for (const existing of Object.values(loglevel.getLoggers())) clamp(existing);
+  clamp(loglevel);
+  loglevel.setDefaultLevel(FLOOR);
 }
 
 async function main(): Promise<void> {
