@@ -62,7 +62,27 @@ Five of the eight are one root cause: **Express 4**. Express 5 fixes all of
 them, and it is a genuine migration — routing, `req.query` parsing, error
 handling and the removal of several patterns this codebase uses all change.
 
-Not taken in this pass, on purpose. Doing it badly is how a routing change
+**Surveyed, and the surface is smaller than expected.** Every breaking change
+in Express 5 was checked against this codebase:
+
+- **Route patterns** — the big one, and clean. Every registered path is a plain
+  string with simple `:param` segments; no `?` optionals, no bare `*`, no
+  inline regex. Nothing to rewrite.
+- **`req.body` is `undefined` rather than `{}`** when no body was parsed. Every
+  access is already either `req.body?.x` or `schema.safeParse(req.body)`, and
+  zod's `safeParse(undefined)` fails cleanly rather than throwing.
+- **Removed APIs** — no `res.sendfile`, `app.del`, `req.param()`,
+  `res.redirect("back")`, or two-argument `res.send`/`res.json` anywhere.
+- **`req.query` is a getter** — never assigned to.
+- **`res.status()` throws on invalid codes** — one dynamic call site,
+  `res.status(ready ? 200 : 503)`, both valid.
+- **`express.urlencoded`** — not used at all.
+
+So the migration is a version bump plus a full run of the suite, rather than a
+rewrite. Not taken in this pass only because it wants a clean install and an
+unhurried verification across all three workspaces, not because it is risky.
+
+Doing it badly is how a routing change
 quietly opens an endpoint, and every one of these five is a denial of service
 against a self-hosted instance the operator can restart — a real cost, but a
 recoverable one, and much smaller than an authorisation bug introduced while

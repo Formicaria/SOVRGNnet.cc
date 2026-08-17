@@ -52,6 +52,12 @@ async function startServer() {
   }
 
   const app = express();
+  // Express advertises itself in an `X-Powered-By` header on every response.
+  // Not a vulnerability on its own — nobody is kept out by hiding it, and
+  // pretending otherwise would be security theatre. What it does is name the
+  // framework and, by implication, the class of advisory worth trying, to
+  // every scanner that touches the origin. There is no reason to volunteer it.
+  app.disable("x-powered-by");
   const server = createServer(app);
 
   // Warm the direct-sync probe before traffic arrives, and keep it warmer
