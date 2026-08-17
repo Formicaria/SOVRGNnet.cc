@@ -19,7 +19,36 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   /** User identifier (openId) from authentication provider. Unique per user. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
+  /**
+   * The account's identity. Chosen at registration, and what the Matrix
+   * localpart derives from.
+   *
+   * Stored already normalised — lowercased and trimmed by `checkUsername`.
+   * Callers store what that returned rather than what was typed; storing raw
+   * input is how `Alice` and `alice` become two rows the unique constraint
+   * never notices.
+   *
+   * Length matches `USERNAME_MAX_LENGTH` in shared/username.ts. Kept in step
+   * by a test rather than an import, because drizzle-kit reads this file to
+   * diff the schema and a computed length would leave the migration history
+   * unable to explain itself.
+   */
+  username: varchar("username", { length: 32 }).notNull().unique(),
+  /**
+   * `foldUsername(username)` — the key uniqueness is actually enforced on.
+   *
+   * Separators removed and lookalike characters collapsed, so `alice.hart`,
+   * `alice_hart` and `a1ice-hart` cannot all exist at once. A unique index on
+   * `username` alone would hold all three happily, which is the impersonation
+   * this exists to prevent. Derived, never typed, never displayed.
+   */
+  usernameFold: varchar("usernameFold", { length: 32 }).notNull().unique(),
   name: text("name"),
+  /**
+   * Optional. An account is identified by its username; an email address is
+   * contact information the operator may not want to hold and the member may
+   * not want to give. Nullable here, and not required to register.
+   */
   email: varchar("email", { length: 320 }).unique(),
   /** scrypt hash for first-party email/password accounts. Null for external identities. */
   passwordHash: text("passwordHash"),
