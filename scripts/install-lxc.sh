@@ -491,6 +491,52 @@ WantedBy=multi-user.target
 EOF
 ok "Service installed"
 
+# -------------------------------------------------------------------- backup
+
+step "Scheduled backups"
+
+cat > /etc/systemd/system/sovrgnnet-backup.service <<EOF
+[Unit]
+Description=SOVRGNnet backup
+After=postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=$APP_DIR
+EnvironmentFile=-$ENV_FILE
+ExecStart=$APP_DIR/scripts/backup-scheduled.sh
+EOF
+
+# 03:20 rather than 03:00. Every cron example ever written says the top of the
+# hour, so that is when every machine on a shared host wakes up at once.
+#
+# Persistent=true so a box that was off at 03:20 backs up when it comes back
+# instead of silently skipping a day — the failure being guarded against here
+# is not a dramatic one, it is a backup that quietly stopped happening.
+cat > /etc/systemd/system/sovrgnnet-backup.timer <<EOF
+[Unit]
+Description=Nightly SOVRGNnet backup
+
+[Timer]
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=20m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now sovrgnnet-backup.timer >/dev/null 2>&1 || true
+ok "Nightly backup at 03:20 (sovrgnnet-backup.timer)"
+
+if ! grep -q '^SOVRGN_BACKUP_DEST=' "$ENV_FILE" 2>/dev/null; then
+  # Written empty rather than omitted, so it is visible in the file someone
+  # edits rather than being a setting they would have to already know about.
+  echo "SOVRGN_BACKUP_DEST=" >> "$ENV_FILE"
+fi
+
 # --------------------------------------------------------------- cloudflared
 
 if [ "$ACCESS_MODE" = "quick" ] || [ "$ACCESS_MODE" = "tunnel" ]; then
