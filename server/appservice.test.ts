@@ -1,5 +1,5 @@
 import express from "express";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -257,10 +257,13 @@ describe("the appservice user namespace", () => {
    * about one line and adding a parser dependency to check it would be a
    * bigger change than the thing being checked.
    */
-  const files = [
-    "dendrite/appservice.yaml.template",
-    "dendrite/appservice-e2e.yaml",
-  ];
+  // Only the template is committed. dendrite/appservice-e2e.yaml is generated
+  // by scripts/e2e.sh and gitignored because it carries real tokens — so on
+  // any clean checkout, including CI, it does not exist. Listing it here
+  // unconditionally meant these tests passed only on a machine that had
+  // already run the harness, and exploded with ENOENT everywhere else.
+  const files = ["dendrite/appservice.yaml.template"];
+  const GENERATED = "dendrite/appservice-e2e.yaml";
 
   function userRegex(file: string): { pattern: string; exclusive: boolean } {
     const text = readFileSync(join(__dirname, "..", file), "utf8");
@@ -308,11 +311,38 @@ describe("the appservice user namespace", () => {
     });
   }
 
-  it("keeps both registration files in agreement", () => {
-    // The e2e file is a copy of the template with real tokens. They drift
-    // silently, and the harness is the only thing that would notice — after
-    // a full stack came up.
-    const [template, e2e] = files.map(userRegex);
+  it("cannot generate an e2e file whose namespace differs", () => {
+    // The previous version of this compared the template to the generated
+    // file. That is the right property and the wrong way to check it: it can
+    // only run where the generated file exists, which is never on CI.
+    //
+    // The generator is a sed that substitutes two token placeholders. So the
+    // namespace can only drift if a placeholder appears inside it — check
+    // that instead, from files that are always present. This holds on a clean
+    // checkout and catches the drift before it is generated rather than after.
+    const template = readFileSync(
+      join(__dirname, "..", "dendrite/appservice.yaml.template"),
+      "utf8"
+    );
+    const users = template.slice(template.indexOf("users:"));
+    const namespace = users.slice(0, users.indexOf("aliases:"));
+    expect(namespace).not.toMatch(/\{\{[A-Z_]+\}\}/);
+
+    const harness = readFileSync(join(__dirname, "..", "scripts/e2e.sh"), "utf8");
+    const substitutions = [...harness.matchAll(/-e\s+"s\|\{\{([A-Z_]+)\}\}\|/g)].map(
+      (m) => m[1]
+    );
+    expect(substitutions.length).toBeGreaterThan(0);
+    expect(substitutions.sort()).toEqual(["AS_TOKEN", "HS_TOKEN"]);
+  });
+
+  it("agrees with the generated file, when there is one", () => {
+    // A developer who has run the harness gets the direct comparison too.
+    // Skipped rather than failed when absent — the property is already
+    // covered above by a check that does not need the artifact.
+    if (!existsSync(join(__dirname, "..", GENERATED))) return;
+    const template = userRegex("dendrite/appservice.yaml.template");
+    const e2e = userRegex(GENERATED);
     expect(e2e.pattern).toBe(template.pattern);
     expect(e2e.exclusive).toBe(template.exclusive);
   });

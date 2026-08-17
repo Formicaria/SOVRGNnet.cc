@@ -1,4 +1,4 @@
-import { IDENTITY_ORIGIN } from "@shared/identity";
+import { IDENTITY_ORIGIN } from "@shared/identityOrigin";
 import { useState } from "react";
 import { openExternal } from "@/lib/bridge";
 
