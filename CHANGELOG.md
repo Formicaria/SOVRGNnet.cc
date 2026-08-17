@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased — release blockers from the pre-release audit
+## v0.6.1 — 2026-08-17
+
+**CI caught a dependency we never declared.** `scripts/e2e-crypto.ts` imported
+`loglevel`, which arrives transitively through matrix-js-sdk. It resolved on
+the machine that wrote the code and not on a clean install, so `tsc --noEmit`
+passed locally and failed in CI — the worst place to learn it. Beyond the
+broken build, an undeclared package is pinned to whatever version something
+else happens to want and can disappear in a patch release of a package
+unrelated to us. Now declared, and `server/imports.test.ts` fails locally on
+the next one.
+
 
 **A Conduit-era machine upgraded to Dendrite and kept running Conduit.** ADR
 0006 replaced the homeserver and gave Dendrite the same port, 6167, but nothing
