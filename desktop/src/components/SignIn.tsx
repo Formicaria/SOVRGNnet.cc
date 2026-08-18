@@ -35,22 +35,29 @@ export default function SignIn({
 
     void (async () => {
       try {
-        // A fetch that never completes throws a bare TypeError, and every
-        // engine words it differently and uselessly: WebKitGTK — which is the
-        // webview on Linux — says "Load failed", and that is the entire
-        // message the sign-in screen showed. It names no host, no cause, and
-        // nothing anyone could act on.
+        // A fetch that never *completes* throws a bare TypeError, and every
+        // engine words it differently and uselessly: WebKitGTK — the webview
+        // on Linux — says "Load failed", which names no host and no cause.
         //
-        // The distinction worth preserving is that this is not the service
-        // answering badly; it is the request never arriving. DNS, TLS, no
-        // route, or offline. Everything below this line handles a reply.
+        // Deliberately vague about which failure it was, because the fetch API
+        // cannot tell us. A request that never left and a response the browser
+        // refused to expose are the same TypeError with the same message.
+        //
+        // Worth knowing, since this cost an evening: the second case was real.
+        // The identity service sent no CORS headers on the device-flow
+        // endpoints, so the request arrived, was answered correctly, and the
+        // browser discarded the reply. `curl` succeeded throughout, because
+        // nothing outside a browser enforces CORS. Claiming "the request
+        // didn't get there" sent the search to DNS and the network, which were
+        // both fine.
         const res = await fetch(`${identityUrl}/api/device/code`, {
           method: "POST",
         }).catch(() => {
           throw new Error(
             `Couldn't reach ${identityUrl.replace(/^https?:\/\//, "")}. ` +
-              "The request didn't get there at all — check this computer's " +
-              "connection and DNS. Nothing is wrong with your account."
+              "Either the request didn't get there, or it did and the reply " +
+              "was blocked before this app could read it. Nothing is wrong " +
+              "with your account."
           );
         });
 

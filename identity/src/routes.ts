@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, NextFunction, Request, Response } from "express";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -100,7 +100,62 @@ async function currentAccount(req: Request) {
   return account;
 }
 
+/**
+ * Cross-origin access for the endpoints a native app calls.
+ *
+ * The desktop shell runs in a webview whose origin is `tauri://localhost`, so
+ * every call it makes to this service is cross-origin. Without these headers
+ * the browser refuses to expose the response and `fetch` rejects with a bare
+ * `TypeError` — which WebKitGTK, the webview on Linux, words as "Load failed".
+ *
+ * That is what desktop sign-in showed. The request arrived, the service
+ * answered it correctly, and the browser threw the answer away. `curl` and
+ * every other check we ran succeeded, because nothing but a browser enforces
+ * CORS — so the endpoints that exist *specifically* for a native client to
+ * call had never once worked from one.
+ *
+ * ## Why `*` is safe on exactly these routes, and nowhere else
+ *
+ * Every route below authenticates with something carried *in the request*: a
+ * device code, or a bearer token. There is no ambient authority for another
+ * origin to borrow — a hostile page cannot obtain the token, and holding it is
+ * the whole of being authorised.
+ *
+ * The cookie-authenticated routes (`/api/me`, `/api/logout`, sign-in, the
+ * browser approval pages) deliberately get none of this. Those carry ambient
+ * authority, and opening them cross-origin is how a page nobody trusts acts as
+ * somebody who is signed in. Browsers also refuse `*` together with
+ * credentials, which is the specification agreeing.
+ *
+ * `Access-Control-Allow-Credentials` is therefore never set, so cookies cannot
+ * ride along even by accident.
+ */
+function nativeClientCors(req: Request, res: Response, next: NextFunction): void {
+  res.set("Access-Control-Allow-Origin", "*");
+  // Authorization for the bearer-token routes, Content-Type for the JSON
+  // bodies. Both make a request "not simple", which is what triggers the
+  // preflight this also has to answer.
+  res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.set("Access-Control-Max-Age", "600");
+
+  // The preflight itself. Express does not answer OPTIONS for a route
+  // registered only for GET or POST, so without this the browser never gets
+  // as far as sending the real request.
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+}
+
 export function registerRoutes(app: Express, mail: MailTransport): void {
+  // The three endpoints the desktop shell calls, and only those.
+  app.use(
+    ["/api/device/code", "/api/device/token", "/api/grants", "/api/grants/:instanceId/revoke"],
+    nativeClientCors
+  );
+
   /**
    * The public keys every server verifies tokens against.
    *
