@@ -961,6 +961,14 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
         device_code: deviceCode,
         user_code: userCode,
         verification_uri: `${baseUrl()}/device`,
+        // The same page with the code already in the URL — RFC 8628's
+        // verification_uri_complete. The /device page could prefill from
+        // ?code= since the day it shipped, and the app opened the bare URI
+        // anyway, so people transcribed a code that the URL could have
+        // carried. Typing was never the security here; the browser detour
+        // is. The short code stays displayed in both places so a person can
+        // see they match before approving.
+        verification_uri_complete: `${baseUrl()}/device?code=${encodeURIComponent(userCode)}`,
         expires_in: DEVICE_CODE_TTL_SECONDS,
         interval: DEVICE_POLL_INTERVAL_SECONDS,
       });

@@ -20,8 +20,6 @@ const STYLE = `
   body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
        line-height:1.6;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
   .card{width:min(420px,100%);background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:32px}
-  .logo{font-family:var(--mono);font-weight:700;letter-spacing:.06em;font-size:1.05rem;margin-bottom:6px}
-  .logo b{color:var(--accent)}
   h1{font-size:1.35rem;margin-bottom:6px;letter-spacing:-.01em}
   p.sub{color:var(--muted);font-size:.93rem;margin-bottom:22px}
   label{display:block;font-size:.78rem;color:var(--muted);margin:14px 0 5px}
@@ -53,16 +51,35 @@ const STYLE = `
             border-radius:9px;background:#0d0818;color:var(--text);text-align:center;
             font-weight:600;font-size:.92rem;text-decoration:none}
   .provider:hover{border-color:var(--accent)}
+  .brandhead{display:flex;flex-direction:column;align-items:center;gap:9px;margin-bottom:16px}
+  .brandhead img{width:40px;height:auto}
+  .brandhead .word{font-family:var(--mono);font-weight:700;letter-spacing:.1em;font-size:1.05rem}
 `;
+
+/**
+ * The SOVRGN mark, inlined as a data URI because this service deliberately
+ * serves no static files and must not depend on the marketing site being up
+ * to render its own sign-in. Same image the site and desktop icons come from
+ * (site/assets/mark-64.png), base64'd straight into the source.
+ */
+const MARK_DATA_URI = "data:image/png;base64,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";
+
+/**
+ * The brand header every page opens with, exported into scripts too so the
+ * in-place success/refusal rewrites keep the same chrome the page loaded with.
+ */
+const BRAND_HTML = `<div class="brandhead"><img src="${MARK_DATA_URI}" alt=""><span class="word">SOVRGN</span></div>`;
 
 function shell(title: string, body: string, script = ""): string {
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>${title} — SOVRGNnet</title>
+<title>${title} — SOVRGN</title>
 <style>${STYLE}</style>
-</head><body><div class="card">${body}</div>
+</head><body><div class="card">
+${BRAND_HTML}
+${body}</div>
 ${script ? `<script>${script}</script>` : ""}
 </body></html>`;
 }
@@ -126,7 +143,6 @@ export function signInPage(options: {
   error?: string;
 }): string {
   const body = `
-  <div class="logo">SOVRGN<b>net</b></div>
   <h1>Sign in</h1>
   <p class="sub">to continue to this server</p>
 
@@ -197,7 +213,6 @@ export function registerPage(options: {
   providers?: ProviderButton[];
 }): string {
   const body = `
-  <div class="logo">SOVRGN<b>net</b></div>
   <h1>Create an account</h1>
   <p class="sub">One account, usable on any SOVRGNnet server.</p>
 
@@ -264,7 +279,6 @@ export function registerPage(options: {
  */
 export function recoveryCodesPage(returnUrl: string): string {
   const body = `
-  <div class="logo">SOVRGN<b>net</b></div>
   <h1>Save your recovery codes</h1>
   <p class="sub">You will not be shown these again.</p>
 
@@ -318,12 +332,16 @@ export function recoveryCodesPage(returnUrl: string): string {
  */
 export function devicePage(prefilled: string, email: string): string {
   const body = `
-  <div class="logo">SOVRGN<b>net</b></div>
   <h1>Connect the desktop app</h1>
-  <p class="sub">Signed in as ${escapeHtml(email)}</p>
+  <p class="sub">Signed in as ${escapeHtml(email)} ·
+    <button type="button" id="notyou" class="linky">Not you?</button></p>
 
   <form id="f">
-    <label for="code">Enter the code shown in the app</label>
+    <label for="code">${
+      prefilled
+        ? "Confirm this matches the code in the app"
+        : "Enter the code shown in the app"
+    }</label>
     <input id="code" name="code" value="${escapeHtml(prefilled)}"
            placeholder="ABCD-EFGH" autocomplete="off" spellcheck="false"
            style="text-transform:uppercase;letter-spacing:3px;text-align:center;font-size:1.1rem" required autofocus>
@@ -355,18 +373,27 @@ export function devicePage(prefilled: string, email: string): string {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'That did not work');
-        document.querySelector('.card').innerHTML = approve
-          ? '<div class="logo">SOVRGN<b>net</b></div><h1>Connected</h1>' +
+        document.querySelector('.card').innerHTML = ${JSON.stringify(BRAND_HTML)} + (approve
+          ? '<h1>Connected</h1>' +
             '<p class="sub">You can close this page and go back to the app.</p>'
-          : '<div class="logo">SOVRGN<b>net</b></div><h1>Refused</h1>' +
-            '<p class="sub">Nothing was connected. You can close this page.</p>';
+          : '<h1>Refused</h1>' +
+            '<p class="sub">Nothing was connected. You can close this page.</p>');
       } catch (error) {
         errBox.innerHTML = '<div class="err"></div>';
         errBox.firstChild.textContent = error.message;
       }
     };
     form.addEventListener('submit', (e) => { e.preventDefault(); send(true); });
-    document.getElementById('deny').addEventListener('click', () => send(false));`;
+    document.getElementById('deny').addEventListener('click', () => send(false));
+    // "Not you?" — end this session and come back to the same URL, which now
+    // renders the sign-in page with the code still in it. The wrong-account
+    // case would otherwise connect the app to whoever the browser happened to
+    // be signed in as, with no way off the page short of visiting /api/logout
+    // by hand.
+    document.getElementById('notyou').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+      window.location.reload();
+    });`;
 
   return shell("Connect the desktop app", body, script);
 }
@@ -378,7 +405,6 @@ export function deviceSignInPage(
   providers: ProviderButton[] = []
 ): string {
   const body = `
-  <div class="logo">SOVRGN<b>net</b></div>
   <h1>Sign in</h1>
   <p class="sub">to connect the desktop app${code ? ` (code ${escapeHtml(code)})` : ""}</p>
 
@@ -428,8 +454,7 @@ export function deviceSignInPage(
 export function errorPage(title: string, message: string): string {
   return shell(
     title,
-    `<div class="logo">SOVRGN<b>net</b></div>
-     <h1>${escapeHtml(title)}</h1>
+    `<h1>${escapeHtml(title)}</h1>
      <p class="sub">${escapeHtml(message)}</p>`
   );
 }
