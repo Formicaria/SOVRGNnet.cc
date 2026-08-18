@@ -321,6 +321,20 @@ body::after {
 .header-cta {
   flex: none;
 }
+.header-auth {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.header-auth .header-login {
+  color: var(--text-2);
+  transition: color 0.15s ease;
+}
+.header-auth .header-login:hover {
+  color: var(--text);
+  text-decoration: none;
+}
 
 /* Mobile disclosure. <details>/<summary> is a native, keyboard-accessible
    disclosure widget that announces its own expanded state — the only way to
@@ -1862,7 +1876,8 @@ a.logo:hover {
     --gutter: 22px;
   }
   .site-nav,
-  .header-cta {
+  .header-cta,
+  .header-auth {
     display: none;
   }
   .nav-toggle {

@@ -696,7 +696,16 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
   });
 
   app.get("/recovery-codes", (req, res) => {
-    res.send(recoveryCodesPage(String(req.query.return ?? "")));
+    // Two continuations: `return` is the server flow (on to /authorize for
+    // that server), `next` is a local path — the hub register flow. `next`
+    // goes through safeContinue for the same reason OAuth continuations do:
+    // a continuation an attacker can point off-origin turns this page into
+    // a redirect wearing our chrome.
+    const next = req.query.next;
+    const destination = next
+      ? safeContinue(next)
+      : `/authorize?return=${encodeURIComponent(String(req.query.return ?? ""))}`;
+    res.send(recoveryCodesPage(destination));
   });
 
   // ---------------------------------------------------------- oauth broker
@@ -1234,7 +1243,9 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
     const account = await currentAccount(req);
     if (!account) {
       return res.send(
-        promptSignInPage("/hub/start", "to see your servers", providerList())
+        promptSignInPage("/hub/start", "to see your servers", providerList(), {
+          registerHref: "/hub/register",
+        })
       );
     }
 
@@ -1258,6 +1269,24 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
     // ends of this redirect are this same service: nothing third-party sees
     // the code, it is single-use, and it dies in sixty seconds anyway.
     res.redirect(302, `${hub}/hub/complete?code=${encodeURIComponent(code.token)}`);
+  });
+
+  /**
+   * Creating an account with no server in sight — the sign-up a marketing
+   * page can link to. Same /api/register underneath; the only difference is
+   * where the recovery-codes stop continues to, because there is no server's
+   * /authorize to return to yet. Ends signed in at the hub.
+   */
+  app.get("/hub/register", rateLimit(LIMITS.signIn), async (req, res) => {
+    const account = await currentAccount(req);
+    if (account) return res.redirect(302, "/hub/start");
+    res.send(
+      registerPage({
+        hub: true,
+        emailDisabled: !emailEnabled(),
+        providers: providerList(),
+      })
+    );
   });
 
   /** The hub-host half: redeem the code for a session on *this* hostname. */

@@ -250,12 +250,34 @@ export function signInPage(options: {
   return shell("Sign in", body, script);
 }
 
-export function registerPage(options: {
-  returnUrl: string;
-  instanceName: string;
-  emailDisabled: boolean;
-  providers?: ProviderButton[];
-}): string {
+export function registerPage(
+  options: { emailDisabled: boolean; providers?: ProviderButton[] } & (
+    | {
+        /** Creating an account to enter one particular server. */
+        hub?: false;
+        returnUrl: string;
+        instanceName: string;
+      }
+    | {
+        /**
+         * Creating an account from the hub, with no server in sight yet —
+         * the sign-up a marketing page can link to. Ends at /hub instead of
+         * a server's /authorize, because there is no server to return to.
+         */
+        hub: true;
+      }
+  )
+): string {
+  const continueTo = options.hub
+    ? "/hub/start"
+    : `/authorize?return=${encodeURIComponent(options.returnUrl)}`;
+  // Through /hub/start, not /hub directly: start is what crosses to the
+  // hub's own hostname when one is configured, so a fresh account lands on
+  // app.sovrgnnet.cc rather than the id host's copy of the same page.
+  const afterRegister = options.hub
+    ? "/recovery-codes?next=%2Fhub%2Fstart"
+    : `/recovery-codes?return=${encodeURIComponent(options.returnUrl)}`;
+
   const body = `
   <h1>Create an account</h1>
   <p class="sub">One account, usable on any SOVRGNnet server.</p>
@@ -269,8 +291,8 @@ export function registerPage(options: {
     <button type="submit" id="go">Create account</button>
   </form>
   <div id="err"></div>
-  ${providerButtons(options.providers ?? [], `/authorize?return=${encodeURIComponent(options.returnUrl)}`)}
-  <p class="alt">Already have one? <a href="/authorize?return=${encodeURIComponent(options.returnUrl)}">Sign in</a></p>
+  ${providerButtons(options.providers ?? [], continueTo)}
+  <p class="alt">Already have one? <a href="${continueTo}">Sign in</a></p>
   ${
     options.emailDisabled
       ? `<p class="note">This service doesn't send email. You'll be given recovery
@@ -303,7 +325,7 @@ export function registerPage(options: {
         // anywhere — there is no way to fetch them again.
         sessionStorage.setItem('recoveryCodes', JSON.stringify(data.recoveryCodes || []));
         sessionStorage.setItem('recoveryWarning', data.warning || '');
-        window.location.href = ${JSON.stringify(`/recovery-codes?return=${encodeURIComponent(options.returnUrl)}`)};
+        window.location.href = ${JSON.stringify(afterRegister)};
       } catch (error) {
         errBox.innerHTML = '<div class="err"></div>';
         errBox.firstChild.textContent = error.message;
@@ -321,7 +343,7 @@ export function registerPage(options: {
  * straight past this and later forgets their password has lost the account
  * outright when email is disabled.
  */
-export function recoveryCodesPage(returnUrl: string): string {
+export function recoveryCodesPage(destination: string): string {
   const body = `
   <h1>Save your recovery codes</h1>
   <p class="sub">You will not be shown these again.</p>
@@ -360,7 +382,7 @@ export function recoveryCodesPage(returnUrl: string): string {
       // Out of sessionStorage the moment they're no longer needed.
       sessionStorage.removeItem('recoveryCodes');
       sessionStorage.removeItem('recoveryWarning');
-      window.location.href = ${JSON.stringify(`/authorize?return=${encodeURIComponent(returnUrl)}`)};
+      window.location.href = ${JSON.stringify(destination)};
     });`;
 
   return shell("Recovery codes", body, script);
@@ -462,7 +484,8 @@ export function deviceSignInPage(
 export function promptSignInPage(
   returnPath: string,
   subtitle: string,
-  providers: ProviderButton[] = []
+  providers: ProviderButton[] = [],
+  options: { registerHref?: string } = {}
 ): string {
   const body = `
   <h1>Sign in</h1>
@@ -476,7 +499,12 @@ export function promptSignInPage(
     <button type="submit" id="go">Continue</button>
   </form>
   <div id="err"></div>
-  ${providerButtons(providers, returnPath)}`;
+  ${providerButtons(providers, returnPath)}
+  ${
+    options.registerHref
+      ? `<p class="alt">No account? <a href="${escapeHtml(options.registerHref)}">Create one</a></p>`
+      : ""
+  }`;
 
   const script = `
     const form = document.getElementById('f');
