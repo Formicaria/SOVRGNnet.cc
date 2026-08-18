@@ -11,6 +11,11 @@
          from. There was no favicon at all until now, so browsers fell back to
          guessing at /favicon.ico and getting the SPA's index.html. -->
     <link rel="icon" type="image/png" href="/mark.png" />
+    <!-- Add-to-home-screen on phones. No service worker on purpose: offline
+         chat against a live homeserver would be a cache of stale messages
+         pretending to be a conversation, and installability doesn't need one. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/mark.png" />
     <meta name="theme-color" content="#05040a" />
     <title>SOVRGN</title>
   </head>
