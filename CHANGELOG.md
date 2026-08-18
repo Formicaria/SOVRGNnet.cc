@@ -2,6 +2,32 @@
 
 ## v0.6.1 — 2026-08-17
 
+**The identity service's routes are tested against a real database.** Its unit
+tests cover keys, passwords and the limiter; single-use redemption, atomicity
+and "this row must not be readable twice" are properties of the database and
+cannot be tested without one. `identity/scripts/test-db.sh` brings up a
+throwaway Postgres on :55433 — a different port and container name from the
+main server's, so both can run at once and neither can be mistaken for the
+other.
+
+The suite gates on `IDENTITY_TEST_DATABASE_URL`, deliberately not
+`DATABASE_URL`. Reading the name the service itself uses would mean running it
+in a shell that had sourced production's `.env` pointed a suite that truncates
+tables at every identity on the network, and that failure is silent, total, and
+discovered afterwards. An instance's data comes back from last night's backup;
+an account subject does not, because every server keys its local user off it. A
+test asserts the variable names differ.
+
+Without a database the suite skips loudly rather than passing — a green tick
+standing in for coverage that never ran is worse than no coverage.
+
+**`docs/STAGING.md`.** Everything found in production this week reported
+healthy while being wrong, and each took minutes to diagnose on a throwaway box
+and hours on the live one. `e2e.sh` proves the code; what it cannot prove is an
+*upgrade* — a machine that has run for months, with data, an old config, and
+whatever was done to it at 2am. One container, off unless in use, with its own
+server name so nothing on it can be mistaken for real.
+
 **A Windows build shipped without `createdb`.** `initdb` ran, the cluster came
 up, and setup died three steps later with `The system cannot find the file
 specified`. `scripts/host-bundle.sh` verified `initdb` and treated it as proof

@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc --noEmit",
     "test": "vitest run",
+    "test:db": "./scripts/test-db.sh",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "keygen": "node --input-type=module -e \"import {generateKeyPairSync} from 'node:crypto'; const {privateKey}=generateKeyPairSync('ed25519'); process.stdout.write(privateKey.export({type:'pkcs8',format:'pem'}))\""
   },
