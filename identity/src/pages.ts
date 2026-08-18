@@ -47,6 +47,12 @@ const STYLE = `
   .linky:hover{color:var(--text)}
   .warn{margin-top:14px;padding:11px 13px;border-radius:8px;font-size:.85rem;
         background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:var(--warn)}
+  .or{display:flex;align-items:center;gap:10px;margin:18px 0 4px;color:var(--muted);font-size:.78rem}
+  .or::before,.or::after{content:"";flex:1;height:1px;background:var(--border)}
+  .provider{display:block;margin-top:10px;padding:10px;border:1px solid var(--border);
+            border-radius:9px;background:#0d0818;color:var(--text);text-align:center;
+            font-weight:600;font-size:.92rem;text-decoration:none}
+  .provider:hover{border-color:var(--accent)}
 `;
 
 function shell(title: string, body: string, script = ""): string {
@@ -76,6 +82,35 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
+/** What a page needs to know about a provider: enough to draw a button. */
+export type ProviderButton = { id: string; label: string };
+
+/**
+ * "Continue with …" for whichever providers the operator configured.
+ *
+ * Plain links, not a form: the start route does the redirect, so these work
+ * with scripting disabled and there is no in-page state to lose. An empty
+ * list renders nothing at all — an operator with no providers sees exactly
+ * the page they had before providers existed.
+ *
+ * `continueTo` is the local path to resume after the round trip. It is
+ * URL-encoded here and validated relative-only on the server, because a
+ * continuation an attacker can point off-origin turns a successful sign-in
+ * into a redirect with our chrome on it.
+ */
+function providerButtons(providers: ProviderButton[], continueTo: string): string {
+  if (providers.length === 0) return "";
+  const links = providers
+    .map(
+      p =>
+        `<a class="provider" href="/oauth/${escapeHtml(p.id)}/start?continue=${encodeURIComponent(continueTo)}">Continue with ${escapeHtml(p.label)}</a>`
+    )
+    .join("\n  ");
+  return `
+  <div class="or"><span>or</span></div>
+  ${links}`;
+}
+
 /**
  * Sign in, in order to hand a token to one particular server.
  *
@@ -87,6 +122,7 @@ export function signInPage(options: {
   returnUrl: string;
   instanceName: string;
   instanceHost: string;
+  providers?: ProviderButton[];
   error?: string;
 }): string {
   const body = `
@@ -112,6 +148,7 @@ export function signInPage(options: {
     <button type="submit" id="go">Continue</button>
   </form>
   <div id="err"></div>
+  ${providerButtons(options.providers ?? [], `/authorize?return=${encodeURIComponent(options.returnUrl)}`)}
   <p class="alt">No account? <a href="/register?return=${encodeURIComponent(options.returnUrl)}">Create one</a></p>
   <p class="note">
     This server will learn your account name and email address. It won't
@@ -157,6 +194,7 @@ export function registerPage(options: {
   returnUrl: string;
   instanceName: string;
   emailDisabled: boolean;
+  providers?: ProviderButton[];
 }): string {
   const body = `
   <div class="logo">SOVRGN<b>net</b></div>
@@ -172,6 +210,7 @@ export function registerPage(options: {
     <button type="submit" id="go">Create account</button>
   </form>
   <div id="err"></div>
+  ${providerButtons(options.providers ?? [], `/authorize?return=${encodeURIComponent(options.returnUrl)}`)}
   <p class="alt">Already have one? <a href="/authorize?return=${encodeURIComponent(options.returnUrl)}">Sign in</a></p>
   ${
     options.emailDisabled
@@ -333,7 +372,11 @@ export function devicePage(prefilled: string, email: string): string {
 }
 
 /** Sign in first, then return to approving the desktop app. */
-export function deviceSignInPage(returnPath: string, code: string): string {
+export function deviceSignInPage(
+  returnPath: string,
+  code: string,
+  providers: ProviderButton[] = []
+): string {
   const body = `
   <div class="logo">SOVRGN<b>net</b></div>
   <h1>Sign in</h1>
@@ -346,7 +389,8 @@ export function deviceSignInPage(returnPath: string, code: string): string {
     <input id="password" type="password" autocomplete="current-password" required>
     <button type="submit" id="go">Continue</button>
   </form>
-  <div id="err"></div>`;
+  <div id="err"></div>
+  ${providerButtons(providers, returnPath)}`;
 
   const script = `
     const form = document.getElementById('f');

@@ -15,10 +15,24 @@ import {
   normalizeUserCode,
 } from "@shared/deviceFlow";
 import {
+  buildAuthorizeUrl,
+  configuredProviders,
+  generatePkce,
+  generateState,
+  githubPrimaryEmail,
+  isProviderId,
+  matchBrokerAccount,
+  mergeGithubEmail,
+  normalizeProfile,
+  PROVIDERS,
+} from "@shared/oauthProviders";
+import {
   accounts,
   deviceAuthorizations,
   emailTokens,
   grants,
+  identities,
+  oauthAttempts,
   recoveryCodes,
   sessions,
 } from "../schema";
@@ -54,6 +68,34 @@ const SESSION_COOKIE = "sovrgnnet_identity";
 const SESSION_TTL_DAYS = 30;
 const VERIFY_TTL_HOURS = 24;
 const RESET_TTL_HOURS = 1;
+const OAUTH_ATTEMPT_TTL_MINUTES = 10;
+
+/**
+ * Swapped by tests so provider exchanges hit a mock and never the internet —
+ * the same arrangement matrixService uses, for the same reason: a test that
+ * dials Google is a test that fails on somebody's train.
+ */
+let oauthFetch: typeof fetch = (...args) => fetch(...args);
+export function __setOAuthFetchForTests(impl: typeof fetch): void {
+  oauthFetch = impl;
+}
+
+/**
+ * The only continuations a provider callback may resume are pages on this
+ * service. Anything absolute — or scheme-relative, which `//evil.example`
+ * is — is discarded before storage rather than after, because a continuation
+ * an attacker chooses turns a successful sign-in into a redirect wearing our
+ * chrome.
+ */
+function safeContinue(raw: unknown): string {
+  const value = String(raw ?? "");
+  return value.startsWith("/") && !value.startsWith("//") ? value : "/";
+}
+
+/** Provider buttons for the sign-in pages: whatever the operator configured. */
+function providerList(): Array<{ id: string; label: string }> {
+  return configuredProviders(process.env).map(p => ({ id: p.id, label: p.label }));
+}
 
 const credentials = z.object({
   email: z.string().email().max(320),
@@ -535,6 +577,7 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
           returnUrl,
           instanceName: target.instanceName,
           instanceHost: new URL(target.origin).host,
+          providers: providerList(),
         })
       );
     }
@@ -614,12 +657,278 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
         returnUrl,
         instanceName: target.instanceName,
         emailDisabled: !emailEnabled(),
+        providers: providerList(),
       })
     );
   });
 
   app.get("/recovery-codes", (req, res) => {
     res.send(recoveryCodesPage(String(req.query.return ?? "")));
+  });
+
+  // ---------------------------------------------------------- oauth broker
+  //
+  // shared/oauthProviders.ts held the whole broker — PKCE, per-provider
+  // profile normalization, the account-matching rule, 38 tests — and was
+  // imported by nothing. The site said sign-in "goes through Google,
+  // Microsoft, GitHub, or Discord" while the only working way in was the
+  // email form. These two routes put the mechanism in the path. The account
+  // schema was already shaped for it (`identities`, `oauthAttempts`), which
+  // is how a claim gets ahead of a product: every layer but the last one.
+
+  app.get("/oauth/:provider/start", rateLimit(LIMITS.signIn), async (req, res) => {
+    const id = String(req.params.provider);
+    if (!isProviderId(id)) {
+      return res.status(404).send(errorPage("Unknown provider", "That sign-in provider doesn't exist."));
+    }
+    const clientId = process.env[`${id.toUpperCase()}_CLIENT_ID`];
+    const clientSecret = process.env[`${id.toUpperCase()}_CLIENT_SECRET`];
+    if (!clientId || !clientSecret) {
+      return res
+        .status(404)
+        .send(errorPage("Not available", `${PROVIDERS[id].label} sign-in isn't configured on this service.`));
+    }
+
+    // link=1 attaches this provider to the *current* account instead of
+    // signing in — which is why it demands a session: linking is claiming,
+    // and only someone who has already proved the account is theirs may.
+    let linkToAccountId: number | null = null;
+    if (String(req.query.link ?? "") === "1") {
+      const account = await currentAccount(req);
+      if (!account) {
+        return res.status(401).send(errorPage("Sign in first", "Linking a provider happens from inside a signed-in session."));
+      }
+      linkToAccountId = account.id;
+    }
+
+    const provider = PROVIDERS[id];
+    const state = generateState();
+    const pkce = provider.usesPkce ? generatePkce() : null;
+
+    const db = await getDb();
+    await db.insert(oauthAttempts).values({
+      state,
+      provider: id,
+      codeVerifier: pkce?.verifier ?? null,
+      returnUrl: safeContinue(req.query.continue),
+      linkToAccountId,
+      expiresAt: new Date(Date.now() + OAUTH_ATTEMPT_TTL_MINUTES * 60 * 1000),
+    });
+
+    res.redirect(
+      302,
+      buildAuthorizeUrl(provider, {
+        clientId,
+        redirectUri: `${baseUrl()}/oauth/${id}/callback`,
+        state,
+        codeChallenge: pkce?.challenge,
+      })
+    );
+  });
+
+  app.get("/oauth/:provider/callback", rateLimit(LIMITS.signIn), async (req, res) => {
+    const id = String(req.params.provider);
+    if (!isProviderId(id)) {
+      return res.status(404).send(errorPage("Unknown provider", "That sign-in provider doesn't exist."));
+    }
+    const provider = PROVIDERS[id];
+
+    // The person pressed cancel at the provider, or the provider refused.
+    // Ordinary, not an error worth a stack trace.
+    if (typeof req.query.error === "string" && req.query.error) {
+      return res.send(errorPage("Sign-in cancelled", `${provider.label} didn't complete the sign-in. Nothing has changed; you can try again.`));
+    }
+
+    const code = String(req.query.code ?? "");
+    const state = String(req.query.state ?? "");
+    if (!code || !state) {
+      return res.status(400).send(errorPage("Can't continue", "The provider's reply was missing its code or state."));
+    }
+
+    // Delete-returning makes the state single-use by construction: a replayed
+    // callback finds nothing, whatever the timing. Expiry is checked in the
+    // same statement so an expired row can't be consumed either.
+    const db = await getDb();
+    const [attempt] = await db
+      .delete(oauthAttempts)
+      .where(
+        and(
+          eq(oauthAttempts.state, state),
+          eq(oauthAttempts.provider, id),
+          gt(oauthAttempts.expiresAt, new Date())
+        )
+      )
+      .returning();
+    if (!attempt) {
+      return res.status(400).send(errorPage("Sign-in expired", "That sign-in attempt expired or was already used. Start again from the sign-in page."));
+    }
+
+    const clientId = process.env[`${id.toUpperCase()}_CLIENT_ID`];
+    const clientSecret = process.env[`${id.toUpperCase()}_CLIENT_SECRET`];
+    if (!clientId || !clientSecret) {
+      return res.status(404).send(errorPage("Not available", `${provider.label} sign-in isn't configured on this service.`));
+    }
+
+    // -- code → access token --------------------------------------------------
+    const form = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: `${baseUrl()}/oauth/${id}/callback`,
+      client_id: clientId,
+      client_secret: clientSecret,
+    });
+    if (attempt.codeVerifier) form.set("code_verifier", attempt.codeVerifier);
+
+    // Accept: application/json matters for GitHub, whose token endpoint
+    // answers form-encoded unless asked otherwise.
+    const tokenRes = await oauthFetch(provider.tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: form.toString(),
+    });
+    if (!tokenRes.ok) {
+      return res.status(502).send(errorPage("Provider refused", `${provider.label} refused the token exchange (HTTP ${tokenRes.status}). If this persists, the client secret configured here is probably wrong.`));
+    }
+    const tokenBody = (await tokenRes.json().catch(() => ({}))) as { access_token?: string };
+    if (!tokenBody.access_token) {
+      return res.status(502).send(errorPage("Provider refused", `${provider.label} answered the exchange without an access token.`));
+    }
+
+    // -- access token → who this is ------------------------------------------
+    // GitHub's API refuses requests without a User-Agent; harmless elsewhere.
+    const authHeaders = {
+      Authorization: `Bearer ${tokenBody.access_token}`,
+      Accept: "application/json",
+      "User-Agent": "sovrgnnet-identity",
+    };
+    const profileRes = await oauthFetch(provider.userInfoUrl, { headers: authHeaders });
+    if (!profileRes.ok) {
+      return res.status(502).send(errorPage("Provider refused", `${provider.label} wouldn't say who signed in (HTTP ${profileRes.status}).`));
+    }
+    let profile = normalizeProfile(id, (await profileRes.json().catch(() => ({}))) as Record<string, unknown>);
+    if (!profile) {
+      return res.status(502).send(errorPage("Provider refused", `${provider.label}'s profile response wasn't readable.`));
+    }
+    if (id === "github") {
+      // The profile endpoint returns only the public email, usually null; the
+      // real, verified address is a second call away.
+      const emailsRes = await oauthFetch("https://api.github.com/user/emails", { headers: authHeaders });
+      if (emailsRes.ok) {
+        const list = (await emailsRes.json().catch(() => [])) as Array<Record<string, unknown>>;
+        profile = mergeGithubEmail(profile, githubPrimaryEmail(list));
+      }
+    }
+
+    // -- linking a second provider to a signed-in account ---------------------
+    if (attempt.linkToAccountId) {
+      try {
+        await db.insert(identities).values({
+          accountId: attempt.linkToAccountId,
+          provider: id,
+          providerUserId: profile.providerUserId,
+          email: profile.email,
+          emailVerified: profile.emailVerified,
+        });
+      } catch {
+        // The unique (provider, providerUserId) constraint: this third-party
+        // account already belongs to somebody. Refusing is the only honest
+        // answer — silently re-pointing it would steal it from them.
+        return res.status(409).send(errorPage("Already linked", `That ${provider.label} account is already linked to a different SOVRGN account.`));
+      }
+      return res.redirect(302, safeContinue(attempt.returnUrl));
+    }
+
+    // -- sign in, create, or refuse -------------------------------------------
+    const [byIdentity] = await db
+      .select({ accountId: identities.accountId, identityId: identities.id })
+      .from(identities)
+      .where(and(eq(identities.provider, id), eq(identities.providerUserId, profile.providerUserId)))
+      .limit(1);
+
+    const byEmail = profile.email
+      ? await db
+          .select({ id: accounts.id })
+          .from(accounts)
+          .where(eq(accounts.email, normalizeEmail(profile.email)))
+          .limit(1)
+      : [];
+
+    const match = matchBrokerAccount({
+      profile,
+      existingByIdentity: byIdentity ? { id: byIdentity.accountId } : null,
+      existingByEmail: byEmail[0] ?? null,
+    });
+
+    if (match.action === "refuse") {
+      return res.status(409).send(errorPage("Account already exists", match.message));
+    }
+
+    let accountId: number;
+    if (match.action === "create") {
+      // accounts.email is NOT NULL and the linking rules lean on it, so an
+      // account can only be created from a provider-verified address. The
+      // failure is spelled out per provider because each has a different fix.
+      if (!profile.email || !profile.emailVerified) {
+        return res.status(400).send(errorPage(
+          "No verified email",
+          `Your ${provider.label} account didn't provide a verified email address, and SOVRGN needs one to create an account. Verify an address with ${provider.label} and try again, or create an account with email and password instead.`
+        ));
+      }
+      try {
+        const [account] = await db
+          .insert(accounts)
+          .values({
+            subject: generateSubject(),
+            email: normalizeEmail(profile.email),
+            emailVerified: true,
+            passwordHash: null,
+            displayName: profile.name,
+            avatar: profile.avatar,
+          })
+          .returning();
+        await db.insert(identities).values({
+          accountId: account.id,
+          provider: id,
+          providerUserId: profile.providerUserId,
+          email: profile.email,
+          emailVerified: profile.emailVerified,
+        });
+        accountId = account.id;
+      } catch {
+        // Two tabs racing, or an email registered between our check and the
+        // insert. Same shape as the deliberate refusal, same guidance.
+        return res.status(409).send(errorPage(
+          "Account already exists",
+          "An account already uses that email address. Sign in the way you did before, then link this provider from your account settings."
+        ));
+      }
+    } else {
+      const [account] = await db.select().from(accounts).where(eq(accounts.id, match.accountId)).limit(1);
+      if (!account || account.suspendedAt) {
+        return res.status(403).send(errorPage("Account unavailable", "This account is suspended."));
+      }
+      accountId = account.id;
+      await db
+        .update(identities)
+        .set({ lastUsedAt: new Date(), email: profile.email, emailVerified: profile.emailVerified })
+        .where(eq(identities.id, byIdentity!.identityId));
+    }
+
+    // Same session shape as /api/login — a provider sign-in is a sign-in.
+    const session = generateOpaqueToken();
+    await db.insert(sessions).values({
+      accountId,
+      tokenHash: session.hash,
+      userAgent: req.get("user-agent")?.slice(0, 300) ?? null,
+      expiresAt: new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000),
+    });
+    await db.update(accounts).set({ lastSignedIn: new Date() }).where(eq(accounts.id, accountId));
+    setSession(res, session.token);
+
+    res.redirect(302, safeContinue(attempt.returnUrl));
   });
 
   // ------------------------------------------------------------- device flow
@@ -761,7 +1070,8 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
       return res.send(
         deviceSignInPage(
           back,
-          typeof req.query.code === "string" ? req.query.code : ""
+          typeof req.query.code === "string" ? req.query.code : "",
+          providerList()
         )
       );
     }
