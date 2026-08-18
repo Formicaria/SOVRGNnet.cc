@@ -68,6 +68,29 @@ identity container, for the same reason: every connector on a tunnel serves
 that tunnel's entire ingress config, so a second connector on `sovrgnnet` would
 advertise production's routes from a staging machine.
 
+## Verify it
+
+From any machine that can reach it — deliberately *not* from a shell on the
+box, because users don't have one:
+
+```bash
+# fresh box (the setup token is in the box's /opt/sovrgnnet/.env):
+STAGING_SETUP_TOKEN=... ./scripts/verify-staging.sh http://<staging-ip>:3000
+
+# a box with history:
+STAGING_EMAIL=... STAGING_PASSWORD=... ./scripts/verify-staging.sh http://<staging-ip>:3000
+```
+
+Conformance (read-only), then a real user journey — account, community, a
+message or the encrypted-channel refusal depending on what the box honestly
+advertises, a file round trip, an invite whose URL must name the box — then
+`/metrics`. The journey writes one throwaway community, named so a human can
+delete it on sight.
+
+Both the script and the journey **refuse production**, by hostname and by the
+server name the instance reports about itself, with the names hardcoded —
+`server/stagingVerify.test.ts` fails the suite if either refusal weakens.
+
 ## What to rehearse on it
 
 The things that have actually gone wrong:
