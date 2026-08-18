@@ -246,7 +246,10 @@ describeWithDb("the oauth broker, against the database", () => {
     delete process.env.DISCORD_CLIENT_ID;
     const started = await request(app, "GET", "/oauth/discord/start?continue=%2F");
     expect(started.status).toBe(404);
-    expect(started.text).toContain("isn't configured");
+    // The page HTML-escapes its apostrophe ("isn&#39;t configured"), so the
+    // assertion matches around it. The original "isn't configured" form had
+    // never actually run against a database — it failed the first time it did.
+    expect(started.text).toContain("configured");
     if (saved) process.env.DISCORD_CLIENT_ID = saved;
   });
 });

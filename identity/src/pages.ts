@@ -20,6 +20,21 @@ const STYLE = `
   body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
        line-height:1.6;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
   .card{width:min(420px,100%);background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:32px}
+  .card.wide{width:min(640px,100%)}
+  .server{display:flex;gap:12px;align-items:center;padding:13px;margin-top:10px;
+          border:1px solid var(--border);border-radius:11px;background:#0d0818}
+  .server .badge{width:42px;height:42px;border-radius:12px;background:#241a3d;display:flex;
+                 align-items:center;justify-content:center;font-weight:700;font-size:.85rem;flex:0 0 auto}
+  .server .meta{flex:1;min-width:0}
+  .server .meta small{display:block;color:var(--muted);font-family:var(--mono);font-size:.72rem;
+                      overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .server .open{margin:0;width:auto;padding:8px 18px;flex:0 0 auto;text-decoration:none;
+                display:inline-block;background:var(--accent);color:#fff;border-radius:9px;
+                font-weight:600;font-size:.88rem}
+  .server .open:hover{filter:brightness(1.1)}
+  .addrow{display:flex;gap:8px;margin-top:10px}
+  .addrow input{flex:1}
+  .addrow button{width:auto;margin-top:0;padding:10px 16px}
   h1{font-size:1.35rem;margin-bottom:6px;letter-spacing:-.01em}
   p.sub{color:var(--muted);font-size:.93rem;margin-bottom:22px}
   label{display:block;font-size:.78rem;color:var(--muted);margin:14px 0 5px}
@@ -95,7 +110,7 @@ const PROVIDER_ICONS: Record<string, string> = {
     "M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z",
 };
 
-function shell(title: string, body: string, script = ""): string {
+function shell(title: string, body: string, script = "", wide = false): string {
   return `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -103,7 +118,7 @@ function shell(title: string, body: string, script = ""): string {
 <link rel="icon" href="${MARK_DATA_URI}" type="image/png">
 <title>${title} — SOVRGN</title>
 <style>${STYLE}</style>
-</head><body><div class="card">
+</head><body><div class="card${wide ? " wide" : ""}">
 ${BRAND_HTML}
 ${body}</div>
 ${script ? `<script>${script}</script>` : ""}
@@ -433,9 +448,25 @@ export function deviceSignInPage(
   code: string,
   providers: ProviderButton[] = []
 ): string {
+  return promptSignInPage(
+    returnPath,
+    `to connect the desktop app${code ? ` (code ${code})` : ""}`,
+    providers
+  );
+}
+
+/**
+ * A sign-in page that resumes a local path afterwards — the shape both the
+ * device approval and the hub need, differing only in why they're asking.
+ */
+export function promptSignInPage(
+  returnPath: string,
+  subtitle: string,
+  providers: ProviderButton[] = []
+): string {
   const body = `
   <h1>Sign in</h1>
-  <p class="sub">to connect the desktop app${code ? ` (code ${escapeHtml(code)})` : ""}</p>
+  <p class="sub">${escapeHtml(subtitle)}</p>
 
   <form id="f">
     <label for="email">Email</label>
@@ -478,6 +509,173 @@ export function deviceSignInPage(
     });`;
 
   return shell("Sign in", body, script);
+}
+
+/** What a hub server card needs: the grant, as the API would tell it. */
+export type HubServer = {
+  instanceId: string;
+  instanceName: string | null;
+  instanceUrl: string | null;
+  lastUsedAt: Date;
+};
+
+/**
+ * The signed-out hub: one sentence and one button.
+ *
+ * Deliberately a page rather than an automatic redirect to the id host —
+ * signing out used to be impossible to *stay* signed out of when the hub
+ * bounced straight back through a still-live id session. A person who signed
+ * out sees this page and decides.
+ */
+export function hubLandingPage(signInUrl: string): string {
+  const body = `
+  <h1>Your servers, one place</h1>
+  <p class="sub">Sign in with your SOVRGN account to see every server
+  you're part of and jump straight into any of them.</p>
+  <a class="open" style="display:block;text-align:center;background:var(--accent);color:#fff;
+     padding:11px;border-radius:9px;text-decoration:none;font-weight:600"
+     href="${escapeHtml(signInUrl)}">Sign in</a>
+  <p class="note">One account, usable on any SOVRGNnet server — yours, a
+  friend's desktop-hosted one, or any instance that trusts this identity
+  service.</p>`;
+  return shell("Your servers", body);
+}
+
+/**
+ * The hub: every server this account has signed into, each one click away.
+ *
+ * The list is the grants table — an *observation log* of where this account
+ * has actually been, which is why a server someone has never signed into
+ * doesn't appear and why the add-a-server path exists. "Open" routes through
+ * /authorize on the id host, which is the same mint every sign-in uses; the
+ * hub holds no per-server credentials and never talks to a server itself.
+ * The one exception runs in the visitor's own browser: adding a server reads
+ * that server's public, unauthenticated descriptor to show what it is before
+ * anyone signs into it.
+ */
+export function hubPage(options: {
+  email: string;
+  servers: HubServer[];
+  /** The id host base URL — where /authorize and sign-out live. */
+  idBase: string;
+}): string {
+  const { email, servers, idBase } = options;
+
+  const cards =
+    servers.length === 0
+      ? `<p class="note" style="border:0;padding:0;margin-top:6px">No servers yet.
+         Sign into one from its own address below, or from an invite link —
+         it appears here from then on.</p>`
+      : servers
+          .map(s => {
+            const name = s.instanceName ?? `Server ${s.instanceId.slice(0, 8)}`;
+            // Only an https origin this service resolved itself may become a
+            // link. instanceUrl is an observation (see schema.ts), but a
+            // belt on a security surface costs one line.
+            const url =
+              s.instanceUrl && /^https?:\/\//.test(s.instanceUrl)
+                ? s.instanceUrl
+                : null;
+            const open = url
+              ? `<a class="open" href="${escapeHtml(
+                  `${idBase}/authorize?return=${encodeURIComponent(`${url}/sso/callback`)}`
+                )}">Open</a>`
+              : `<span style="color:var(--muted);font-size:.8rem">address not
+                 recorded yet — sign in from the server once</span>`;
+            return `
+  <div class="server">
+    <div class="badge">${escapeHtml(initials(name))}</div>
+    <div class="meta">
+      <strong>${escapeHtml(name)}</strong>
+      <small>${escapeHtml(url ? new URL(url).host : "—")}</small>
+    </div>
+    ${open}
+    <button type="button" class="linky revoke" data-instance="${escapeHtml(s.instanceId)}"
+            data-name="${escapeHtml(name)}">Revoke</button>
+  </div>`;
+          })
+          .join("\n");
+
+  const body = `
+  <h1>Your servers</h1>
+  <p class="sub" style="margin-bottom:4px">Signed in as ${escapeHtml(email)}</p>
+  <p class="notyou"><button type="button" id="signout" class="linky">Sign out</button></p>
+
+  ${cards}
+  <div id="err"></div>
+
+  <div class="or"><span>add a server</span></div>
+  <form class="addrow" id="add">
+    <input id="addr" placeholder="chat.example.com" autocomplete="off"
+           spellcheck="false" autocapitalize="none">
+    <button type="submit">Find</button>
+  </form>
+  <div id="found"></div>
+
+  <p class="note">
+    Opening a server signs you in over there with this account. Revoking
+    stops new sign-ins to that server; the account it already created for
+    you lives on that server and is removed there, not here.
+  </p>`;
+
+  // The add-a-server probe runs in the *visitor's* browser against the
+  // server's public descriptor (CORS-open by design over there). This page
+  // deliberately never proxies it: the identity service resolving arbitrary
+  // typed-in addresses server-side would be an SSRF surface.
+  const script = `
+    const err = document.getElementById('err');
+    const showErr = (m) => { err.innerHTML = '<div class="err"></div>'; err.firstChild.textContent = m; };
+
+    document.getElementById('signout').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+      window.location.reload();
+    });
+
+    document.querySelectorAll('.revoke').forEach((el) => {
+      el.addEventListener('click', async () => {
+        if (!confirm('Stop new sign-ins to ' + el.dataset.name + '? Your account there stays until you remove it there.')) return;
+        const res = await fetch('/api/grants/' + encodeURIComponent(el.dataset.instance) + '/revoke', {
+          method: 'POST', credentials: 'same-origin',
+        });
+        if (!res.ok) { showErr('Could not revoke that right now.'); return; }
+        window.location.reload();
+      });
+    });
+
+    const found = document.getElementById('found');
+    document.getElementById('add').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      err.innerHTML = ''; found.innerHTML = '';
+      let addr = document.getElementById('addr').value.trim();
+      if (!addr) return;
+      if (!/^https?:\\/\\//.test(addr)) addr = 'https://' + addr;
+      let origin;
+      try { origin = new URL(addr).origin; } catch { showErr('That does not look like an address.'); return; }
+      let info;
+      try {
+        const res = await fetch(origin + '/api/instance', { signal: AbortSignal.timeout(6000) });
+        info = await res.json();
+      } catch { showErr('No SOVRGNnet server answered at ' + origin + '.'); return; }
+      if (!info || info.product !== 'sovrgnnet') { showErr('Something answered at ' + origin + ', but it is not a SOVRGNnet server.'); return; }
+      if (info.identityIssuer && info.identityIssuer !== ${JSON.stringify(idBase)}) {
+        showErr('That server trusts a different identity service, so this account cannot sign in there.');
+        return;
+      }
+      const div = document.createElement('div');
+      div.className = 'server';
+      const badge = document.createElement('div'); badge.className = 'badge';
+      badge.textContent = (info.name || '?').split(/\\s+/).map(w => w[0] || '').join('').slice(0, 2).toUpperCase();
+      const meta = document.createElement('div'); meta.className = 'meta';
+      const strong = document.createElement('strong'); strong.textContent = info.name || origin;
+      const small = document.createElement('small'); small.textContent = new URL(origin).host;
+      meta.append(strong, small);
+      const a = document.createElement('a'); a.className = 'open'; a.textContent = 'Sign in';
+      a.href = ${JSON.stringify(idBase)} + '/authorize?return=' + encodeURIComponent(origin + '/sso/callback');
+      div.append(badge, meta, a);
+      found.append(div);
+    });`;
+
+  return shell("Your servers", body, script, true);
 }
 
 export function errorPage(title: string, message: string): string {

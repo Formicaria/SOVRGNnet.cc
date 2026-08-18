@@ -107,7 +107,7 @@ describeWithDb("identity routes, against a real database", () => {
     // Order matters: children before parents. TRUNCATE ... CASCADE would be
     // shorter and would also quietly hide a missing foreign key.
     await db.execute(
-      sql`TRUNCATE "deviceAuthorizations", "grants", "sessions", "recoveryCodes", "emailTokens", "oauthAttempts", "identities", "accounts" RESTART IDENTITY`
+      sql`TRUNCATE "hubHandoffs", "deviceAuthorizations", "grants", "sessions", "recoveryCodes", "emailTokens", "oauthAttempts", "identities", "accounts" RESTART IDENTITY`
     );
   });
 
@@ -214,6 +214,142 @@ describeWithDb("identity routes, against a real database", () => {
       );
       const stored = JSON.stringify([...rows]);
       expect(stored).not.toContain(created.body.device_code);
+    });
+  });
+
+  describe("the hub", () => {
+    /** Same as request(), but redirects stay visible instead of followed. */
+    async function rawRequest(
+      path: string,
+      headers: Record<string, string> = {}
+    ): Promise<{ status: number; text: string; headers: Record<string, string> }> {
+      const { createServer } = await import("node:http");
+      const server = createServer(app);
+      await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+      const port = (server.address() as { port: number }).port;
+      try {
+        const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+          headers,
+          redirect: "manual",
+        });
+        return {
+          status: res.status,
+          text: await res.text(),
+          headers: Object.fromEntries(res.headers.entries()),
+        };
+      } finally {
+        await new Promise<void>(resolve => server.close(() => resolve()));
+      }
+    }
+
+    /** Register, sign in, hand back the session cookie and account id. */
+    async function signedIn(): Promise<{ cookie: string; accountId: number }> {
+      await request(app, "POST", "/api/register", {
+        email: "hub@example.com",
+        password: "a-long-enough-password",
+      });
+      const login = await request(app, "POST", "/api/login", {
+        email: "hub@example.com",
+        password: "a-long-enough-password",
+      });
+      const setCookie = login.headers["set-cookie"] ?? "";
+      const cookie = setCookie.split(";")[0];
+      expect(cookie).toContain("sovrgnnet_identity=");
+      const rows = await db.execute(sql`SELECT id FROM accounts WHERE email = 'hub@example.com'`);
+      return { cookie, accountId: (rows[0] as { id: number }).id };
+    }
+
+    afterEach(() => {
+      delete process.env.HUB_PUBLIC_URL;
+    });
+
+    it("signed out, the hub is a page with a button — not a bounce", async () => {
+      // The bounce would ride a still-live id session straight back in,
+      // making sign-out impossible to mean.
+      const res = await rawRequest("/hub");
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("Sign in");
+      expect(res.text).toContain("https://id.test.local/hub/start");
+    });
+
+    it("start without a session asks for one", async () => {
+      const res = await rawRequest("/hub/start");
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("to see your servers");
+    });
+
+    it("crosses hostnames on a hashed, single-use code", async () => {
+      const { cookie } = await signedIn();
+      process.env.HUB_PUBLIC_URL = "https://app.test.local";
+
+      const started = await rawRequest("/hub/start", { cookie });
+      expect(started.status).toBe(302);
+      const location = started.headers["location"] ?? "";
+      expect(location.startsWith("https://app.test.local/hub/complete?code=")).toBe(true);
+      const code = new URL(location).searchParams.get("code") as string;
+
+      // Hashed at rest: the table must not contain the redeemable secret.
+      const stored = await db.execute(sql`SELECT "codeHash" FROM "hubHandoffs"`);
+      expect(stored.length).toBe(1);
+      expect(JSON.stringify([...stored])).not.toContain(code);
+
+      // Redemption: a session on the arriving host, then straight to /hub.
+      const done = await rawRequest(`/hub/complete?code=${encodeURIComponent(code)}`);
+      expect(done.status).toBe(302);
+      expect(done.headers["location"]).toBe("/hub");
+      const hubCookie = (done.headers["set-cookie"] ?? "").split(";")[0];
+      expect(hubCookie).toContain("sovrgnnet_identity=");
+
+      const hub = await rawRequest("/hub", { cookie: hubCookie });
+      expect(hub.status).toBe(200);
+      expect(hub.text).toContain("hub@example.com");
+
+      // Exactly once. The second redemption is somebody replaying a log.
+      const replay = await rawRequest(`/hub/complete?code=${encodeURIComponent(code)}`);
+      expect(replay.status).toBe(400);
+      expect(replay.text).toContain("already used");
+    });
+
+    it("refuses a code past its sixty seconds", async () => {
+      const { accountId } = await signedIn();
+      const { hashOpaqueToken } = await import("./accounts");
+      await db.execute(
+        sql`INSERT INTO "hubHandoffs" ("codeHash", "accountId", "expiresAt")
+            VALUES (${hashOpaqueToken("stale-code")}, ${accountId}, now() - interval '1 minute')`
+      );
+      const res = await rawRequest("/hub/complete?code=stale-code");
+      expect(res.status).toBe(400);
+    });
+
+    it("without a second hostname, start walks straight into /hub", async () => {
+      const { cookie } = await signedIn();
+      const res = await rawRequest("/hub/start", { cookie });
+      expect(res.status).toBe(302);
+      expect(res.headers["location"]).toBe("/hub");
+    });
+
+    it("lists servers, escapes their names, and links through /authorize", async () => {
+      // A server names itself. A name that runs as script on the page that
+      // decides whether to keep trusting servers would be a fine irony.
+      const { cookie, accountId } = await signedIn();
+      await db.execute(
+        sql`INSERT INTO grants ("accountId", "instanceId", "instanceName", "instanceUrl")
+            VALUES (${accountId}, 'inst_hostile', '<script>alert(1)</script>', 'https://srv.test.local')`
+      );
+      await db.execute(
+        sql`INSERT INTO grants ("accountId", "instanceId", "instanceName", "revokedAt")
+            VALUES (${accountId}, 'inst_revoked', 'Revoked Server', now())`
+      );
+
+      const res = await rawRequest("/hub", { cookie });
+      expect(res.status).toBe(200);
+      expect(res.text).not.toContain("<script>alert(1)");
+      expect(res.text).toContain("&lt;script&gt;");
+      expect(res.text).toContain(
+        `/authorize?return=${encodeURIComponent("https://srv.test.local/sso/callback")}`
+      );
+      // Revoked means gone from the list, not greyed out on it.
+      expect(res.text).not.toContain("Revoked Server");
     });
   });
 

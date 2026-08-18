@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+**The hub: app.sovrgnnet.cc becomes the place your servers live.** Sign in
+once with the SOVRGN account — password or any configured provider — and
+see every server the account has access to, each one click from being
+inside it via the same `/authorize` mint every sign-in already uses. Served
+by the identity service on a second hostname; sessions cross hostnames on
+one-time codes (`hubHandoffs`: hashed, sixty seconds, deleted on
+redemption) because a cookie widened to `.sovrgnnet.cc` would be every
+subdomain's cookie forever. A launcher, deliberately: each server still
+serves its own chat UI, and the single-pane multi-server client remains
+future work, not a claim. docs/HUB.md has the deploy walk.
+
+**Sign-in pages look like a product.** Provider buttons carry their marks
+drawn in the button's own text color; every identity page opens with the
+SOVRGN mark and declares it as its tab icon; the site favicon is the mark;
+the device page's "Not you?" sits on its own line. The device flow itself
+went one-click: `verification_uri_complete` carries the code, the page
+prefills it, and the label asks for confirmation instead of transcription.
+
 ## v0.6.3 — 2026-08-18
 
 **This release exists because the v0.6.2 installers cannot host.** zonky's
