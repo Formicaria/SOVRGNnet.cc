@@ -328,6 +328,24 @@ describeWithDb("identity routes, against a real database", () => {
       expect(res.headers["location"]).toBe("/hub");
     });
 
+    it("signing out ends the id-host session, not just the hub's", async () => {
+      const { cookie } = await signedIn();
+
+      const out = await rawRequest("/hub/signout", { cookie });
+      expect(out.status).toBe(302);
+      expect(out.headers["location"]).toBe("/hub");
+      // The cookie is cleared and — the part that made sign-out mean it —
+      // the presented session's row is gone, so replaying the old cookie
+      // gets the landing page, not the account back. One row remains
+      // because signedIn() registers then logs in, and each mints a
+      // session; sign-out ends the session it was shown, not every device.
+      const rows = await db.execute(sql`SELECT id FROM sessions`);
+      expect(rows.length).toBe(1);
+      const after = await rawRequest("/hub", { cookie });
+      expect(after.text).not.toContain("hub@example.com");
+      expect(after.text).toContain("Sign in");
+    });
+
     it("offers account creation with no server in sight, ending at the hub", async () => {
       const page = await rawRequest("/hub/register");
       expect(page.status).toBe(200);

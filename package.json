@@ -13,6 +13,7 @@
     "test": "vitest run",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "conformance": "tsx scripts/conformance.ts",
+    "invite": "tsx scripts/invite.ts",
     "check:identity": "tsx scripts/check-identity.ts",
     "preflight": "./scripts/preflight.sh",
     "test:db": "./scripts/test-db.sh",
