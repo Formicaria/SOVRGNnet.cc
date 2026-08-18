@@ -227,6 +227,17 @@ step "Integration tests (real Postgres)"
 if [ "$DOCKER_READY" -eq 1 ]; then
   ./scripts/test-db.sh || fail "integration tests"
   pass "against a real database"
+
+  # The identity service's routes, on their own throwaway database on a
+  # different port. Its unit tests cover keys, passwords and the limiter;
+  # single-use redemption and "this row must not be readable twice" are
+  # properties of the database and cannot be tested without one.
+  if [ -x identity/scripts/test-db.sh ] && [ -d identity/node_modules ]; then
+    ./identity/scripts/test-db.sh || fail "identity route tests"
+    pass "identity routes, against a real database"
+  else
+    skip "identity dependencies not installed (cd identity && pnpm install)"
+  fi
 else
   skip "Docker: $DOCKER_NOTE"
 fi

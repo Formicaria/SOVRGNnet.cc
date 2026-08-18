@@ -498,3 +498,38 @@ describe("the desktop and the web client show the same mark", () => {
     expect(code).not.toMatch(/>\s*SN\s*</);
   });
 });
+
+describe("the identity route tests cannot reach production", () => {
+  const HARNESS = readFileSync(join(ROOT, "identity/scripts/test-db.sh"), "utf8");
+  const SUITE = readFileSync(join(ROOT, "identity/src/routes.db.test.ts"), "utf8");
+
+  it("reads a variable the production environment does not set", () => {
+    // The suite gates on IDENTITY_TEST_DATABASE_URL, not DATABASE_URL. If it
+    // read the name the service itself uses, running it in a shell that had
+    // sourced /opt/sovrgnnet/identity/.env would point a suite that truncates
+    // tables at every identity on the network — and the failure would be
+    // silent, total, and discovered afterwards.
+    expect(SUITE).toContain("IDENTITY_TEST_DATABASE_URL");
+    expect(SUITE).not.toMatch(/const TEST_DB = process\.env\.DATABASE_URL/);
+  });
+
+  it("skips rather than passing when there is no test database", () => {
+    // A suite that needs a database and quietly reports success without one
+    // is worse than no suite: it is a green tick standing in for coverage
+    // that never ran.
+    expect(SUITE).toMatch(/describe\.skip/);
+    expect(SUITE).toMatch(/console\.warn/);
+  });
+
+  it("brings up its own Postgres on its own port", () => {
+    // A different port and container name from the main server's, so both can
+    // run at once and neither can be mistaken for the other.
+    expect(HARNESS).toContain("sovrgnnet-identity-test-db");
+    expect(HARNESS).toMatch(/IDENTITY_TEST_DB_PORT:-55433/);
+    expect(HARNESS).toContain("docker run -d");
+  });
+
+  it("says out loud what pointing it at production would do", () => {
+    expect(HARNESS).toMatch(/[Nn]ever against id\.sovrgnnet\.cc|not.*the live database/);
+  });
+});
