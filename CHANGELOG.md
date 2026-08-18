@@ -1,6 +1,13 @@
 # Changelog
 
-## v0.6.1 — 2026-08-17
+## v0.6.2 — 2026-08-17
+
+> `v0.6.1` was tagged at `a3d71c2` and its release build failed on all three
+> desktop platforms — `shared/identity.ts` imports `node:crypto`, which cannot
+> be rolled up for a browser, and CI typechecked the desktop without ever
+> bundling it. The notes below cover everything through v0.6.2 rather than
+> guessing which half of a failed release reached anybody.
+
 
 **The identity service's routes are tested against a real database.** Its unit
 tests cover keys, passwords and the limiter; single-use redemption, atomicity
