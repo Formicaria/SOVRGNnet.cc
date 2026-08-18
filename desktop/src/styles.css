@@ -148,13 +148,13 @@ body {
   padding: 40px 24px;
   user-select: text;
 }
+/* An <img>, not a gradient with letters in it. The mark is the same file the
+   web client uses, so the two front doors look like the same product. */
 .firstrun-mark {
-  width: 62px; height: 62px;
+  height: 62px;
+  width: auto;
   margin: 0 auto 20px;
-  border-radius: 18px;
-  background: linear-gradient(120deg, var(--accent), #ec4899);
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 20px; color: #fff;
+  display: block;
 }
 .firstrun h1 { font-size: 22px; margin-bottom: 10px; }
 .firstrun > p { font-size: 14px; margin-bottom: 26px; }

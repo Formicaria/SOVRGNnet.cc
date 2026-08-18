@@ -199,6 +199,47 @@ jobs:
 
   # Version strings live in five files and drift silently. Cheap to check,
   # miserable to discover during a release.
+  # The full stack: Postgres, Dendrite, Kubo and the built image, driven
+  # through a real sign-up, a real message, real crypto, and a backup that has
+  # to survive a schema drop.
+  #
+  # Not on every pull request — it costs minutes that the unit suite and a real
+  # Postgres already buy most of. It runs where the risk actually is:
+  #
+  #   · pushes to main, so nothing lands unproven
+  #   · any PR labelled `dependencies`, which is what Renovate opens
+  #
+  # That second condition is the point. docs/UPGRADING.md argues version bumps
+  # rot because testing them is manual; a Postgres or Dendrite image bump can
+  # typecheck perfectly and still break a migration, and this is the only job
+  # that would notice.
+  e2e:
+    needs: changes
+    if: >-
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.labels.*.name, 'dependencies')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: End-to-end
+        run: ./scripts/e2e.sh
+
+      # The harness tears its own stack down on success. On a failure the logs
+      # are the only thing that explains why, and they die with the runner.
+      - name: Logs, if it failed
+        if: failure()
+        run: docker compose -p sovrgnnet-e2e logs --tail=200 || true
+
   versions:
     runs-on: ubuntu-latest
     steps:
@@ -209,7 +250,7 @@ jobs:
   # request can still merge even though the app jobs were skipped — a skipped
   # required check never reports and would block the merge forever.
   ci:
-    needs: [app, desktop, desktop-rust, identity, versions]
+    needs: [app, desktop, desktop-rust, identity, versions, e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -220,7 +261,8 @@ jobs:
           echo "desktop-rust: ${{ needs.desktop-rust.result }}"
           echo "identity:     ${{ needs.identity.result }}"
           echo "versions:     ${{ needs.versions.result }}"
-          for result in "${{ needs.app.result }}" "${{ needs.desktop.result }}" "${{ needs.desktop-rust.result }}" "${{ needs.identity.result }}" "${{ needs.versions.result }}"; do
+          echo "e2e:          ${{ needs.e2e.result }}"
+          for result in "${{ needs.app.result }}" "${{ needs.desktop.result }}" "${{ needs.desktop-rust.result }}" "${{ needs.identity.result }}" "${{ needs.versions.result }}" "${{ needs.e2e.result }}"; do
             case "$result" in
               success|skipped) ;;
               *) echo "::error::A required job did not pass."; exit 1 ;;

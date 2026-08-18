@@ -35,7 +35,24 @@ export default function SignIn({
 
     void (async () => {
       try {
-        const res = await fetch(`${identityUrl}/api/device/code`, { method: "POST" });
+        // A fetch that never completes throws a bare TypeError, and every
+        // engine words it differently and uselessly: WebKitGTK — which is the
+        // webview on Linux — says "Load failed", and that is the entire
+        // message the sign-in screen showed. It names no host, no cause, and
+        // nothing anyone could act on.
+        //
+        // The distinction worth preserving is that this is not the service
+        // answering badly; it is the request never arriving. DNS, TLS, no
+        // route, or offline. Everything below this line handles a reply.
+        const res = await fetch(`${identityUrl}/api/device/code`, {
+          method: "POST",
+        }).catch(() => {
+          throw new Error(
+            `Couldn't reach ${identityUrl.replace(/^https?:\/\//, "")}. ` +
+              "The request didn't get there at all — check this computer's " +
+              "connection and DNS. Nothing is wrong with your account."
+          );
+        });
 
         // 404 and 405 both mean "nothing at this origin implements the device
         // flow" — 405 in particular is what a *static* host answers a POST

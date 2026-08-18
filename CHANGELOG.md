@@ -2,6 +2,68 @@
 
 ## v0.6.1 — 2026-08-17
 
+**A Windows build shipped without `createdb`.** `initdb` ran, the cluster came
+up, and setup died three steps later with `The system cannot find the file
+specified`. `scripts/host-bundle.sh` verified `initdb` and treated it as proof
+the whole PostgreSQL bundle was good; `bundle_present()` in `hosting.rs` did
+the same, so the app offered to host on a bundle it could not finish using.
+Both now check every binary the supervisor actually spawns — `initdb`,
+`postgres`, `pg_ctl`, `createdb` — and a test derives that list from
+`hosting.rs` rather than repeating it, so adding a fifth cannot skip either
+check. A missing file now fails when the bundle is built, where the fix is
+re-running one script.
+
+**"Load failed" was the entire sign-in error on Linux.** Every HTTP status the
+identity service can return is handled with a sentence explaining it, but a
+fetch that never completes throws a bare `TypeError` whose message each engine
+words differently and uselessly — WebKitGTK, the Linux webview, says "Load
+failed". It names no host and no cause. The request not arriving is now
+distinguished from the service answering badly, and says which host could not
+be reached.
+
+**Express 5.** Five of the eight production advisories were Express 4's
+transitive dependencies — `path-to-regexp`, `qs`, `body-parser` — and they
+arrive with Express or not at all.
+
+The migration survey said route patterns were clean. It was wrong, and wrong in
+an instructive way: the grep behind it searched `server/*.ts`, while the app is
+created in `server/_core/`, where two `app.use("*", …)` SPA fallbacks were
+sitting. path-to-regexp v8 requires wildcards to be named, so a bare `*` throws
+at *registration* — the app never finishes starting. Typecheck passed, all 1007
+unit tests passed, the image built, and the container came up with a healthcheck
+that never went green.
+
+The end-to-end stage caught it, on the very first run of the job added hours
+earlier for exactly this case. Both fallbacks are now `app.use(handler)` with no
+path, which has always meant the same thing and keeps the pattern out of
+path-to-regexp's hands. A test now walks every `.ts` in the repository for
+unnamed wildcards and `:param?` optionals — searching everywhere rather than
+where somebody guessed, since the scope of the search was the actual bug.
+
+**CI never brought the stack up, and UPGRADING.md said it did.** The `app` job
+runs the unit suite against a real Postgres, which is most of the value — but
+nothing started Dendrite, built the image, or restored a backup. An image bump
+could go green without a single migration being exercised, while this page
+described a pipeline that proved exactly that. Written this morning, wrong by
+the afternoon.
+
+There is now an `e2e` job running the full `scripts/e2e.sh`, gated on pushes to
+main and on pull requests labelled `dependencies` — which is what Renovate
+applies. Every other pull request keeps the fast path; the case the gate exists
+for is the one that gets the stack.
+
+`renovate.json` opens those pull requests. It groups the things that only work
+when moved together: Express with the transitive advisories that arrive with
+it, matrix-js-sdk with its Rust bindings, Tauri's two package managers — each
+of which produces a green typecheck and a broken runtime when split. Postgres
+majors and Dendrite get `needs-migration-plan`, because both migrate data
+forward one way. `cloudflared` gets its own off-schedule rule after sitting
+twenty months out of date while every other signal looked healthy.
+
+**Nothing auto-merges, and a test enforces it.** The argument in UPGRADING.md
+is that nothing in this stack should update itself; a bot that merges its own
+pull requests is Watchtower with extra steps.
+
 **An independent instance can use id.sovrgnnet.cc, and now something checks
 that.** A server run by somebody else gets exactly one thing from the identity
 provider — the JWKS at `/.well-known/jwks.json` — and verifies every token

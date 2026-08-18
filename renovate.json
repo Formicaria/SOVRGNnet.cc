@@ -1,0 +1,121 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+
+  "_comment_intent": [
+    "Automate the decision, not the runtime.",
+    "",
+    "docs/UPGRADING.md argues that nothing in this stack should update itself:",
+    "Postgres major bumps are one-way data-directory migrations, and Dendrite",
+    "migrates its own schema forward on boot. An unattended pull is an",
+    "unsupervised migration with no backup step and no way back.",
+    "",
+    "But 'update it when you remember' is not a policy either, and the reason",
+    "version bumps rot is that testing them is manual. So: this bot proposes,",
+    "CI proves with the same preflight a release runs, and a person merges.",
+    "Nothing here auto-merges. That is the whole design and it is deliberate."
+  ],
+
+  "timezone": "America/Phoenix",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 5,
+  "labels": ["dependencies"],
+  "rangeStrategy": "bump",
+
+  "_comment_lockfile": [
+    "CI installs with --frozen-lockfile, so a PR that changes package.json",
+    "without the lockfile fails at step 1 of preflight. Renovate updates both."
+  ],
+  "postUpdateOptions": ["pnpmDedupe"],
+
+  "vulnerabilityAlerts": {
+    "labels": ["security"],
+    "schedule": ["at any time"],
+    "_comment": [
+      "Off-schedule on purpose. Waiting until Monday to hear about an advisory",
+      "is a policy that only works until the week it doesn't."
+    ]
+  },
+
+  "packageRules": [
+    {
+      "_comment": [
+        "cloudflared is the only process in the compose file with an",
+        "unsolicited path to the internet. It sat on 2024.12.2 for twenty",
+        "months while everything else looked fine. Its own PR, always."
+      ],
+      "matchPackageNames": ["cloudflare/cloudflared"],
+      "labels": ["dependencies", "security"],
+      "schedule": ["at any time"],
+      "groupName": "cloudflared"
+    },
+    {
+      "_comment": [
+        "Postgres majors are a one-way data-directory migration. Pinned to a",
+        "minor, an accidental major refuses to start, which is the good",
+        "outcome. A PR is still welcome — it just needs somebody to read",
+        "docs/UPGRADING.md before merging it, hence the label."
+      ],
+      "matchPackageNames": ["postgres"],
+      "matchUpdateTypes": ["major"],
+      "labels": ["dependencies", "needs-migration-plan"],
+      "groupName": "postgres major (read UPGRADING.md first)"
+    },
+    {
+      "_comment": [
+        "Dendrite migrates its own schema forward on boot, and the element-hq",
+        "fork is in maintenance mode taking security fixes only. Both facts",
+        "make a bump here a decision rather than a chore."
+      ],
+      "matchPackageNames": ["ghcr.io/element-hq/dendrite-monolith"],
+      "labels": ["dependencies", "needs-migration-plan"],
+      "groupName": "dendrite (schema migrates on boot)"
+    },
+    {
+      "_comment": [
+        "One PR for the whole Express move. Its transitive dependencies",
+        "(path-to-regexp, qs, body-parser, send, serve-static) are five of the",
+        "eight advisories in docs/DEPENDENCIES.md and are meaningless to bump",
+        "separately — they arrive with Express or not at all."
+      ],
+      "matchPackageNames": [
+        "express",
+        "@types/express",
+        "path-to-regexp",
+        "body-parser",
+        "qs",
+        "send",
+        "serve-static"
+      ],
+      "groupName": "express",
+      "labels": ["dependencies", "security"]
+    },
+    {
+      "_comment": [
+        "The crypto stack moves together or not at all. A matrix-js-sdk that",
+        "disagrees with its Rust bindings fails at runtime in the crypto",
+        "stage, not at typecheck."
+      ],
+      "matchPackageNames": ["matrix-js-sdk", "@matrix-org/matrix-sdk-crypto-wasm"],
+      "groupName": "matrix crypto stack"
+    },
+    {
+      "_comment": [
+        "Tauri's Rust and JS halves are one product with two package",
+        "managers. Splitting them produces a desktop that typechecks and does",
+        "not build — which is exactly how v0.6.1's release broke."
+      ],
+      "matchPackageNames": ["/^@tauri-apps//", "/^tauri/"],
+      "groupName": "tauri"
+    },
+    {
+      "_comment": [
+        "Everything with no runtime blast radius, batched weekly so the",
+        "interesting PRs above are not buried in them."
+      ],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "dev dependencies"
+    }
+  ]
+}
