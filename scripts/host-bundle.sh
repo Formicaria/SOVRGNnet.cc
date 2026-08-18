@@ -86,6 +86,16 @@ cp dist-host/index.mjs "$HOST_DIR/app/index.mjs"
 node --check "$HOST_DIR/app/index.mjs" || die "the host server bundle doesn't parse"
 cp -r dist/public "$HOST_DIR/app/public"
 cp -r drizzle "$HOST_DIR/app/drizzle"
+
+# Creating the two databases, without `createdb`. zonky's embedded-postgres
+# binaries omit the client tools on Windows and Linux and include them on
+# macOS, so a bundle built on a Mac works and the same bundle built anywhere
+# else fails on a user's first run. Bundling this removes the dependency
+# rather than working around it — see scripts/host-createdbs.ts.
+pnpm exec esbuild scripts/host-createdbs.ts \
+  --platform=node --bundle --format=esm \
+  --outfile="$HOST_DIR/app/createdbs.mjs" >/dev/null
+node --check "$HOST_DIR/app/createdbs.mjs" || die "the createdbs bundle doesn't parse"
 # Immutable migration inputs only — snapshots and journal ride along because
 # the runtime migrator reads the journal.
 ok "app bundle: index.mjs + public/ + drizzle/"
@@ -174,11 +184,13 @@ esac
 # — three steps into a first run, on somebody else's machine, for a file that
 # was missing when the bundle was built. A missing binary should fail here,
 # where the fix is re-running this script, rather than there.
-for tool in initdb postgres pg_ctl createdb; do
+# `createdb` is deliberately absent from this list: it is missing from the
+# upstream tarball on two of three platforms, and nothing spawns it any more.
+for tool in initdb postgres pg_ctl; do
   [ -x "$HOST_DIR/postgres/bin/$tool" ] || [ -f "$HOST_DIR/postgres/bin/$tool.exe" ] \
     || die "the PostgreSQL bundle has no $tool — upstream's layout changed, or this build omits client tools"
 done
-ok "postgres in place (initdb, postgres, pg_ctl, createdb)"
+ok "postgres in place (initdb, postgres, pg_ctl)"
 
 # --- summary -----------------------------------------------------------------
 say "Bundle assembled"

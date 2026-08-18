@@ -305,7 +305,29 @@ describe("the host bundle ships what hosting.rs spawns", () => {
   }
 
   it("finds the binaries it spawns", () => {
-    expect(spawned().length).toBeGreaterThanOrEqual(4);
+    // Names, not a count. This asserted `>= 4` and broke the moment `createdb`
+    // was removed — a change that fixed the very bug the suite was written
+    // for. A magic number goes stale every time the set it describes changes,
+    // which is exactly when you least want a red test you have to think about.
+    expect(spawned()).toEqual(["initdb", "pg_ctl", "postgres"]);
+  });
+
+  it("ships the database-creation script the supervisor spawns", () => {
+    // The one binary that was missing is now not a binary. zonky's
+    // embedded-postgres omits the client tools on Windows and Linux and
+    // includes them on macOS, so `createdb` was present when the bundle was
+    // built on a Mac and absent on the machine that ran it.
+    expect(HOSTING).toContain("createdbs.mjs");
+    expect(BUNDLE).toContain("host-createdbs.ts");
+    expect(BUNDLE).toContain("createdbs.mjs");
+  });
+
+  it("no longer spawns createdb at all", () => {
+    // If something reintroduces it, the bundle check below will not catch it —
+    // `createdb` was deliberately dropped from the verified list because it
+    // cannot be verified. So catch it here instead.
+    const code = HOSTING.replace(/\/\/.*$/gm, "");
+    expect(code).not.toMatch(/"createdb"/);
   });
 
   it("verifies every one of them at build time", () => {
