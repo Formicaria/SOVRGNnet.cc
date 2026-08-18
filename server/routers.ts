@@ -39,6 +39,7 @@ import { checkUsername, foldUsername, renameConsequences } from "@shared/usernam
 import { appserviceConfigured } from "./appservice";
 import * as db from "./db";
 import { isIpfsReachable } from "./ipfsService";
+import { shareableHost } from "./lanHost";
 import { directSync } from "./matrixPublic";
 import * as matrix from "./matrixService";
 import {
@@ -762,9 +763,18 @@ export const appRouter = router({
         // connected to several servers can't resolve a bare code. Derived
         // from the Host header so it's correct behind a tunnel or proxy,
         // where the app has no reliable idea of its own public address.
-        const host = String(
+        //
+        // With one exception, found by walking the desktop path in code: a
+        // hosted desktop server's owner browses it at 127.0.0.1, so the
+        // header names the one host guaranteed wrong for everyone else —
+        // every invite was a link to the recipient's own machine, and
+        // "friends on your network can join with an invite link" had never
+        // been true. shareableHost swaps a LAN address in for loopback and
+        // touches nothing else; tunnel and LAN requests keep their header.
+        const rawHost = String(
           ctx.req.headers["x-forwarded-host"] ?? ctx.req.headers.host ?? ""
         );
+        const host = rawHost ? shareableHost(rawHost) : "";
         return {
           code,
           url: host ? inviteUrl(host, code) : null,
