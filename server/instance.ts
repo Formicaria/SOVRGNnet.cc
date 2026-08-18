@@ -253,7 +253,12 @@ export function instanceDescriptor(
       // Derived by the same function the app reports everywhere else, so
       // this can never drift into claiming encryption that doesn't exist.
       e2ee: info.encryption,
-      voice: false,
+      // True only when the operator configured Cloudflare Realtime
+      // credentials — ADR 0013. Same posture as sso: unconfigured means
+      // honestly absent, not broken.
+      voice: Boolean(
+        process.env.CF_REALTIME_APP_ID && process.env.CF_REALTIME_APP_SECRET
+      ),
       federation: process.env.MATRIX_ALLOW_FEDERATION === "true",
       sso: info.sso.enabled,
       publicRegistration: info.joinPolicy === "open",
