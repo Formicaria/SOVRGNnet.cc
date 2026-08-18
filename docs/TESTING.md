@@ -19,6 +19,7 @@ repeatedly not meant the software worked.
 | Integration | `pnpm test:db` | It's right against a real Postgres | ~40s |
 | End-to-end | `pnpm e2e` | The whole stack works together | ~8m |
 | Federation | `./scripts/e2e-federation.sh` | Two instances work *with each other* | ~12m |
+| Staging | `./scripts/verify-staging.sh <url>` | A deployed box serves a real user | ~30s |
 | Conformance | `pnpm conformance <url>` | An instance speaks the protocol | 2s |
 
 ### Unit — 531 tests
