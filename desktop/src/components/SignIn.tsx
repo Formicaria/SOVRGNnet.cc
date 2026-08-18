@@ -89,6 +89,7 @@ export default function SignIn({
           device_code?: string;
           user_code?: string;
           verification_uri?: string;
+          verification_uri_complete?: string;
           expires_in?: number;
           interval?: number;
         };
@@ -108,14 +109,20 @@ export default function SignIn({
         const authorization: DeviceAuthorization = {
           deviceCode: body.device_code,
           userCode: body.user_code,
-          verificationUri: body.verification_uri,
+          // The complete URI carries the code, so approving is one click
+          // instead of a transcription exercise. People typed codes for two
+          // releases because the app opened the bare URI while the page
+          // could prefill all along. The bare URI stays as the fallback for
+          // an identity service that predates the field.
+          verificationUri: body.verification_uri_complete ?? body.verification_uri,
           expiresAt: Date.now() + (body.expires_in ?? 600) * 1000,
           intervalSeconds: body.interval ?? DEVICE_POLL_INTERVAL_SECONDS,
         };
         if (cancelled.current) return;
         setAuth(authorization);
 
-        // Open the browser for them — but the code stays on screen, because
+        // Open the browser for them — but the code stays on screen so a
+        // person can check it matches the one the page shows, and because
         // the browser may open behind the window or not at all.
         void openExternal(authorization.verificationUri);
 
