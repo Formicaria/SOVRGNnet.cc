@@ -87,6 +87,20 @@ if ! pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1; then
 fi
 pass "lockfile matches package.json"
 
+# Identity and desktop keep their own trees, and each has burned a deploy:
+# identity/package.json moved to Express 5 while its lockfile still said 4,
+# every local run passed against whatever node_modules predated the bump, and
+# the id server — which installs frozen, as production should — was the first
+# thing to notice. A green preflight must mean every lockfile deploys.
+for tree in identity desktop; do
+  if ! (cd "$tree" && pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1); then
+    printf '  %s%s/pnpm-lock.yaml disagrees with %s/package.json.%s\n' "$DIM" "$tree" "$tree" "$RESET"
+    printf '  %sRun:%s cd %s && pnpm install\n' "$BOLD" "$RESET" "$tree"
+    fail "$tree lockfile out of sync — a frozen install (production, CI) fails on it"
+  fi
+done
+pass "identity and desktop lockfiles deploy frozen"
+
 step "Versions agree"
 run "six files on one version" ./scripts/check-versions.sh
 
