@@ -198,6 +198,26 @@ export const deviceAuthorizations = pgTable("deviceAuthorizations", {
   lastPolledAt: timestamp("lastPolledAt"),
 });
 
+/**
+ * One-time codes that carry a signed-in person from the id host to the hub
+ * on its own hostname.
+ *
+ * Cookies are per-host, so a session on the id origin is invisible to the hub
+ * origin even though one process serves both. The alternatives were worse:
+ * widening the cookie to `Domain=.sovrgnnet.cc` hands the session to every
+ * subdomain forever, and cross-origin credentials would mean CSRF machinery
+ * on a service that currently needs none. So the id host mints a code here
+ * and the hub host redeems it for its own session — hashed at rest, sixty
+ * seconds to live, deleted on use: the device-flow discipline, first-party.
+ */
+export const hubHandoffs = pgTable("hubHandoffs", {
+  id: serial("id").primaryKey(),
+  codeHash: varchar("codeHash", { length: 64 }).notNull().unique(),
+  accountId: integer("accountId").notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export const grants = pgTable("grants", {
   id: serial("id").primaryKey(),
   accountId: integer("accountId").notNull(),

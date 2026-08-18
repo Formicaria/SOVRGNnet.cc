@@ -1,5 +1,5 @@
 import type { Express, NextFunction, Request, Response } from "express";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   consumeRecoveryCode,
@@ -31,6 +31,7 @@ import {
   deviceAuthorizations,
   emailTokens,
   grants,
+  hubHandoffs,
   identities,
   oauthAttempts,
   recoveryCodes,
@@ -52,6 +53,9 @@ import {
   devicePage,
   deviceSignInPage,
   errorPage,
+  hubLandingPage,
+  hubPage,
+  promptSignInPage,
   recoveryCodesPage,
   registerPage,
   signInPage,
@@ -69,6 +73,12 @@ const SESSION_TTL_DAYS = 30;
 const VERIFY_TTL_HOURS = 24;
 const RESET_TTL_HOURS = 1;
 const OAUTH_ATTEMPT_TTL_MINUTES = 10;
+/**
+ * Sixty seconds for a hub handoff code to be redeemed. It lives inside one
+ * HTTP redirect, so the honest budget is "however slow a phone on bad wifi
+ * follows a 302" — a minute covers that with room, and nothing else.
+ */
+const HUB_HANDOFF_TTL_SECONDS = 60;
 
 /**
  * Swapped by tests so provider exchanges hit a mock and never the internet —
@@ -107,6 +117,29 @@ function baseUrl(): string {
     /\/+$/,
     ""
   );
+}
+
+/**
+ * Where the hub lives when it has its own hostname (app.sovrgnnet.cc in
+ * production). Unset means the hub is simply /hub on the id host — the
+ * single-host arrangement every dev setup and test runs in — and the
+ * cross-host handoff never happens because it has nothing to cross.
+ */
+function hubUrl(): string | null {
+  const raw = process.env.HUB_PUBLIC_URL;
+  if (!raw) return null;
+  return raw.replace(/\/+$/, "");
+}
+
+/** Is this request arriving on the hub's own hostname? */
+function onHubHost(req: Request): boolean {
+  const hub = hubUrl();
+  if (!hub) return false;
+  try {
+    return req.hostname === new URL(hub).hostname;
+  } catch {
+    return false;
+  }
 }
 
 function setSession(res: Response, token: string) {
@@ -1149,6 +1182,121 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
   );
 
   // ------------------------------------------------------------------ grants
+
+  // ------------------------------------------------------------------- hub
+  //
+  // app.sovrgnnet.cc: sign in once with the SOVRGN account, see every server
+  // this account has access to, enter any of them in one click. Served by
+  // this process on a second hostname; see hubHandoffs in schema.ts for why
+  // crossing hostnames takes a code instead of a cookie.
+
+  app.get("/", (req, res, next) => {
+    if (onHubHost(req)) return res.redirect(302, "/hub");
+    next();
+  });
+
+  app.get("/hub", async (req, res) => {
+    const account = await currentAccount(req);
+    if (!account) {
+      // A page with a button, not an automatic bounce to the id host — the
+      // bounce would sign a just-signed-out person straight back in off
+      // their still-live id session, making sign-out impossible to mean.
+      return res.send(hubLandingPage(`${baseUrl()}/hub/start`));
+    }
+
+    const db = await getDb();
+    const rows = await db
+      .select()
+      .from(grants)
+      .where(and(eq(grants.accountId, account.id), isNull(grants.revokedAt)))
+      .orderBy(desc(grants.lastUsedAt));
+
+    res.send(
+      hubPage({
+        email: account.email,
+        idBase: baseUrl(),
+        servers: rows.map(row => ({
+          instanceId: row.instanceId,
+          instanceName: row.instanceName,
+          instanceUrl: row.instanceUrl,
+          lastUsedAt: row.lastUsedAt,
+        })),
+      })
+    );
+  });
+
+  /**
+   * The id-host half of entering the hub: make sure there's a session here
+   * (where the provider buttons work, because the OAuth consoles point here),
+   * then either walk straight into /hub or mint a code and cross hostnames.
+   */
+  app.get("/hub/start", rateLimit(LIMITS.signIn), async (req, res) => {
+    const account = await currentAccount(req);
+    if (!account) {
+      return res.send(
+        promptSignInPage("/hub/start", "to see your servers", providerList())
+      );
+    }
+
+    const hub = hubUrl();
+    // No second hostname configured, or already on it: the cookie that just
+    // authenticated this request is the only session needed.
+    if (!hub || onHubHost(req)) return res.redirect(302, "/hub");
+
+    const db = await getDb();
+    // Opportunistic sweep — expired codes are dead weight nobody will redeem.
+    await db.delete(hubHandoffs).where(lt(hubHandoffs.expiresAt, new Date()));
+
+    const code = generateOpaqueToken();
+    await db.insert(hubHandoffs).values({
+      codeHash: code.hash,
+      accountId: account.id,
+      expiresAt: new Date(Date.now() + HUB_HANDOFF_TTL_SECONDS * 1000),
+    });
+
+    // Query string, not fragment, because unlike the server token flow both
+    // ends of this redirect are this same service: nothing third-party sees
+    // the code, it is single-use, and it dies in sixty seconds anyway.
+    res.redirect(302, `${hub}/hub/complete?code=${encodeURIComponent(code.token)}`);
+  });
+
+  /** The hub-host half: redeem the code for a session on *this* hostname. */
+  app.get("/hub/complete", rateLimit(LIMITS.signIn), async (req, res) => {
+    const raw = String(req.query.code ?? "");
+    if (!raw) {
+      return res
+        .status(400)
+        .send(errorPage("Can't continue", "That link is missing its code."));
+    }
+
+    const db = await getDb();
+    // The delete is the redemption: exactly one request gets the row.
+    const [claimed] = await db
+      .delete(hubHandoffs)
+      .where(eq(hubHandoffs.codeHash, hashOpaqueToken(raw)))
+      .returning();
+
+    if (!claimed || claimed.expiresAt < new Date()) {
+      return res
+        .status(400)
+        .send(
+          errorPage(
+            "Sign-in expired",
+            "That sign-in link expired or was already used. Start again from the hub."
+          )
+        );
+    }
+
+    const session = generateOpaqueToken();
+    await db.insert(sessions).values({
+      accountId: claimed.accountId,
+      tokenHash: session.hash,
+      userAgent: req.get("user-agent")?.slice(0, 300) ?? null,
+      expiresAt: new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000),
+    });
+    setSession(res, session.token);
+    res.redirect(302, "/hub");
+  });
 
   app.get("/api/grants", async (req, res) => {
     const account = await currentAccount(req);
