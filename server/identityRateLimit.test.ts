@@ -120,9 +120,20 @@ describe("the routes actually apply them", () => {
     ["/api/device/code", "LIMITS.deviceCode"],
     ["/api/device/approve", "LIMITS.deviceApprove"],
   ])("%s is behind %s", (route, limit) => {
-    // Matched as "the route, then a rateLimit before the handler opens".
-    const at = routes.indexOf(`"${route}"`);
-    expect(at, `${route} not found`).toBeGreaterThan(-1);
+    // Anchored on the *registration* — `app.post("/api/…"` — not on any
+    // mention of the path. The first version searched for the bare string, and
+    // broke when a CORS middleware was added with `app.use([...paths])` above
+    // the routes: it found that list, looked 260 characters past it, saw no
+    // rateLimit, and reported a missing limit on a route that had one.
+    //
+    // A guard that matches text rather than structure eventually points at the
+    // wrong line, and the report it gives is confident and false.
+    const registration = new RegExp(
+      `app\\.(?:get|post|put|patch|delete)\\(\\s*\n?\\s*"${route.replace(/\//g, "\\/")}"`
+    );
+    const found = registration.exec(routes);
+    expect(found, `${route} is never registered`).not.toBeNull();
+    const at = found!.index;
     const declaration = routes.slice(at, at + 260);
     expect(declaration, `${route} has no rate limit`).toContain("rateLimit(");
     expect(declaration).toContain(limit);

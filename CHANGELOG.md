@@ -8,6 +8,36 @@
 > bundling it. The notes below cover everything through v0.6.2 rather than
 > guessing which half of a failed release reached anybody.
 
+**Desktop sign-in could never have worked: no CORS on the device flow.** The
+shell's webview origin is `tauri://localhost`, so every call it makes to the
+identity service is cross-origin. Only the two `/.well-known/` routes ever sent
+`Access-Control-Allow-Origin`. The three endpoints the desktop actually calls —
+`POST /api/device/code`, `POST /api/device/token`, `GET /api/grants` — sent
+none, and the last two are preflighted besides, because they carry
+`Content-Type: application/json` and `Authorization` respectively.
+
+So the request arrived, the service answered it correctly, and the browser
+discarded the reply. `fetch` rejects with a bare `TypeError`, which WebKitGTK
+words as "Load failed" — the entire error the sign-in screen showed.
+
+Every check we ran passed throughout, because nothing outside a browser
+enforces CORS. `curl` from the same machine returned 200. The endpoints that
+exist *specifically* for a native client to call had never once been exercised
+by one.
+
+`*` is correct on exactly these routes and nowhere else: each authenticates
+with something carried in the request — a device code or a bearer token — so
+there is no ambient authority for another origin to borrow. The
+cookie-authenticated routes get none of it, and
+`Access-Control-Allow-Credentials` is never set, so cookies cannot ride along
+by accident. Tests assert both halves, including that `/api/me` and
+`/api/logout` stay closed.
+
+The sign-in error message also stopped claiming "the request didn't get there
+at all". It cannot know that — a request that never left and a reply the
+browser refused to expose are the same `TypeError`. Saying so sent this hunt to
+DNS and the network, which were fine the whole time.
+
 **The e2e harness collided with a real node on port 4001.** It picks its own
 project name and app port to keep out of the way, and inherited IPFS's swarm
 port from the base compose file — the one port it had not parameterised. Docker

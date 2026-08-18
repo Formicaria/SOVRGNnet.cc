@@ -243,4 +243,53 @@ describeWithDb("identity routes, against a real database", () => {
       expect(res.status).toBe(401);
     });
   });
+
+  describe("the endpoints a native app calls", () => {
+    // The desktop shell's webview origin is tauri://localhost, so every call
+    // it makes here is cross-origin. Without these headers the browser throws
+    // the response away and fetch rejects with a TypeError that WebKitGTK
+    // words as "Load failed" — which is what desktop sign-in showed while
+    // curl, and every check built on curl, succeeded.
+    for (const path of ["/api/device/code", "/api/device/token", "/api/grants"]) {
+      it(`${path} is readable cross-origin`, async () => {
+        const res = await request(app, "OPTIONS", path);
+        expect(res.status).toBe(204);
+        expect(res.headers["access-control-allow-origin"]).toBe("*");
+      });
+
+      it(`${path} allows the headers the app actually sends`, async () => {
+        // Authorization on the grants call, Content-Type on the JSON bodies.
+        // Either one makes the request non-simple, which is what triggers the
+        // preflight above — so both have to be named or the real request is
+        // never sent.
+        const res = await request(app, "OPTIONS", path);
+        const allowed = String(res.headers["access-control-allow-headers"] ?? "");
+        expect(allowed.toLowerCase()).toContain("authorization");
+        expect(allowed.toLowerCase()).toContain("content-type");
+      });
+    }
+
+    it("does not open the cookie-authenticated routes", async () => {
+      // These carry ambient authority. Allowing another origin to call them is
+      // how a page nobody trusts acts as somebody who is signed in — and
+      // browsers refuse `*` together with credentials anyway.
+      for (const path of ["/api/me", "/api/logout", "/api/login"]) {
+        const res = await request(app, "OPTIONS", path);
+        expect(res.headers["access-control-allow-origin"], path).toBeUndefined();
+      }
+    });
+
+    it("never allows credentials to ride along", async () => {
+      const res = await request(app, "OPTIONS", "/api/device/code");
+      expect(res.headers["access-control-allow-credentials"]).toBeUndefined();
+    });
+
+    it("answers the real request with the header too, not just the preflight", async () => {
+      // A preflight that passes and a response with no ACAO is still a
+      // rejected fetch. Both halves matter.
+      const res = await request(app, "POST", "/api/device/code");
+      expect(res.status).toBe(200);
+      expect(res.headers["access-control-allow-origin"]).toBe("*");
+    });
+  });
 });
