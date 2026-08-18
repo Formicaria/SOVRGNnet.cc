@@ -1,5 +1,63 @@
 # Changelog
 
+## v0.6.3 — 2026-08-18
+
+**This release exists because the v0.6.2 installers cannot host.** zonky's
+embedded-postgres ships `initdb` everywhere but omits `createdb` on Windows
+and Linux, so "Run a server on this computer" failed at the database step on
+both platforms that offer it. Databases are now created over a connection
+(`scripts/host-createdbs.ts`) instead of by shelling out to a binary that
+isn't there — the fix landed the day after the tag, and everything below
+rode along while the release waited on a real-build verification walk.
+
+*A correction to the section below:* the desktop-CORS fix is described under
+v0.6.2 but its code landed after that tag. It ships here. The description
+was written while the work was in flight and the tag moved first; the claim
+did not.
+
+**Invites from a hosted desktop now name an address a friend can dial.** The
+invite URL derives from the Host header — right behind a tunnel, right on a
+LAN install — but a hosted desktop's owner browses at `127.0.0.1`, so every
+invite said loopback: a link to the recipient's own machine. `server/lanHost.ts`
+substitutes a LAN address only when the derived host is loopback, keeps
+airplane-mode machines on loopback (an honestly dead link beats an invented
+one), and refuses Docker's default bridge, because a container's interfaces
+are the container's. Twelve tests pin where it fires and where it must not.
+
+**The dashboard learns that phones exist.** The way strangers meet an
+instance is an invite link on a phone, and the dashboard rendered four fixed
+columns into 380px — zero responsive classes anywhere. Under `md` the rail
+and channel list are one off-canvas drawer; at `md` and up the desktop
+layout is unchanged. `h-dvh` replaces `h-screen` so the composer stops
+hiding behind the URL bar, and a web manifest makes the client installable
+from the browser menu — no service worker, deliberately, because offline
+chat against a live homeserver is stale messages pretending to be a
+conversation.
+
+**Staging gets a verifier, and production gets a refusal nobody can
+configure.** `scripts/verify-staging.sh` runs conformance, a user-shaped
+journey, and a metrics check against a remote box from the outside. The
+journey adapts to what the box advertises — an encrypted-by-default instance
+must refuse its plaintext probe, a plaintext one must accept it, and either
+disagreeing with the `e2ee` capability fails the run. Production is refused
+twice, by URL and by the server name the instance reports about itself, with
+the names hardcoded; `stagingVerify.test.ts` fails the suite if either
+refusal weakens or starts reading the environment.
+
+**Every workspace's lockfile now has to deploy.** `identity/package.json`
+moved to Express 5 while its lockfile said 4; every local run stayed green
+against stale `node_modules` and the id server — which installs frozen, as
+production should — was the first honest machine. The lockfile is
+regenerated against `express@5.2.1`, and preflight runs a frozen install for
+identity and desktop, not just the root.
+
+Also: the e2e harness moved off IPFS's real swarm port so a hermetic test
+stops dialling the public network, and `docs/VERIFY_DESKTOP.md` records the
+twelve-step real-build walk — claim check before first account, setup token
+never shown to a person, the invite URL's host recorded, SSO probed from a
+browser origin because `curl` passing is how the CORS bug shipped — that
+desktop-touching releases now tag behind.
+
 ## v0.6.2 — 2026-08-17
 
 > `v0.6.1` was tagged at `a3d71c2` and its release build failed on all three
