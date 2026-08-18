@@ -157,6 +157,12 @@ INSTANCE_NAME=E2E instance
 INSTANCE_JOIN_POLICY=invite
 SOVRGNNET_ACCESS_MODE=lan
 E2E_PORT=$PORT
+# Out of the way of a real node, which uses 4001. A developer's machine is
+# exactly where both run at once — the harness is usually being run by someone
+# who also has a desktop-hosted server open — and the harness has no use for
+# the swarm port anyway: nothing in a hermetic test should be dialling the
+# public IPFS network.
+IPFS_SWARM_PORT=${E2E_IPFS_SWARM_PORT:-14001}
 EOF
 
 WORK_DIR="$(mktemp -d -t sovrgnnet-e2e.XXXXXX)"
@@ -354,7 +360,23 @@ UP_LOG="$WORK_DIR/compose-up.log"
 if ! compose up -d $BUILD_ARG db matrix ipfs app > "$UP_LOG" 2>&1; then
   printf '\n%sCompose output:%s\n' "$DIM" "$RESET"
   tail -40 "$UP_LOG"
-  die "The stack didn't start. Nothing was built, so nothing could become ready."
+  # A port conflict is by far the commonest reason this fails, and the raw
+  # Docker error names a port without saying whose it is. 4001 is Kubo's swarm
+  # port and 3999/5433/8008 are the harness's own — anything already holding
+  # one is almost always a desktop-hosted server still running or a container
+  # left behind by an interrupted run.
+  if grep -q "address already in use" "$UP_LOG"; then
+    busy="$(grep -oE '0\.0\.0\.0:[0-9]+' "$UP_LOG" | head -1 | cut -d: -f2)"
+    printf '\n  %sPort %s is taken by something else on this machine.%s\n' \
+      "$DIM" "${busy:-?}" "$RESET"
+    printf '  %sUsually a desktop-hosted server that is still running, or a%s\n' "$DIM" "$RESET"
+    printf '  %scontainer from an interrupted run:%s\n' "$DIM" "$RESET"
+    printf '  %s  ss -tlnp | grep %s%s\n' "$DIM" "${busy:-4001}" "$RESET"
+    printf '  %s  docker ps -a --filter name=sovrgnnet%s\n' "$DIM" "$RESET"
+  fi
+  # Not "nothing was built" — the image builds before this line and usually
+  # succeeded. What failed is starting it.
+  die "The stack didn't start."
 fi
 grep -Ei 'error|warn' "$UP_LOG" || true
 

@@ -40,6 +40,21 @@ export interface HostSecrets {
    * between unrelated machines. See hosting.rs for the full account.
    */
   matrix_server_name: string;
+  /**
+   * The token that gates creating this server's first account.
+   *
+   * The instance refuses to bootstrap without one — deliberately, because a
+   * server that has just been pointed at an address and has no accounts yet
+   * would otherwise be claimable by whoever reached it first. That guard was
+   * added for hosted servers and the desktop was never given a token, so
+   * hosting on this computer produced a server whose first account could not
+   * be created at all. The sign-up screen asked for a code that had never
+   * existed and told people to look in a `.env` they do not have.
+   *
+   * Kept here, in the keychain, because the app is the only thing that knows
+   * it: there is no terminal to print it to and nobody to read it.
+   */
+  setup_token: string;
 }
 
 interface ComponentReport {
@@ -94,10 +109,20 @@ export async function hostSecrets(): Promise<HostSecrets> {
     // no existing database, so backfilling cannot rename a working install.
     // That decision stays in hosting.rs, next to the data directory that is the
     // only authority on whether this machine has hosted before.
+    let changed = false;
     if (!stored.matrix_server_name) {
       stored.matrix_server_name = freshServerName();
-      await credentials.store(HOST_KEYCHAIN_ID, JSON.stringify(stored));
+      changed = true;
     }
+    // Same backfill, same reasoning. An install from before this field existed
+    // has a server it cannot create an account on; minting a token now fixes
+    // that, and on an install that *already* has accounts the token is simply
+    // never consulted again — bootstrap only runs when there are none.
+    if (!stored.setup_token) {
+      stored.setup_token = randomHex(16);
+      changed = true;
+    }
+    if (changed) await credentials.store(HOST_KEYCHAIN_ID, JSON.stringify(stored));
     return stored as HostSecrets;
   }
   const fresh: HostSecrets = {
@@ -105,6 +130,7 @@ export async function hostSecrets(): Promise<HostSecrets> {
     jwt_secret: randomHex(32),
     matrix_shared_secret: randomHex(32),
     matrix_server_name: freshServerName(),
+    setup_token: randomHex(16),
   };
   await credentials.store(HOST_KEYCHAIN_ID, JSON.stringify(fresh));
   return fresh;

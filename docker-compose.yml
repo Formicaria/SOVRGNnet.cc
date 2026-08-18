@@ -154,8 +154,16 @@ services:
       - ipfs_export:/export
     ports:
       # Swarm port is public — that's how your node peers with IPFS.
-      - "4001:4001/tcp"
-      - "4001:4001/udp"
+      #
+      # The host side is a variable so a second stack on the same machine can
+      # move it. Compose *appends* `ports` when an override file supplies its
+      # own, so a port published here cannot be removed later — only a
+      # different value can be substituted. The e2e harness needs that: it
+      # picks its own project name and app port to stay out of the way, and
+      # this was the one port it inherited, so running the harness on a machine
+      # already hosting a server failed on `address already in use`.
+      - "${IPFS_SWARM_PORT:-4001}:4001/tcp"
+      - "${IPFS_SWARM_PORT:-4001}:4001/udp"
       # API (5001) and gateway (8080) are loopback only. Port 5001 is an
       # unauthenticated admin API: anyone who can reach it controls the node.
       - "127.0.0.1:5001:5001"

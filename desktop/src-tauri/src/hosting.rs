@@ -56,6 +56,15 @@ pub struct HostSecrets {
     /// Only consulted when there is no name on disk yet; see
     /// `matrix_server_name`.
     ///
+    /// The token the instance requires before it will create its first
+    /// account. Generated and kept by the frontend, like everything else here.
+    ///
+    /// Without it a desktop-hosted server refuses to bootstrap — the guard is
+    /// right, and nothing was passing it, so hosting produced a server whose
+    /// first account could not be created. `default` for the same reason as
+    /// the field below.
+    #[serde(default)]
+    pub setup_token: String,
     /// `default` because keychain entries written before this field existed
     /// must still deserialize; an empty value means "an older install", which
     /// that function handles explicitly.
@@ -652,6 +661,7 @@ pub async fn host_start(
             .env("MATRIX_SERVER_NAME", &matrix_server_name(&data, &secrets.matrix_server_name)?)
             .env("MATRIX_HOMESERVER_URL", format!("http://127.0.0.1:{matrix_port}"))
             .env("IPFS_API_URL", format!("http://127.0.0.1:{ipfs_port}"))
+            .env("SOVRGN_SETUP_TOKEN", &secrets.setup_token)
             .env("INSTANCE_NAME", "My computer")
             .env("INSTANCE_JOIN_POLICY", "invite")
             .env("SOVRGNNET_ACCESS_MODE", "lan");

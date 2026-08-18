@@ -533,3 +533,33 @@ describe("the identity route tests cannot reach production", () => {
     expect(HARNESS).toMatch(/[Nn]ever against id\.sovrgnnet\.cc|not.*the live database/);
   });
 });
+
+describe("the harness stays out of a real node's way", () => {
+  const COMPOSE = readFileSync(join(ROOT, "docker-compose.yml"), "utf8");
+  const E2E = readFileSync(join(ROOT, "scripts/e2e.sh"), "utf8");
+
+  it("makes the IPFS swarm port overridable", () => {
+    // Compose *appends* `ports` when an override file supplies its own, so a
+    // port published in the base file cannot be removed by an override — only
+    // given a different value. The harness picks its own project name and app
+    // port to avoid collisions and inherited this one, so running it on a
+    // machine that was also hosting a server failed on "address already in
+    // use" with Docker naming a port and nothing naming the owner.
+    expect(COMPOSE).toMatch(/\$\{IPFS_SWARM_PORT:-4001\}:4001\/tcp/);
+    expect(COMPOSE).toMatch(/\$\{IPFS_SWARM_PORT:-4001\}:4001\/udp/);
+  });
+
+  it("defaults to 4001 for a real install", () => {
+    // The swarm port is how a node peers with IPFS. Moving it by default
+    // would quietly make every real install less connected.
+    expect(COMPOSE).toContain("IPFS_SWARM_PORT:-4001");
+  });
+
+  it("moves it in the harness", () => {
+    // The machine running the harness is usually the machine with a
+    // desktop-hosted server open — that is what a developer's laptop looks
+    // like — and a hermetic test has no business dialling the public network
+    // anyway.
+    expect(E2E).toMatch(/IPFS_SWARM_PORT=\$\{E2E_IPFS_SWARM_PORT:-14001\}/);
+  });
+});

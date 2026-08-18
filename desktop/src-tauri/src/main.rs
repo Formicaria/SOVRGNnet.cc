@@ -126,6 +126,29 @@ async fn show_server(
 }
 
 /// Forget a server's webview entirely, dropping its session with it.
+/// Hide every server webview, without closing any of them.
+///
+/// A server is a *native child webview*, and a native webview always draws
+/// above the parent's DOM — there is no z-index that reaches it. So any dialog
+/// the frame renders (sign-in, the host panel, adding a server) appeared
+/// underneath the instance: two interfaces visible at once, the frame's dialog
+/// showing in whatever strip the instance did not cover.
+///
+/// Hiding rather than closing, because closing throws away the page's state:
+/// scroll position, a half-typed message, the sync it had running. Opening a
+/// dialog should not cost any of that.
+///
+/// `show_server` is what brings one back, which it already does by label.
+#[tauri::command]
+async fn hide_servers(window: tauri::Window) -> Result<(), String> {
+    for webview in window.webviews() {
+        if webview.label().starts_with("server-") {
+            let _ = webview.hide();
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn close_server(app: tauri::AppHandle, label: String) -> Result<(), String> {
     if let Some(window) = app.get_window("main") {
@@ -245,6 +268,7 @@ fn main() {
             read_credential,
             forget_credential,
             show_server,
+            hide_servers,
             close_server,
             open_external,
             app_version,

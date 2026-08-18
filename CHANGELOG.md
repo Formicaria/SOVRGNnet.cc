@@ -8,6 +8,40 @@
 > bundling it. The notes below cover everything through v0.6.2 rather than
 > guessing which half of a failed release reached anybody.
 
+**The e2e harness collided with a real node on port 4001.** It picks its own
+project name and app port to keep out of the way, and inherited IPFS's swarm
+port from the base compose file — the one port it had not parameterised. Docker
+Compose *appends* `ports` when an override supplies its own, so an override
+file cannot remove a published port, only substitute a value.
+
+The host side is now `${IPFS_SWARM_PORT:-4001}`: unchanged for a real install,
+where the swarm port is how a node peers with IPFS, and 14001 in the harness.
+The machine running the harness is usually the machine with a desktop-hosted
+server open — that is what a developer's laptop looks like — and a hermetic
+test has no business dialling the public network regardless.
+
+`e2e.sh` also stopped saying "Nothing was built" when the image had built fine
+and only starting failed, and now names the port and the two commands that find
+its owner rather than passing Docker's endpoint error through unread.
+
+**A desktop-hosted server could not create its first account.** Bootstrap is
+token-gated — an instance with no accounts and no `SOVRGN_SETUP_TOKEN` refuses
+to create one, fail-closed, because a server that has just been pointed at an
+address would otherwise be claimable by whoever reached it first. That guard
+was added for hosted servers and `hosting.rs` was never given a token to pass,
+so "run a server on this computer" produced a server nobody could sign up on.
+
+The sign-up screen made it worse by being right for the wrong audience: it is
+the ordinary web client, so it said the code "was printed when it was installed
+and is in its `.env`". True of a server somebody installed in a terminal. There
+was no terminal, no `.env` anyone would find, and no token at all.
+
+The token is now minted with the other host secrets, kept in the keychain,
+passed to the server, and shown in the host panel while the server is running —
+because the app is the only thing that knows it. Installs that predate the
+field get one backfilled; on a machine that already has accounts it is simply
+never consulted again.
+
 **The desktop host created its databases with a binary that isn't shipped.**
 `hosting.rs` spawned `createdb` from the bundled PostgreSQL. zonky's
 embedded-postgres binaries — plain PostgreSQL repackaged per platform, which is
