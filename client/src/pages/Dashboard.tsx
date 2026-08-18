@@ -23,6 +23,7 @@ import {
 import {
   Loader2,
   Plus,
+  Menu,
   Send,
   LogOut,
   Hash,
@@ -122,6 +123,15 @@ export default function Dashboard() {
   const [selectedChannelId, setSelectedChannelId] = useState<number | null>(
     null
   );
+  /**
+   * Whether the navigation drawer is open. Only meaningful under `md`: on
+   * wider screens the rail and channel list are static columns and this state
+   * is ignored by the classes that read it. It exists because the dashboard
+   * shipped with zero responsive behaviour — four fixed columns rendered into
+   * a phone, and "works in any browser" was false on the browser strangers
+   * actually open invite links in.
+   */
+  const [navOpen, setNavOpen] = useState(false);
   const [messageInput, setMessageInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [discoverOpen, setDiscoverOpen] = useState(false);
@@ -641,8 +651,29 @@ export default function Dashboard() {
           ? `${typingNames[0]} and ${typingNames[1]} are typing…`
           : "Several people are typing…";
 
+  // h-dvh, not h-screen: on phones 100vh includes the space under the browser
+  // chrome, which put the composer behind the URL bar. Dynamic viewport height
+  // is what "the visible screen" actually means there; identical on desktop.
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 overflow-hidden">
+    <div className="flex h-dvh bg-slate-950 text-slate-100 overflow-hidden">
+      {navOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 md:hidden"
+          onClick={() => setNavOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      {/* Under `md` the rail and channel list become one off-canvas drawer —
+          a phone gets one pane at a time, which is the entire responsive
+          design. At `md` and up this wrapper degrades to a plain flex row and
+          navOpen is ignored, so the desktop layout is byte-for-byte what it
+          was before phones were considered. */}
+      <div
+        className={`${
+          navOpen ? "translate-x-0" : "-translate-x-full"
+        } fixed inset-y-0 left-0 z-40 flex transition-transform duration-200 md:static md:z-auto md:translate-x-0 md:transition-none`}
+      >
       {/* Server rail. The strip at the top is *hosts* — different machines
           people run — and below it, the communities on the current host. */}
       <aside className="w-[72px] bg-slate-900 flex flex-col items-center py-3 gap-2 border-r border-slate-800">
@@ -974,7 +1005,12 @@ export default function Dashboard() {
           {channels.map(channel => (
             <button
               key={channel.id}
-              onClick={() => setSelectedChannelId(channel.id)}
+              onClick={() => {
+                setSelectedChannelId(channel.id);
+                // Picking a channel is the drawer's exit on a phone — leaving
+                // it open would cover the conversation just chosen.
+                setNavOpen(false);
+              }}
               className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
                 channel.id === selectedChannelId
                   ? "bg-slate-700/70 text-white"
@@ -1051,10 +1087,19 @@ export default function Dashboard() {
           {user.name ?? user.email}
         </div>
       </aside>
+      </div>
 
       {/* Message pane */}
       <main className="flex-1 flex flex-col min-w-0">
         <div className="h-12 px-4 flex items-center gap-2 border-b border-slate-800">
+          {/* The way back to the drawer on a phone; does not exist at md+. */}
+          <button
+            className="md:hidden -ml-2 p-2 text-slate-400 hover:text-slate-100"
+            onClick={() => setNavOpen(true)}
+            aria-label="Open communities and channels"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
           {selectedChannel ? (
             <>
               <Hash className="w-4 h-4 text-slate-500" />
@@ -1407,7 +1452,7 @@ export default function Dashboard() {
         </div>
 
         {selectedChannel && (
-          <div className="p-4 pt-0">
+          <div className="p-4 pt-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
             <div className="h-5 px-1 text-xs text-slate-500 italic">
               {typingLabel}
             </div>

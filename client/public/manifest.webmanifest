@@ -1,0 +1,17 @@
+{
+  "name": "SOVRGN",
+  "short_name": "SOVRGN",
+  "description": "Chat on servers people own, not companies.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#05040a",
+  "theme_color": "#05040a",
+  "icons": [
+    {
+      "src": "/mark.png",
+      "sizes": "228x306",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
