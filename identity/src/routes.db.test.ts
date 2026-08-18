@@ -180,6 +180,15 @@ describeWithDb("identity routes, against a real database", () => {
       expect(created.status).toBe(200);
       expect(created.body.device_code).toBeTruthy();
       expect(created.body.user_code).toBeTruthy();
+      // Both URI forms, per RFC 8628: the bare page, and the same page with
+      // the code already in it so approving is a click, not a transcription.
+      // The complete form must carry exactly the user_code this response
+      // shows, or the app opens a page that quietly approves a different
+      // pending sign-in.
+      expect(created.body.verification_uri).toMatch(/\/device$/);
+      expect(created.body.verification_uri_complete).toBe(
+        `${created.body.verification_uri}?code=${encodeURIComponent(created.body.user_code)}`
+      );
 
       // Unapproved, so this is a pending answer rather than a session.
       const first = await request(app, "POST", "/api/device/token", {
