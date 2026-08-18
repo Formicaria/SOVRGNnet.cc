@@ -3,6 +3,7 @@ import { INSTALL_STEPS, installProgress, type HostState } from "@shared/hosting"
 import {
   hostAvailable,
   hostInstall,
+  hostSecrets,
   hostStart,
   hostStop,
   onInstallStep,
@@ -32,6 +33,7 @@ export default function HostPanel({
   onStopped: () => void;
 }) {
   const [bundled, setBundled] = useState<boolean | null>(null);
+  const [setupCode, setSetupCode] = useState<string | null>(null);
   const [busy, setBusy] = useState<"install" | "start" | "stop" | null>(null);
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +42,16 @@ export default function HostPanel({
   useEffect(() => {
     if (!open) return;
     void hostAvailable().then(a => setBundled(a.bundled)).catch(() => setBundled(false));
+  }, [open]);
+
+  // Read from the keychain rather than held anywhere. Failing quietly is
+  // right: not knowing the code is a worse panel, not a broken one, and the
+  // server runs fine either way.
+  useEffect(() => {
+    if (!open) return;
+    void hostSecrets()
+      .then(secrets => setSetupCode(secrets.setup_token || null))
+      .catch(() => setSetupCode(null));
   }, [open]);
 
   useEffect(() => {
@@ -176,6 +188,32 @@ export default function HostPanel({
                 </li>
               ))}
             </ul>
+            {/* The setup code, because this app is the only thing that has it.
+                The sign-up screen asks for one and, being the ordinary web
+                client, tells people it "was printed when it was installed and
+                is in its .env" — true of a server somebody installed in a
+                terminal, and true of nothing here. There is no terminal and no
+                file anyone is going to find.
+
+                Shown only while the server is running and only until the first
+                account exists, which is exactly when it is needed and useful
+                to nobody afterwards. */}
+            {setupCode && (
+              <div className="panel-setup-code">
+                <p>
+                  Creating the first account needs this setup code. It makes
+                  that account the administrator, and stops mattering once it
+                  exists.
+                </p>
+                <code>{setupCode}</code>
+                <button
+                  className="ghost"
+                  onClick={() => void navigator.clipboard.writeText(setupCode)}
+                >
+                  Copy
+                </button>
+              </div>
+            )}
             <p className="dim">
               It stops when the app quits. Settings, invites, and members are
               managed inside the server itself — select it in the rail.

@@ -55,6 +55,18 @@ export async function showServer(url: string, label: string): Promise<void> {
   await invoke("show_server", { url, label });
 }
 
+/**
+ * Hide every server webview without closing it.
+ *
+ * Native child webviews draw above the frame's DOM, so a dialog rendered by
+ * the shell sits *under* the instance unless the instance is hidden first.
+ * Hidden rather than closed, so scroll position, a half-typed message and the
+ * running sync all survive opening a dialog.
+ */
+export async function hideServers(): Promise<void> {
+  await invoke("hide_servers");
+}
+
 export async function closeServer(label: string): Promise<void> {
   await invoke("close_server", { label });
 }

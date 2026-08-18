@@ -358,3 +358,88 @@ describe("the host bundle ships what hosting.rs spawns", () => {
     }
   });
 });
+
+describe("a desktop-hosted server can create its first account", () => {
+  const SUPERVISOR = readFileSync(
+    join(__dirname, "..", "desktop/src-tauri/src/hosting.rs"),
+    "utf8"
+  );
+  const SECRETS = readFileSync(join(__dirname, "..", "desktop/src/lib/hosting.ts"), "utf8");
+  const PANEL = readFileSync(
+    join(__dirname, "..", "desktop/src/components/HostPanel.tsx"),
+    "utf8"
+  );
+
+  it("passes a setup token to the server it starts", () => {
+    // Bootstrap is token-gated: an instance with no accounts and no token
+    // refuses to create one, fail-closed, because a server just pointed at an
+    // address would otherwise be claimable by whoever arrived first.
+    //
+    // That guard shipped without the desktop being given a token, so hosting
+    // on this computer produced a server whose first account could not be
+    // created at all — and the sign-up screen asked for a code that had never
+    // existed.
+    expect(SUPERVISOR).toContain('"SOVRGN_SETUP_TOKEN"');
+    expect(SUPERVISOR).toContain("setup_token");
+  });
+
+  it("mints and keeps one, like every other host secret", () => {
+    expect(SECRETS).toMatch(/setup_token:\s*randomHex\(/);
+  });
+
+  it("backfills it for installs that predate the field", () => {
+    // Those machines have a running server they cannot create an account on.
+    // Minting a token now fixes that; on an install that already has accounts
+    // it is never consulted, because bootstrap only runs when there are none.
+    const backfill = SECRETS.slice(SECRETS.indexOf("const existing ="));
+    expect(backfill).toMatch(/if \(!stored\.setup_token\)/);
+  });
+
+  it("shows it, because nothing else can", () => {
+    // The sign-up form is the ordinary web client and says the code "was
+    // printed when it was installed and is in its .env". True of a server
+    // somebody installed in a terminal. There is no terminal here, and no
+    // file anyone will find — the app is the only thing that knows it.
+    expect(PANEL).toContain("setupCode");
+    expect(PANEL).toContain("hostSecrets");
+  });
+});
+
+describe("frame dialogs are not drawn under the instance", () => {
+  const MAIN = readFileSync(join(__dirname, "..", "desktop/src-tauri/src/main.rs"), "utf8");
+  const APP = readFileSync(join(__dirname, "..", "desktop/src/App.tsx"), "utf8");
+
+  it("can hide a server webview without closing it", () => {
+    // A server is a native child webview and always paints above the parent's
+    // DOM — no z-index reaches it. Every dialog the frame drew therefore
+    // appeared underneath the instance, so what someone saw was two
+    // interfaces at once: the sign-in box in whatever strip the instance did
+    // not cover, and the server's own sign-up form showing through below it.
+    expect(MAIN).toContain("fn hide_servers");
+    expect(MAIN).toMatch(/show_server,\s*\n\s*hide_servers,/);
+  });
+
+  it("hides rather than closes", () => {
+    // Closing discards the page: scroll position, a half-typed message, the
+    // sync it had running. Opening a dialog should cost none of that.
+    const command = MAIN.slice(MAIN.indexOf("fn hide_servers"));
+    expect(command.slice(0, 400)).toContain("webview.hide()");
+    expect(command.slice(0, 400)).not.toContain("close()");
+  });
+
+  it("hides for every overlay, not just sign-in", () => {
+    // The one that prompted this was sign-in, but the host panel, the add
+    // dialog and the status panel all render in the same place and had the
+    // same problem.
+    const effect = APP.slice(APP.indexOf("const overlayOpen"));
+    for (const state of ["signingIn", "hostOpen", "addOpen", "panelOpen"]) {
+      expect(effect.slice(0, 200), `overlay ignores ${state}`).toContain(state);
+    }
+    expect(effect).toContain("hideServers");
+  });
+
+  it("brings the instance back when the last one closes", () => {
+    const effect = APP.slice(APP.indexOf("const overlayOpen"));
+    expect(effect.slice(0, 1200)).toContain("showServer(");
+  });
+});

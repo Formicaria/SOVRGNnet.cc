@@ -483,3 +483,22 @@ button.ghost:hover { color: var(--text); }
   color: var(--muted);
 }
 .panel-foot button.ghost:hover { color: var(--text); }
+
+/* The setup code, shown while a freshly started server has no accounts yet.
+   Monospace and selectable because the whole point is copying it into the
+   sign-up form in the next pane. */
+.panel-setup-code {
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.panel-setup-code p { font-size: 13px; margin-bottom: 8px; }
+.panel-setup-code code {
+  display: block;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  word-break: break-all;
+  user-select: all;
+  margin-bottom: 8px;
+}

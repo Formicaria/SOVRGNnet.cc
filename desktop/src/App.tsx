@@ -10,6 +10,7 @@ import { serverBaseUrl } from "@shared/invite";
 import type { DeepLinkAction } from "@shared/deeplink";
 import {
   deepLinks,
+  hideServers,
   showServer,
   startListeningForDeepLinks,
   webviewLabel,
@@ -92,6 +93,35 @@ export default function App() {
     setActiveId(connection.id);
     await showServer(serverBaseUrl(connection), webviewLabel(connection.id));
   }, []);
+
+  /**
+   * Anything the frame draws over the stage.
+   *
+   * A server is a native child webview, and a native webview always paints
+   * above the parent's DOM — no z-index reaches it. So a dialog rendered here
+   * appeared *underneath* the instance, and what someone saw was two
+   * interfaces at once: the sign-in box in whatever strip the instance did not
+   * happen to cover, its sign-up form showing through below.
+   *
+   * Hidden rather than closed. Closing discards the page — scroll position, a
+   * half-typed message, the sync it had running — and opening a dialog should
+   * not cost any of that.
+   */
+  const overlayOpen = signingIn || hostOpen || addOpen || panelOpen;
+
+  useEffect(() => {
+    if (overlayOpen) {
+      void hideServers();
+      return;
+    }
+    // Back to whichever server was showing. showServer repositions and shows
+    // by label, so this is the same call that opened it.
+    // Named apart from the component-scope `active` below. Shadowing it
+    // typechecks and reads as though the two are the same value, which they
+    // are only by coincidence of both being derived the same way.
+    const showing = connections.find(c => c.id === activeId);
+    if (showing) void showServer(serverBaseUrl(showing), webviewLabel(showing.id));
+  }, [overlayOpen, activeId, connections]);
 
   /**
    * After signing in, add the servers this account has previously used.
