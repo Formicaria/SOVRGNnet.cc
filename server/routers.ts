@@ -58,7 +58,36 @@ import {
   type ServerRole,
 } from "./permissions";
 import * as presence from "./presence";
+import * as voice from "./voice";
 import type { User } from "../drizzle/schema";
+
+/**
+ * The gate every voice procedure passes: the instance offers voice at all,
+ * the channel exists and is a voice/video channel, and the caller is a
+ * member of its server. Returns the channel so callers don't fetch twice.
+ */
+async function requireVoiceChannel(channelId: number, userId: number) {
+  if (!voice.voiceConfigured()) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "This instance doesn't offer voice. Its operator can enable it with " +
+        "Cloudflare Realtime credentials — see docs/adr/0013.",
+    });
+  }
+  const channel = await db.getChannelById(channelId);
+  if (!channel) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Channel not found." });
+  }
+  if (channel.type === "text") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "That's a text channel — voice lives in voice channels.",
+    });
+  }
+  await requireServerMembership(channel.serverId, userId);
+  return channel;
+}
 
 /**
  * Registration: a username is required, an email address is not.
@@ -906,6 +935,7 @@ export const appRouter = router({
         return channel;
       }),
 
+
     /**
      * Turn on end-to-end encryption for a channel — ADR 0008 stage 4.
      *
@@ -1025,6 +1055,132 @@ export const appRouter = router({
         return userIds.map(id => ({
           userId: id,
           name: nameById.get(id) ?? "Someone",
+        }));
+      }),
+  }),
+
+  /**
+   * Voice channels over the Cloudflare Realtime SFU — ADR 0013.
+   *
+   * Every procedure is membership-gated per channel and refuses plainly
+   * when the instance has no Realtime credentials, mirroring how SSO
+   * behaves when unconfigured. The client hands SDP to these and never
+   * learns the app secret; presence rides the same 2s polling the message
+   * sync already uses. See server/voice.ts for the two jobs and their
+   * deliberate limits.
+   */
+  voice: router({
+    status: publicProcedure.query(() => ({ enabled: voice.voiceConfigured() })),
+
+    join: protectedProcedure
+      .input(z.object({ channelId: z.number(), offerSdp: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const channel = await requireVoiceChannel(input.channelId, ctx.user.id);
+        const session = await voice.newSession(input.offerSdp);
+        voice.joinPresence(channel.id, {
+          userId: ctx.user.id,
+          username: ctx.user.username,
+          sessionId: session.sessionId,
+          tracks: [],
+        });
+        return {
+          sessionId: session.sessionId as string,
+          answerSdp: session.sessionDescription.sdp as string,
+        };
+      }),
+
+    publishTracks: protectedProcedure
+      .input(
+        z.object({
+          channelId: z.number(),
+          sessionId: z.string().min(1),
+          offerSdp: z.string().min(1),
+          tracks: z
+            .array(z.object({ mid: z.string(), trackName: z.string().max(128) }))
+            .min(1)
+            .max(4),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await requireVoiceChannel(input.channelId, ctx.user.id);
+        const result = await voice.newTracks(
+          input.sessionId,
+          input.tracks.map(t => ({ location: "local" as const, ...t })),
+          input.offerSdp
+        );
+        voice.announceTracks(
+          input.channelId,
+          ctx.user.id,
+          input.tracks.map(t => t.trackName)
+        );
+        return { answerSdp: result.sessionDescription.sdp as string };
+      }),
+
+    pullTracks: protectedProcedure
+      .input(
+        z.object({
+          channelId: z.number(),
+          sessionId: z.string().min(1),
+          tracks: z
+            .array(
+              z.object({ sessionId: z.string().min(1), trackName: z.string() })
+            )
+            .min(1)
+            .max(32),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await requireVoiceChannel(input.channelId, ctx.user.id);
+        const result = await voice.newTracks(
+          input.sessionId,
+          input.tracks.map(t => ({ location: "remote" as const, ...t }))
+        );
+        return {
+          requiresRenegotiation: Boolean(result.requiresImmediateRenegotiation),
+          offerSdp: (result.sessionDescription?.sdp ?? null) as string | null,
+          tracks: result.tracks ?? [],
+        };
+      }),
+
+    renegotiate: protectedProcedure
+      .input(
+        z.object({
+          channelId: z.number(),
+          sessionId: z.string().min(1),
+          answerSdp: z.string().min(1),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await requireVoiceChannel(input.channelId, ctx.user.id);
+        await voice.renegotiate(input.sessionId, input.answerSdp);
+        return { ok: true };
+      }),
+
+    heartbeat: protectedProcedure
+      .input(z.object({ channelId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        voice.heartbeat(input.channelId, ctx.user.id);
+        return { ok: true };
+      }),
+
+    leave: protectedProcedure
+      .input(z.object({ channelId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        voice.leavePresence(input.channelId, ctx.user.id);
+        return { ok: true };
+      }),
+
+    participants: protectedProcedure
+      .input(z.object({ channelId: z.number() }))
+      .query(async ({ ctx, input }) => {
+        const channel = await db.getChannelById(input.channelId);
+        if (!channel) return [];
+        await requireServerMembership(channel.serverId, ctx.user.id);
+        return voice.participants(input.channelId).map(p => ({
+          userId: p.userId,
+          username: p.username,
+          sessionId: p.sessionId,
+          tracks: p.tracks,
         }));
       }),
   }),
