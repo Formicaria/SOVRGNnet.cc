@@ -26,8 +26,10 @@ const STYLE = `
   .server .badge{width:42px;height:42px;border-radius:12px;background:#241a3d;display:flex;
                  align-items:center;justify-content:center;font-weight:700;font-size:.85rem;flex:0 0 auto}
   .server .meta{flex:1;min-width:0}
+  .server .meta strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .server .meta small{display:block;color:var(--muted);font-family:var(--mono);font-size:.72rem;
                       overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .server .revoke{flex:0 0 auto}
   .server .open{margin:0;width:auto;padding:8px 18px;flex:0 0 auto;text-decoration:none;
                 display:inline-block;background:var(--accent);color:#fff;border-radius:9px;
                 font-weight:600;font-size:.88rem}
@@ -56,7 +58,8 @@ const STYLE = `
   .note{margin-top:18px;font-size:.8rem;color:var(--muted);border-top:1px solid var(--border);padding-top:14px}
   .codes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0;font-family:var(--mono);font-size:.9rem}
   .codes span{background:#0d0818;border:1px solid var(--border);border-radius:6px;padding:7px;text-align:center}
-  .linky{background:none;border:0;color:var(--muted);font-size:.85rem;cursor:pointer;text-decoration:underline;padding:0}
+  .linky{background:none;border:0;color:var(--muted);font-size:.85rem;cursor:pointer;
+         text-decoration:underline;padding:0;width:auto;margin:0}
   .linky:hover{color:var(--text)}
   .warn{margin-top:14px;padding:11px 13px;border-radius:8px;font-size:.85rem;
         background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);color:var(--warn)}
@@ -654,9 +657,14 @@ export function hubPage(options: {
     const err = document.getElementById('err');
     const showErr = (m) => { err.innerHTML = '<div class="err"></div>'; err.firstChild.textContent = m; };
 
+    // Both sessions, not one. Ending only this host's session left the id
+    // host's alive, so 'Sign in' walked straight back into the account that
+    // was just signed out of — a sign-out that didn't mean it. The id host
+    // ends its own session and sends them back here, landing page, actually
+    // signed out.
     document.getElementById('signout').addEventListener('click', async () => {
       await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
-      window.location.reload();
+      window.location.href = ${JSON.stringify(idBase)} + '/hub/signout';
     });
 
     document.querySelectorAll('.revoke').forEach((el) => {

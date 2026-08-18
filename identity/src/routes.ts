@@ -1272,6 +1272,28 @@ export function registerRoutes(app: Express, mail: MailTransport): void {
   });
 
   /**
+   * The id-host half of signing out of the hub.
+   *
+   * The hub kills its own host's session, then lands here so the id host's
+   * dies too — without this, 'Sign in' rode the still-live id session
+   * straight back into the account that was just signed out of. A GET that
+   * changes state, deliberately: it has to be reachable by a cross-host
+   * redirect, and the Lax cookie only rides top-level navigations, so a
+   * hostile page's subresource request arrives with no cookie and signs
+   * nobody out. The worst a forced top-level visit achieves is a sign-out.
+   */
+  app.get("/hub/signout", async (req, res) => {
+    const raw = req.cookies?.[SESSION_COOKIE];
+    if (raw) {
+      const db = await getDb();
+      await db.delete(sessions).where(eq(sessions.tokenHash, hashOpaqueToken(raw)));
+    }
+    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    const hub = hubUrl();
+    res.redirect(302, hub ? `${hub}/hub` : "/hub");
+  });
+
+  /**
    * Creating an account with no server in sight — the sign-up a marketing
    * page can link to. Same /api/register underneath; the only difference is
    * where the recovery-codes stop continues to, because there is no server's
