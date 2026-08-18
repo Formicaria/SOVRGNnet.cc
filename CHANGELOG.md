@@ -8,6 +8,29 @@
 > bundling it. The notes below cover everything through v0.6.2 rather than
 > guessing which half of a failed release reached anybody.
 
+**The desktop host created its databases with a binary that isn't shipped.**
+`hosting.rs` spawned `createdb` from the bundled PostgreSQL. zonky's
+embedded-postgres binaries — plain PostgreSQL repackaged per platform, which is
+what the bundle uses — omit the client tools on Windows and Linux and include
+them on macOS.
+
+That asymmetry is what made it dangerous. A bundle built on a Mac had
+`createdb`, passed every check, shipped, and failed on somebody else's Windows
+machine three steps into a first run with `The system cannot find the file
+specified`. Nobody would think to look for a missing file that was present when
+the bundle was built.
+
+`createdb` is a thin wrapper around `CREATE DATABASE`, so the databases are now
+created over a connection — `scripts/host-createdbs.ts`, bundled beside the app,
+using the Node runtime and postgres driver the bundle already carries. The
+dependency is removed rather than worked around, and both databases are created
+in one call that exits 0 when they already exist.
+
+The build-time check added earlier is what found this, on its first run, on two
+of three platforms at once. `createdb` has been dropped from the list it
+verifies — a binary that is absent upstream cannot be verified — and a test
+asserts nothing spawns it again.
+
 
 **The identity service's routes are tested against a real database.** Its unit
 tests cover keys, passwords and the limiter; single-use redemption, atomicity

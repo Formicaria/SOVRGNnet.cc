@@ -223,7 +223,11 @@ fn bundle_present(app: &AppHandle) -> bool {
     // inferring the rest is how a build shipped without `createdb`: `initdb`
     // was present, this returned true, the offer to host appeared, and setup
     // failed partway through with a file-not-found from three steps later.
-    ["initdb", "postgres", "pg_ctl", "createdb"]
+    //
+    // `createdb` is no longer among them — it is missing from the upstream
+    // tarball on two platforms of three, so the databases are created over a
+    // connection instead.
+    ["initdb", "postgres", "pg_ctl"]
         .iter()
         .all(|tool| postgres_bin(app, tool).map(|p| p.exists()).unwrap_or(false))
         && bundle_dir(app)
@@ -536,26 +540,32 @@ pub async fn host_start(
         }
     }
 
-    // The two databases, created if they don't exist. createdb failing
-    // because the database exists is the ordinary second launch, not an
-    // error; any other failure is real.
+    // The two databases, created if they don't exist.
+    //
+    // Not `createdb`. zonky's embedded-postgres binaries — plain PostgreSQL
+    // repackaged per platform, which is what the bundle ships — omit the
+    // client tools on Windows and Linux and include them on macOS. A bundle
+    // built on a Mac therefore worked, shipped, and failed on a user's Windows
+    // machine three steps into a first run with "The system cannot find the
+    // file specified": a missing file nobody would think to look for, because
+    // it was present when the bundle was built.
+    //
+    // `createdb` is a thin wrapper around `CREATE DATABASE`. Doing it over a
+    // connection removes the dependency instead of working around it, and the
+    // bundle already carries both Node and the postgres driver. Both databases
+    // in one call, and it exits 0 when they already exist — the ordinary
+    // second launch is not an error.
     if components.iter().any(|c| c.id == "postgres" && c.state == "running") {
-        for db in ["sovrgnnet", "dendrite"] {
-            let mut c = Command::new(postgres_bin(&app, "createdb")?);
-            c.arg("-h")
-                .arg("127.0.0.1")
-                .arg("-p")
-                .arg(pg_port.to_string())
-                .arg("-U")
-                .arg("sovrgn")
-                .arg(db)
-                .env("PGPASSWORD", &secrets.db_password);
-            if let Err(e) = run_to_completion(c, &format!("createdb {db}")) {
-                if !e.contains("already exists") {
-                    return Err(e);
-                }
-            }
-        }
+        let bundle = bundle_dir(&app)?;
+        let mut c = Command::new(bundle.join(exe("node")));
+        c.arg(bundle.join("app").join("createdbs.mjs"))
+            .arg("sovrgnnet")
+            .arg("dendrite")
+            .env("PGHOST", "127.0.0.1")
+            .env("PGPORT", pg_port.to_string())
+            .env("PGUSER", "sovrgn")
+            .env("PGPASSWORD", &secrets.db_password);
+        run_to_completion(c, "create databases")?;
     }
 
     // -- dendrite ------------------------------------------------------------
