@@ -127,15 +127,26 @@ way back.
 
 Automate the *decision*, not the runtime:
 
-1. A bot (Renovate or Dependabot) opens a pull request that bumps an image pin.
-2. CI runs `./scripts/e2e.sh` against the new version — a real sign-up, a real
-   message, a real backup and restore, against the actual images.
-3. A person merges it.
+1. Renovate opens a pull request that bumps a pin. `renovate.json` groups the
+   things that only work when moved together — Express with the transitive
+   advisories that arrive with it, matrix-js-sdk with its Rust bindings,
+   Tauri's two package managers — and labels the two that migrate data
+   one-way, Postgres majors and Dendrite, `needs-migration-plan`.
+2. CI runs the full `./scripts/e2e.sh` against it: a real sign-up, a real
+   message, real Olm/Megolm, and a backup that has to survive a schema drop.
+   That job is gated on the `dependencies` label precisely so this case gets
+   it, without every other pull request paying for it.
+3. A person merges it. **Nothing auto-merges**, and a test enforces that — a
+   bot that merges its own pull requests is Watchtower with extra steps, and
+   the argument above is that nothing in this stack should update itself.
 4. `sovrgnnet backup && sovrgnnet update` on the box.
 
-Steps 1 and 2 are the ones that make this sustainable, because the reason
-version bumps rot is that testing them is manual. The harness already exists;
-it just isn't pointed at this.
+Step 2 is what makes this sustainable, because the reason version bumps rot is
+that testing them is manual.
+
+This page previously described step 2 as though it already happened. It didn't
+— CI ran unit tests against a real Postgres and never brought the stack up, so
+an image bump could have gone green without anything exercising a migration.
 
 ### The one to watch
 

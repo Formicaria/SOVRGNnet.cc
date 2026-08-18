@@ -92,8 +92,16 @@ describe("the supervisor and the bundle script agree on names", () => {
   });
 
   it("postgres tools are under postgres/bin on both sides", () => {
+    // The property is the *directory*, not one tool's name. This asserted
+    // `postgres/bin/initdb` literally, and broke the moment the bundle script
+    // started checking four tools through a loop variable — a change that
+    // strengthened exactly what this test was protecting.
+    //
+    // Second time a guard here has failed on the spelling rather than the
+    // thing: an earlier one demanded `matrix_server_name(` inline and tripped
+    // on a call site that legitimately used a variable.
     expect(supervisor).toMatch(/join\("postgres"\)\.join\("bin"\)/);
-    expect(bundleScript).toMatch(/postgres\/bin\/initdb/);
+    expect(bundleScript).toMatch(/postgres\/bin\//);
   });
 
   it("the bundle script builds what the compose file pins", () => {
@@ -277,5 +285,54 @@ describe("each desktop host gets its own Matrix identity", () => {
     // Read before write: the whole correctness argument is that an existing
     // name always wins.
     expect(writesFile).toBeGreaterThan(readsFile);
+  });
+});
+
+describe("the host bundle ships what hosting.rs spawns", () => {
+  const HOSTING = readFileSync(
+    join(__dirname, "..", "desktop/src-tauri/src/hosting.rs"),
+    "utf8"
+  );
+  const BUNDLE = readFileSync(join(__dirname, "..", "scripts/host-bundle.sh"), "utf8");
+
+  /** Every `postgres_bin(app, "x")` in the supervisor. */
+  function spawned(): string[] {
+    return [
+      ...new Set(
+        [...HOSTING.matchAll(/postgres_bin\(&?app,\s*"([a-z_]+)"\)/g)].map((m) => m[1])
+      ),
+    ].sort();
+  }
+
+  it("finds the binaries it spawns", () => {
+    expect(spawned().length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("verifies every one of them at build time", () => {
+    // A Windows build shipped without `createdb`. The bundle script checked
+    // `initdb` and stopped there, so the missing file surfaced on a user's
+    // machine, three steps into a first run:
+    //
+    //   createdb sovrgnnet: couldn't run: The system cannot find the file
+    //   specified. (os error 2)
+    //
+    // The failure belongs where the fix is — re-running host-bundle.sh — not
+    // in front of somebody trying to start a server.
+    for (const tool of spawned()) {
+      expect(BUNDLE, `host-bundle.sh never checks for ${tool}`).toContain(tool);
+    }
+  });
+
+  it("refuses to offer hosting unless all of them are present", () => {
+    // bundle_present() decides whether the app offers to host at all. It
+    // checked initdb alone, so a bundle missing createdb still advertised
+    // itself as able to host.
+    const guard = HOSTING.slice(
+      HOSTING.indexOf("fn bundle_present"),
+      HOSTING.indexOf("fn bundle_present") + 700
+    );
+    for (const tool of spawned()) {
+      expect(guard, `bundle_present ignores ${tool}`).toContain(`"${tool}"`);
+    }
   });
 });

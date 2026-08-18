@@ -1,3 +1,4 @@
+import markUrl from "../assets/mark.png";
 import { IDENTITY_ORIGIN } from "@shared/identityOrigin";
 import { useState } from "react";
 import { openExternal } from "@/lib/bridge";
@@ -33,7 +34,10 @@ export default function FirstRun({
 
   return (
     <div className="firstrun">
-      <div className="firstrun-mark">SN</div>
+      {/* The real mark, not "SN" in a gradient box. alt is empty on purpose:
+          the heading below already says SOVRGNnet, and naming it here reads
+          the product twice to anyone using a screen reader. */}
+      <img className="firstrun-mark" src={markUrl} alt="" />
       <h1>Welcome to SOVRGNnet</h1>
       <p className="dim">
         Chat on servers people own, not companies. Sign in to bring your servers

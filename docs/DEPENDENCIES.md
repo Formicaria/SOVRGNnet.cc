@@ -65,9 +65,20 @@ handling and the removal of several patterns this codebase uses all change.
 **Surveyed, and the surface is smaller than expected.** Every breaking change
 in Express 5 was checked against this codebase:
 
-- **Route patterns** — the big one, and clean. Every registered path is a plain
-  string with simple `:param` segments; no `?` optionals, no bare `*`, no
-  inline regex. Nothing to rewrite.
+- **Route patterns** — the big one, and the survey got it wrong. Two
+  `app.use("*", …)` SPA fallbacks live in `server/_core/`, which the grep
+  behind this list did not reach: it searched `server/*.ts`, and the app is
+  created a directory deeper. path-to-regexp v8 requires wildcards to be
+  named, so a bare `*` throws at registration with `Missing parameter name at
+  index 1: *`.
+  
+  Nothing caught it except the end-to-end stage. It typechecks, all 1007 unit
+  tests pass, the image builds — and then the app never finishes starting, so
+  the container is up and the healthcheck simply never goes green. Both are
+  now `app.use(handler)` with no path, which has always meant the same thing
+  and keeps the pattern out of path-to-regexp's hands entirely.
+  `server/deployment.test.ts` walks every `.ts` in the repository for this
+  now, rather than a directory somebody guessed at.
 - **`req.body` is `undefined` rather than `{}`** when no body was parsed. Every
   access is already either `req.body?.x` or `schema.safeParse(req.body)`, and
   zod's `safeParse(undefined)` fails cleanly rather than throwing.

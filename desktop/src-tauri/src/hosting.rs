@@ -219,7 +219,13 @@ fn postgres_bin(app: &AppHandle, tool: &str) -> Result<PathBuf, String> {
 /// build ships without one, and the truthful answer there is "this build
 /// can't host", not a spawn error three steps later.
 fn bundle_present(app: &AppHandle) -> bool {
-    postgres_bin(app, "initdb").map(|p| p.exists()).unwrap_or(false)
+    // Every Postgres binary this module spawns, because checking one and
+    // inferring the rest is how a build shipped without `createdb`: `initdb`
+    // was present, this returned true, the offer to host appeared, and setup
+    // failed partway through with a file-not-found from three steps later.
+    ["initdb", "postgres", "pg_ctl", "createdb"]
+        .iter()
+        .all(|tool| postgres_bin(app, tool).map(|p| p.exists()).unwrap_or(false))
         && bundle_dir(app)
             .map(|d| d.join(exe("dendrite")).exists() && d.join(exe("kubo")).exists() && d.join(exe("node")).exists())
             .unwrap_or(false)

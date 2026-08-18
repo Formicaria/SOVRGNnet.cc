@@ -163,9 +163,22 @@ case "$TARGET" in
     unpack "$(ls "$WORK/pgjar"/postgres-windows-*.txz)" "$HOST_DIR/postgres"
     ;;
 esac
-[ -x "$HOST_DIR/postgres/bin/initdb" ] || [ -f "$HOST_DIR/postgres/bin/initdb.exe" ] \
-  || die "the PostgreSQL bundle has no initdb — the layout upstream changed"
-ok "postgres in place"
+# Every PostgreSQL binary hosting.rs actually spawns, not just the first one.
+#
+# This checked `initdb` alone and treated it as proof the bundle was good. It
+# is not: a Windows build shipped without `createdb`, `initdb` succeeded, the
+# database cluster came up, and setup then died on
+#
+#   createdb sovrgnnet: couldn't run: The system cannot find the file specified
+#
+# — three steps into a first run, on somebody else's machine, for a file that
+# was missing when the bundle was built. A missing binary should fail here,
+# where the fix is re-running this script, rather than there.
+for tool in initdb postgres pg_ctl createdb; do
+  [ -x "$HOST_DIR/postgres/bin/$tool" ] || [ -f "$HOST_DIR/postgres/bin/$tool.exe" ] \
+    || die "the PostgreSQL bundle has no $tool — upstream's layout changed, or this build omits client tools"
+done
+ok "postgres in place (initdb, postgres, pg_ctl, createdb)"
 
 # --- summary -----------------------------------------------------------------
 say "Bundle assembled"

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -318,5 +318,183 @@ describe("the servers do not announce their framework", () => {
       const text = readFileSync(join(ROOT, file), "utf8");
       expect(text, file).toMatch(/app\.disable\(\s*["']x-powered-by["']\s*\)/);
     }
+  });
+});
+
+describe("the version-bump pipeline", () => {
+  const RENOVATE = JSON.parse(readFileSync(join(ROOT, "renovate.json"), "utf8")) as {
+    packageRules?: Array<Record<string, unknown>>;
+    automerge?: boolean;
+    vulnerabilityAlerts?: { schedule?: string[] };
+    schedule?: string[];
+  };
+  const RAW = readFileSync(join(ROOT, "renovate.json"), "utf8");
+
+  it("never auto-merges anything", () => {
+    // The whole argument in docs/UPGRADING.md is that nothing in this stack
+    // should update itself: Postgres majors are one-way data-directory
+    // migrations and Dendrite migrates its schema forward on boot. A bot that
+    // merges its own PRs is Watchtower with extra steps.
+    expect(RENOVATE.automerge).toBeUndefined();
+    expect(RAW).not.toMatch(/"automerge"\s*:\s*true/);
+    for (const rule of RENOVATE.packageRules ?? []) {
+      expect(rule.automerge, JSON.stringify(rule.groupName)).not.toBe(true);
+    }
+  });
+
+  it("does not make security advisories wait for the weekly window", () => {
+    // Everything else is batched to Monday so the queue stays readable.
+    // Applying that to advisories is a policy that works until the week it
+    // doesn't.
+    expect(RENOVATE.vulnerabilityAlerts?.schedule).toEqual(["at any time"]);
+  });
+
+  it("keeps cloudflared on its own, off-schedule", () => {
+    // It is the only process in the compose file with an unsolicited path to
+    // the internet, and it sat twenty months out of date while every other
+    // signal looked healthy.
+    const rule = (RENOVATE.packageRules ?? []).find((r) =>
+      JSON.stringify(r.matchPackageNames ?? "").includes("cloudflared")
+    );
+    expect(rule).toBeDefined();
+    expect(rule!.schedule).toEqual(["at any time"]);
+  });
+
+  it("groups the things that only work when moved together", () => {
+    // Express with its transitive advisories; matrix-js-sdk with its Rust
+    // bindings; Tauri's two package managers. Each of these produces a
+    // green typecheck and a broken runtime when split.
+    const groups = (RENOVATE.packageRules ?? [])
+      .map((r) => String(r.groupName ?? ""))
+      .join(" ");
+    for (const expected of ["express", "matrix crypto stack", "tauri"]) {
+      expect(groups, `missing group: ${expected}`).toContain(expected);
+    }
+  });
+
+  it("flags the two bumps that need a migration plan", () => {
+    const labelled = (RENOVATE.packageRules ?? []).filter((r) =>
+      JSON.stringify(r.labels ?? []).includes("needs-migration-plan")
+    );
+    // Postgres majors and Dendrite. Both migrate data forward, one-way.
+    expect(labelled.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("CI proves a dependency bump", () => {
+  const CI = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+
+  it("runs the full end-to-end harness somewhere", () => {
+    // docs/UPGRADING.md claimed this before it was true. The app job runs the
+    // unit suite against a real Postgres, which is most of the value — but it
+    // never starts Dendrite, never builds the image, and never restores a
+    // backup, so an image bump could go green without exercising a migration.
+    expect(CI).toContain("./scripts/e2e.sh");
+  });
+
+  it("runs it on dependency pull requests specifically", () => {
+    // The case the whole pipeline exists for. Gating on the label Renovate
+    // applies means bumps are proven without every other PR paying the
+    // minutes.
+    expect(CI).toMatch(/pull_request\.labels\.\*\.name, 'dependencies'/);
+  });
+
+  it("counts the e2e result in the required check", () => {
+    // A job nothing gates on is a job that can fail unnoticed. `ci` is the
+    // single required status check, so it has to include this one.
+    const gate = CI.slice(CI.indexOf("\n  ci:"));
+    expect(gate).toContain("needs.e2e.result");
+    expect(gate).toMatch(/needs:\s*\[[^\]]*e2e[^\]]*\]/);
+  });
+});
+
+describe("route patterns Express 5 can parse", () => {
+  /**
+   * Every .ts under the repo, not a directory I guessed at.
+   *
+   * This exists because of the guess. Surveying the Express 5 migration I
+   * grepped `server/*.ts` and `identity/src/*.ts`, found no wildcards, and
+   * wrote in docs/DEPENDENCIES.md that route patterns were "the big one, and
+   * clean". The app is created in `server/_core/`, which that pattern does not
+   * reach, and two `app.use("*", …)` fallbacks were sitting there.
+   *
+   * Nothing caught it: it typechecks, every unit test passes, the image
+   * builds. path-to-regexp v8 throws at *registration*, so the container came
+   * up and the app simply never finished starting. Only the end-to-end stage
+   * noticed.
+   */
+  function everySourceFile(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (["node_modules", "dist", ".git", "test-results"].includes(entry.name)) continue;
+        out.push(...everySourceFile(join(dir, entry.name)));
+      } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
+        out.push(join(dir, entry.name));
+      }
+    }
+    return out;
+  }
+
+  it("registers no bare wildcard or optional-parameter path", () => {
+    // path-to-regexp v8 requires wildcards to be named — `*` is an error,
+    // `*splat` is not — and dropped the `:param?` optional syntax entirely.
+    const offenders: string[] = [];
+    const registration =
+      /\.(?:get|post|put|patch|delete|use|all)\(\s*["'`]([^"'`]*)["'`]/g;
+
+    for (const file of everySourceFile(".")) {
+      if (file.endsWith(".test.ts")) continue;
+      // Comments stripped. Every version of this guard I have written today
+      // first flagged the comment explaining why the thing is not done — this
+      // file's own paragraph above quotes `app.use("*", …)` verbatim. A check
+      // that cannot tell a registration from prose about one punishes writing
+      // the reasoning down.
+      const text = readFileSync(join(ROOT, file), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/.*$/gm, "$1");
+      for (const match of text.matchAll(registration)) {
+        const path = match[1];
+        // A bare `*`, an unnamed `*` segment, or a `:param?` optional.
+        if (/(^|\/)\*(?![A-Za-z_])/.test(path) || /:[A-Za-z_]\w*\?/.test(path)) {
+          offenders.push(`${file}: ${JSON.stringify(path)}`);
+        }
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("searches the whole repository, not one directory", () => {
+    // The bug was the scope of the search, so this is the assertion that
+    // actually guards against a repeat.
+    const files = everySourceFile(".");
+    expect(files).toContain(join("server", "_core", "static.ts"));
+    expect(files).toContain(join("server", "_core", "vite.ts"));
+    expect(files.length).toBeGreaterThan(100);
+  });
+});
+
+describe("the desktop and the web client show the same mark", () => {
+  it("ships the identical file, not a copy that drifts", () => {
+    // The desktop's first-run screen drew a gradient square with the letters
+    // "SN" in it — a placeholder that shipped, on the first screen anybody
+    // sees. Comparing bytes rather than existence: two marks that are
+    // *nearly* the same is worse than one obviously missing, because nobody
+    // notices until the two front doors are side by side.
+    const web = readFileSync(join(ROOT, "client/src/assets/mark.png"));
+    const desktop = readFileSync(join(ROOT, "desktop/src/assets/mark.png"));
+    expect(desktop.equals(web)).toBe(true);
+  });
+
+  it("renders it as an image rather than typography", () => {
+    const firstRun = readFileSync(join(ROOT, "desktop/src/components/FirstRun.tsx"), "utf8");
+    expect(firstRun).toMatch(/<img[^>]*firstrun-mark/);
+    // The placeholder, gone. Stripping comments because the one above it
+    // quotes the old text.
+    const code = firstRun
+      .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    expect(code).not.toMatch(/>\s*SN\s*</);
   });
 });

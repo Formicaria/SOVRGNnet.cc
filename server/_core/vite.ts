@@ -29,7 +29,17 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(vite.middlewares);
-  app.use("*", async (req, res, next) => {
+  // No path, rather than "*". Express 5 routes through path-to-regexp v8,
+  // where a bare "*" is a wildcard with no name and throws at registration:
+  // `Missing parameter name at index 1: *`. The app then never finishes
+  // starting, which is how this surfaced — the container came up, the
+  // healthcheck never passed, and nothing typechecked any differently.
+  //
+  // `app.use(handler)` and `app.use("*", handler)` have always meant the same
+  // thing: run for every request that reaches here. Dropping the path keeps
+  // the behaviour and takes the pattern out of path-to-regexp's hands
+  // entirely, which is better than translating it to "/*splat".
+  app.use(async (req, res, next) => {
     const url = req.originalUrl;
 
     try {

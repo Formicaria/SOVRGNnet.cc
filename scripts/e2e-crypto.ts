@@ -241,6 +241,15 @@ async function session(caller: Caller, label: string): Promise<Device> {
  *
  * `E2E_CRYPTO_VERBOSE=1` puts it all back for when something is actually
  * wrong — the log was genuinely how the withheld-keys failure got diagnosed.
+ *
+ * Two things still print, and both should:
+ *
+ * - The SDK's push-rule messages ("Adding default global override push rule…")
+ *   are `logger.warn` in pushprocessor.js. They are noise for our purposes but
+ *   warnings by the SDK's own reckoning, and lowering the floor past them
+ *   would take real warnings with it.
+ * - `WARN matrix_sdk_crypto::…` comes from the Rust layer's tracing, a
+ *   different logger entirely that loglevel does not reach.
  */
 async function quietTheSdk(): Promise<void> {
   if (process.env.E2E_CRYPTO_VERBOSE === "1") return;
@@ -631,6 +640,24 @@ async function main(): Promise<void> {
   assert(refused, "a tampered file decrypted instead of being refused");
   ok("A tampered file is refused rather than rendered");
 
+  // Stopping the crypto stack prints alarming things, after every check has
+  // already passed:
+  //
+  //   WARN matrix_sdk_crypto_wasm::machine: Error calling
+  //     user-identity-updated callback: JsValue(Error: null pointer passed to rust
+  //   Error: MatrixClient has been stopped
+  //   processOutgoingRequests: Error re-checking outgoing requests
+  //
+  // It is a teardown race inside the SDK: `stop()` frees the WASM OlmMachine
+  // while its own identity-updated callback and outgoing-request loop are
+  // still in flight, and those then touch a pointer that is gone. Nothing this
+  // harness did causes it and nothing it does can prevent it — the callbacks
+  // are registered by the SDK, not by us.
+  //
+  // Written down because "null pointer passed to rust" is the scariest text in
+  // a passing run, and the instinct is to go looking for a memory-safety bug
+  // in the crypto stack rather than reading the line above it that says every
+  // check passed.
   await Promise.all([alice.session.stop(), bob.session.stop()]);
   console.log(`\n  ${checks} checks passed`);
 }
