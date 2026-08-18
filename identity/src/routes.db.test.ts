@@ -328,6 +328,35 @@ describeWithDb("identity routes, against a real database", () => {
       expect(res.headers["location"]).toBe("/hub");
     });
 
+    it("offers account creation with no server in sight, ending at the hub", async () => {
+      const page = await rawRequest("/hub/register");
+      expect(page.status).toBe(200);
+      expect(page.text).toContain("Create an account");
+      // The two continuations that make this the hub's register and not a
+      // server's: recovery codes stop at /hub/start (which crosses to the
+      // hub host when one exists), and "already have one" resumes there
+      // too. No provider buttons here — this suite configures none, which
+      // is itself the operator-with-no-providers page being exercised.
+      expect(page.text).toContain("/recovery-codes?next=%2Fhub%2Fstart");
+      expect(page.text).toContain('href="/hub/start"');
+
+      // The sign-in page points at it, so the path is discoverable.
+      const signin = await rawRequest("/hub/start");
+      expect(signin.text).toContain("/hub/register");
+    });
+
+    it("recovery-codes honours a relative next and discards an absolute one", async () => {
+      const relative = await rawRequest("/recovery-codes?next=%2Fhub%2Fstart");
+      expect(relative.status).toBe(200);
+      expect(relative.text).toContain('"/hub/start"');
+
+      const absolute = await rawRequest(
+        `/recovery-codes?next=${encodeURIComponent("https://evil.example/phish")}`
+      );
+      expect(absolute.status).toBe(200);
+      expect(absolute.text).not.toContain("evil.example");
+    });
+
     it("lists servers, escapes their names, and links through /authorize", async () => {
       // A server names itself. A name that runs as script on the page that
       // decides whether to keep trusting servers would be a fine irony.
