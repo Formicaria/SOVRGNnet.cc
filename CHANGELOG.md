@@ -2,17 +2,19 @@
 
 ## v0.7.0 — 2026-08-18
 
-**Voice and video channels, end to end (ADR 0013).** Media rides the
-Cloudflare Realtime SFU — the one component a non-operator should never be
-asked to run, and the only way voice works behind tunnel-only deployments
-at all. Per-instance twice over: credentials are instance environment (no
-credentials, no claim — the sso posture), and the server refuses to pull
-any track this channel's own presence didn't announce, so neither channels
-nor instances sharing an app can reach each other's media. The client
-panel joins with mic or camera, tiles whoever's there, mutes, leaves;
-create-channel grew the voice checkbox the schema had been ready for since
-the bootstrap. The trade is recorded where trades live: the SFU is a
-decrypting hop, taken per-operator, never silently.
+**Voice and video channels, per instance, end to end (ADR 0013 as
+superseded).** Every instance houses its own voice backend: the operator
+runs a LiveKit SFU on their own machine, the server's only job is the
+admission decision — membership checked, then a token signed with the
+instance's own secret for exactly one channel's room — and media flows
+client ↔ that SFU without touching the app, or anything SOVRGN hosts,
+ever. A first cut routed media through a Cloudflare Realtime app; the
+owner reversed it the same day and the app was dissolved before this
+section could ship the claim. No credentials, no claim — the sso posture
+— and the honest cost stated where costs live: a voice-enabled instance
+needs its media port reachable. The client panel joins with mic or
+camera, shows whoever's there, mutes, leaves; create-channel grew the
+voice checkbox the schema had been ready for since the bootstrap.
 
 **The desktop's front door is a server address.** The mechanics always
 allowed connecting straight to a server with no SOVRGN account; the first

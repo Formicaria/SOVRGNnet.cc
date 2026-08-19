@@ -1,106 +1,82 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import * as voice from "./voice";
 
 /**
- * The presence half is pure and the proxy half is injectable, so both are
- * testable without a database or a Cloudflare account — which is the point:
- * these are the parts that are ours.
+ * The whole surface is a decision put into a signed token, so the tests are
+ * about the decision and the signature — no SFU, no network, nothing shared.
  */
 
 afterEach(() => {
-  voice.__resetPresenceForTests();
-  voice.__setSfuFetchForTests((...args) => fetch(...args));
-  delete process.env.CF_REALTIME_APP_ID;
-  delete process.env.CF_REALTIME_APP_SECRET;
-  vi.useRealTimers();
+  delete process.env.LIVEKIT_URL;
+  delete process.env.LIVEKIT_API_KEY;
+  delete process.env.LIVEKIT_API_SECRET;
 });
 
+function configure() {
+  process.env.LIVEKIT_URL = "wss://voice.example.test";
+  process.env.LIVEKIT_API_KEY = "APIkey123";
+  process.env.LIVEKIT_API_SECRET = "not-a-real-secret-but-long-enough";
+}
+
 describe("voice configuration", () => {
-  it("is off until both credentials exist — half-configured is unconfigured", () => {
+  it("is off until all three values exist — partially configured is unconfigured", () => {
     expect(voice.voiceConfigured()).toBe(false);
-    process.env.CF_REALTIME_APP_ID = "app";
+    process.env.LIVEKIT_URL = "wss://voice.example.test";
     expect(voice.voiceConfigured()).toBe(false);
-    process.env.CF_REALTIME_APP_SECRET = "secret";
+    process.env.LIVEKIT_API_KEY = "APIkey123";
+    expect(voice.voiceConfigured()).toBe(false);
+    process.env.LIVEKIT_API_SECRET = "s";
     expect(voice.voiceConfigured()).toBe(true);
   });
 
-  it("refuses to call the SFU unconfigured, before any network is touched", async () => {
-    const spy = vi.fn();
-    voice.__setSfuFetchForTests(spy as never);
-    await expect(voice.newSession("sdp")).rejects.toThrow(/not configured/);
-    expect(spy).not.toHaveBeenCalled();
+  it("refuses to mint unconfigured", async () => {
+    await expect(
+      voice.mintVoiceToken({ channelId: 1, identity: "user-1", displayName: "z" })
+    ).rejects.toThrow(/not configured/);
   });
 });
 
-describe("the SFU proxy", () => {
-  it("carries the secret in the header and surfaces SFU errors as errors", async () => {
-    process.env.CF_REALTIME_APP_ID = "app-1";
-    process.env.CF_REALTIME_APP_SECRET = "sekrit";
-    const calls: Array<{ url: string; init: RequestInit }> = [];
-    voice.__setSfuFetchForTests((async (url: unknown, init: RequestInit) => {
-      calls.push({ url: String(url), init });
-      return new Response(
-        JSON.stringify({ sessionId: "s1", sessionDescription: { type: "answer", sdp: "x" } }),
-        { status: 201, headers: { "content-type": "application/json" } }
-      );
-    }) as never);
-
-    const result = await voice.newSession("offer-sdp");
-    expect(result.sessionId).toBe("s1");
-    expect(calls[0].url).toBe("https://rtc.live.cloudflare.com/v1/apps/app-1/sessions/new");
-    expect((calls[0].init.headers as Record<string, string>).authorization).toBe("Bearer sekrit");
-
-    voice.__setSfuFetchForTests((async () =>
-      new Response(JSON.stringify({ errorCode: "x", errorDescription: "bad offer" }), {
-        status: 200, headers: { "content-type": "application/json" },
-      })) as never);
-    await expect(voice.newSession("offer")).rejects.toThrow("bad offer");
-  });
-});
-
-describe("presence", () => {
-  it("one entry per user, tracks update in place, leave removes", () => {
-    voice.joinPresence(1, { userId: 7, username: "z", sessionId: "a", tracks: [] });
-    voice.joinPresence(1, { userId: 7, username: "z", sessionId: "b", tracks: [] });
-    expect(voice.participants(1)).toHaveLength(1);
-    expect(voice.participants(1)[0].sessionId).toBe("b");
-
-    voice.announceTracks(1, 7, ["mic-1"]);
-    expect(voice.participants(1)[0].tracks).toEqual(["mic-1"]);
-
-    voice.leavePresence(1, 7);
-    expect(voice.participants(1)).toHaveLength(0);
+describe("the admission token", () => {
+  it("carries exactly one room, the identity, and the operator's issuer", async () => {
+    configure();
+    const token = await voice.mintVoiceToken({
+      channelId: 42,
+      identity: "user-7",
+      displayName: "zach",
+    });
+    const claims = await voice.__verifyVoiceTokenForTests(token);
+    expect(claims.iss).toBe("APIkey123");
+    expect(claims.sub).toBe("user-7");
+    expect((claims as any).name).toBe("zach");
+    const grant = (claims as any).video;
+    expect(grant.room).toBe("voice-42");
+    expect(grant.roomJoin).toBe(true);
+    // A token for channel 42 says nothing about channel 43 — per-channel
+    // isolation is the token's shape, not a runtime check anymore.
+    expect(grant.room).not.toBe(voice.roomName(43));
   });
 
-  it("sweeps the silent: no heartbeat for 20s means gone", () => {
-    vi.useFakeTimers();
-    voice.joinPresence(2, { userId: 1, username: "a", sessionId: "s", tracks: [] });
-    voice.joinPresence(2, { userId: 2, username: "b", sessionId: "t", tracks: [] });
-
-    vi.advanceTimersByTime(15_000);
-    voice.heartbeat(2, 2);
-    vi.advanceTimersByTime(10_000);
-
-    // User 1 last seen 25s ago; user 2 heartbeated 10s ago.
-    const alive = voice.participants(2);
-    expect(alive.map(p => p.userId)).toEqual([2]);
+  it("expires: admission is minutes, not a standing credential", async () => {
+    configure();
+    const token = await voice.mintVoiceToken({
+      channelId: 1,
+      identity: "user-1",
+      displayName: "z",
+    });
+    const claims = await voice.__verifyVoiceTokenForTests(token);
+    const ttl = (claims.exp ?? 0) - (claims.iat ?? 0);
+    expect(ttl).toBeGreaterThan(0);
+    expect(ttl).toBeLessThanOrEqual(10 * 60);
   });
-});
 
-describe("per-channel, per-instance pull authorization", () => {
-  it("only what presence announced is pullable; other channels and foreign sessions are not", () => {
-    voice.joinPresence(1, { userId: 1, username: "a", sessionId: "sess-a", tracks: [] });
-    voice.announceTracks(1, 1, ["mic-a"]);
-    voice.joinPresence(2, { userId: 2, username: "b", sessionId: "sess-b", tracks: [] });
-    voice.announceTracks(2, 2, ["mic-b"]);
-
-    expect(voice.isAnnounced(1, "sess-a", "mic-a")).toBe(true);
-    // Same instance, different channel: refused.
-    expect(voice.isAnnounced(1, "sess-b", "mic-b")).toBe(false);
-    // Never announced anywhere here — e.g. another instance sharing the
-    // Realtime app: refused.
-    expect(voice.isAnnounced(1, "sess-zz", "mic-zz")).toBe(false);
-    // A track name that exists but under a different session: refused.
-    expect(voice.isAnnounced(1, "sess-b", "mic-a")).toBe(false);
+  it("does not verify under a different secret — per-instance isolation is the key itself", async () => {
+    configure();
+    const token = await voice.mintVoiceToken({
+      channelId: 1,
+      identity: "user-1",
+      displayName: "z",
+    });
+    process.env.LIVEKIT_API_SECRET = "some-other-instance-entirely";
+    await expect(voice.__verifyVoiceTokenForTests(token)).rejects.toThrow();
   });
 });

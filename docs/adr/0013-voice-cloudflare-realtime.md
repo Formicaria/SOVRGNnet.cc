@@ -114,8 +114,10 @@ treat them: not secrets, and not authority.
 
 ## Action Items
 
-1. [x] Create Realtime app `sovrgnnet-voice`; credentials to operators' env
+1. [x] ~~Create Realtime app~~ — created, then dissolved with the reversal
 2. [x] `channels.kind` (`text` | `voice`) + migration
-3. [x] Server voice router: proxy + presence, membership-gated
-4. [ ] Client voice panel (join/leave/mute/camera), Dashboard wiring
-5. [ ] Desktop multi-server rail (separate track, same release)
+3. [x] Server voice: LiveKit admission tokens, membership-gated (docs/VOICE.md)
+4. [x] Client voice panel (livekit-client), Dashboard wiring
+5. [x] Desktop front door / multi-server (landed separately)
+6. [ ] Host bundle ships LiveKit for desktop-hosted servers
+7. [ ] Installer-time "also install the server" option

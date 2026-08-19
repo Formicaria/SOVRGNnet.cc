@@ -71,8 +71,9 @@ async function requireVoiceChannel(channelId: number, userId: number) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message:
-        "This instance doesn't offer voice. Its operator can enable it with " +
-        "Cloudflare Realtime credentials — see docs/adr/0013.",
+        "This instance doesn't offer voice. Its operator can enable it by " +
+        "running a LiveKit server and setting LIVEKIT_URL/KEY/SECRET — " +
+        "see docs/VOICE.md.",
     });
   }
   const channel = await db.getChannelById(channelId);
@@ -1060,142 +1061,31 @@ export const appRouter = router({
   }),
 
   /**
-   * Voice channels over the Cloudflare Realtime SFU — ADR 0013.
-   *
-   * Every procedure is membership-gated per channel and refuses plainly
-   * when the instance has no Realtime credentials, mirroring how SSO
-   * behaves when unconfigured. The client hands SDP to these and never
-   * learns the app secret; presence rides the same 2s polling the message
-   * sync already uses. See server/voice.ts for the two jobs and their
-   * deliberate limits.
+   * Voice channels over the operator's own LiveKit SFU — ADR 0013 as
+   * superseded. One procedure that matters: join asks "may this member
+   * enter this channel's room?" and answers with the operator's SFU
+   * address and a signed admission token. Media flows client ↔ that SFU
+   * and never touches this process. Everything the Cloudflare cut proxied
+   * (tracks, renegotiation, presence) is the SFU's native job now.
    */
   voice: router({
     status: publicProcedure.query(() => ({ enabled: voice.voiceConfigured() })),
 
     join: protectedProcedure
-      .input(z.object({ channelId: z.number(), offerSdp: z.string().min(1) }))
+      .input(z.object({ channelId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const channel = await requireVoiceChannel(input.channelId, ctx.user.id);
-        const session = await voice.newSession(input.offerSdp);
-        voice.joinPresence(channel.id, {
-          userId: ctx.user.id,
-          username: ctx.user.username,
-          sessionId: session.sessionId,
-          tracks: [],
-        });
         return {
-          sessionId: session.sessionId as string,
-          answerSdp: session.sessionDescription.sdp as string,
+          url: voice.voiceUrl(),
+          room: voice.roomName(channel.id),
+          token: await voice.mintVoiceToken({
+            channelId: channel.id,
+            identity: `user-${ctx.user.id}`,
+            displayName: ctx.user.username,
+          }),
         };
-      }),
-
-    publishTracks: protectedProcedure
-      .input(
-        z.object({
-          channelId: z.number(),
-          sessionId: z.string().min(1),
-          offerSdp: z.string().min(1),
-          tracks: z
-            .array(z.object({ mid: z.string(), trackName: z.string().max(128) }))
-            .min(1)
-            .max(4),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        await requireVoiceChannel(input.channelId, ctx.user.id);
-        const result = await voice.newTracks(
-          input.sessionId,
-          input.tracks.map(t => ({ location: "local" as const, ...t })),
-          input.offerSdp
-        );
-        voice.announceTracks(
-          input.channelId,
-          ctx.user.id,
-          input.tracks.map(t => t.trackName)
-        );
-        return { answerSdp: result.sessionDescription.sdp as string };
-      }),
-
-    pullTracks: protectedProcedure
-      .input(
-        z.object({
-          channelId: z.number(),
-          sessionId: z.string().min(1),
-          tracks: z
-            .array(
-              z.object({ sessionId: z.string().min(1), trackName: z.string() })
-            )
-            .min(1)
-            .max(32),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        await requireVoiceChannel(input.channelId, ctx.user.id);
-        // Only tracks this channel's presence announced may be pulled.
-        // Without this, client-supplied IDs would reach the SFU unchecked —
-        // across channels, and across instances sharing a Realtime app.
-        for (const t of input.tracks) {
-          if (!voice.isAnnounced(input.channelId, t.sessionId, t.trackName)) {
-            throw new TRPCError({
-              code: "FORBIDDEN",
-              message: "That track isn't published in this channel.",
-            });
-          }
-        }
-        const result = await voice.newTracks(
-          input.sessionId,
-          input.tracks.map(t => ({ location: "remote" as const, ...t }))
-        );
-        return {
-          requiresRenegotiation: Boolean(result.requiresImmediateRenegotiation),
-          offerSdp: (result.sessionDescription?.sdp ?? null) as string | null,
-          tracks: result.tracks ?? [],
-        };
-      }),
-
-    renegotiate: protectedProcedure
-      .input(
-        z.object({
-          channelId: z.number(),
-          sessionId: z.string().min(1),
-          answerSdp: z.string().min(1),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        await requireVoiceChannel(input.channelId, ctx.user.id);
-        await voice.renegotiate(input.sessionId, input.answerSdp);
-        return { ok: true };
-      }),
-
-    heartbeat: protectedProcedure
-      .input(z.object({ channelId: z.number() }))
-      .mutation(async ({ ctx, input }) => {
-        voice.heartbeat(input.channelId, ctx.user.id);
-        return { ok: true };
-      }),
-
-    leave: protectedProcedure
-      .input(z.object({ channelId: z.number() }))
-      .mutation(async ({ ctx, input }) => {
-        voice.leavePresence(input.channelId, ctx.user.id);
-        return { ok: true };
-      }),
-
-    participants: protectedProcedure
-      .input(z.object({ channelId: z.number() }))
-      .query(async ({ ctx, input }) => {
-        const channel = await db.getChannelById(input.channelId);
-        if (!channel) return [];
-        await requireServerMembership(channel.serverId, ctx.user.id);
-        return voice.participants(input.channelId).map(p => ({
-          userId: p.userId,
-          username: p.username,
-          sessionId: p.sessionId,
-          tracks: p.tracks,
-        }));
       }),
   }),
-
   // Message operations
   messages: router({
     listByChannel: protectedProcedure

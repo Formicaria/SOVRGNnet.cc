@@ -1,203 +1,98 @@
+import { SignJWT, jwtVerify } from "jose";
+
 /**
- * Voice channels over the Cloudflare Realtime SFU — ADR 0013.
+ * Voice channels over a per-instance LiveKit SFU — ADR 0013, as superseded.
  *
- * The schema had `voice` channels since the bootstrap and nothing behind
- * them: every layer but the last one. This is the last one. The server does
- * two jobs here and deliberately no more:
+ * The first cut of this file proxied Cloudflare's SFU, and the owner's
+ * reversal deleted that world in a sentence: hundreds of thousands of
+ * instances, each housing its own voice backend, nothing routed through any
+ * account SOVRGN holds. So the server's whole job shrinks to the one thing
+ * only it can do: **decide who may enter which room, and say so in a signed
+ * token.** Media never touches this process — the client connects straight
+ * to the operator's own LiveKit server and stays there.
  *
- * 1. **Proxy the SFU Connection API.** The app secret authorizes every SFU
- *    call and must never reach a browser, so clients hand their SDP to the
- *    server and the server speaks to Cloudflare. Sessions and tracks are
- *    Cloudflare's; nothing media-shaped runs on this box — which is the
- *    entire reason a tunnel-only deployment can have voice at all.
+ * Configured with three values, all pointing at the operator's machine:
+ *   LIVEKIT_URL         wss://voice.example.com (or ws://host:7880 on LAN)
+ *   LIVEKIT_API_KEY     from the LiveKit server's keys file
+ *   LIVEKIT_API_SECRET  its pair
  *
- * 2. **Keep presence.** The SFU has no room concept on purpose; "who is in
- *    #general-voice, publishing which tracks" is membership-adjacent state
- *    and lives where membership lives. In memory, not the database: presence
- *    is a fact about running processes, and a restart that forgets it is
- *    telling the truth.
+ * Absent, the instance advertises `voice: false` and refuses plainly — the
+ * sso posture. Present, `voice: true` is honest because the operator runs
+ * the thing that makes it true. Isolation needs no code here anymore:
+ * per-channel because a token admits exactly one room, per-instance because
+ * every instance signs with its own secret against its own SFU. There is no
+ * shared anything left to cross.
  *
- * Configured with CF_REALTIME_APP_ID / CF_REALTIME_APP_SECRET. Absent, the
- * instance advertises `voice: false` and every procedure refuses plainly —
- * the same posture SSO takes. The provider surface is kept deliberately
- * narrow (newSession / newTracks / renegotiate / presence) so a LiveKit
- * driver could sit behind the same shape if media sovereignty is wanted
- * later; see the ADR's Option B.
+ * The token is LiveKit's documented access-token shape: an HS256 JWT whose
+ * issuer is the API key and whose `video` claim carries the room grant.
+ * Minted with `jose`, which the workspace already ships — a LiveKit server
+ * SDK dependency would be forty packages to sign one small JWT.
  */
 
-const API_BASE = "https://rtc.live.cloudflare.com/v1";
-
-/** Seconds without a heartbeat before a participant is presumed gone. */
-const PRESENCE_TTL_SECONDS = 20;
+/** Short-lived on purpose: it admits you; the connection then stands on its own. */
+const TOKEN_TTL = "10m";
 
 export function voiceConfigured(): boolean {
   return Boolean(
-    process.env.CF_REALTIME_APP_ID && process.env.CF_REALTIME_APP_SECRET
+    process.env.LIVEKIT_URL &&
+      process.env.LIVEKIT_API_KEY &&
+      process.env.LIVEKIT_API_SECRET
   );
 }
 
-/**
- * Swapped by tests so the proxy is testable without dialing Cloudflare —
- * the same arrangement matrixService and the OAuth broker use.
- */
-let sfuFetch: typeof fetch = (...args) => fetch(...args);
-export function __setSfuFetchForTests(impl: typeof fetch): void {
-  sfuFetch = impl;
+export function voiceUrl(): string {
+  return (process.env.LIVEKIT_URL ?? "").replace(/\/+$/, "");
 }
 
-async function sfu(path: string, body: unknown, method = "POST"): Promise<any> {
-  const appId = process.env.CF_REALTIME_APP_ID;
-  const secret = process.env.CF_REALTIME_APP_SECRET;
-  if (!appId || !secret) {
+/**
+ * One room per channel, named so a token can never be mistaken for another
+ * channel's. The channel id is the instance's own; two instances can both
+ * have a room named voice-3 and it means nothing, because each one's tokens
+ * only verify against its own SFU's secret.
+ */
+export function roomName(channelId: number): string {
+  return `voice-${channelId}`;
+}
+
+/**
+ * The admission decision, signed. Everything above this call — membership,
+ * channel kind, configuration — already happened in the router; this just
+ * puts the verdict in a form the operator's SFU will believe.
+ */
+export async function mintVoiceToken(options: {
+  channelId: number;
+  /** Stable per-user identity; LiveKit treats a rejoin under it as the same participant. */
+  identity: string;
+  /** What other participants see. */
+  displayName: string;
+}): Promise<string> {
+  const apiKey = process.env.LIVEKIT_API_KEY;
+  const secret = process.env.LIVEKIT_API_SECRET;
+  if (!apiKey || !secret) {
     throw new Error("Voice is not configured on this instance.");
   }
-  const res = await sfuFetch(`${API_BASE}/apps/${appId}${path}`, {
-    method,
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${secret}`,
+  return new SignJWT({
+    name: options.displayName,
+    video: {
+      room: roomName(options.channelId),
+      roomJoin: true,
+      canPublish: true,
+      canSubscribe: true,
     },
-    body: JSON.stringify(body),
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(apiKey)
+    .setSubject(options.identity)
+    .setIssuedAt()
+    .setExpirationTime(TOKEN_TTL)
+    .sign(new TextEncoder().encode(secret));
+}
+
+/** Tests only: verify a minted token the way the SFU would. */
+export async function __verifyVoiceTokenForTests(token: string) {
+  const secret = process.env.LIVEKIT_API_SECRET ?? "";
+  const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
+    algorithms: ["HS256"],
   });
-  const result: any = await res.json().catch(() => null);
-  if (!res.ok || result?.errorCode) {
-    throw new Error(
-      result?.errorDescription ?? `SFU answered ${res.status} without detail`
-    );
-  }
-  return result;
-}
-
-/** Create the caller's SFU session from their initial offer. */
-export function newSession(offerSdp: string) {
-  return sfu("/sessions/new", {
-    sessionDescription: { type: "offer", sdp: offerSdp },
-  });
-}
-
-export type TrackRequest =
-  | { location: "local"; mid: string; trackName: string }
-  | { location: "remote"; sessionId: string; trackName: string };
-
-/** Publish local tracks or pull remote ones on an existing session. */
-export function newTracks(
-  sessionId: string,
-  tracks: TrackRequest[],
-  offerSdp?: string
-) {
-  const body: Record<string, unknown> = { tracks };
-  if (offerSdp) {
-    body.sessionDescription = { type: "offer", sdp: offerSdp };
-  }
-  return sfu(`/sessions/${encodeURIComponent(sessionId)}/tracks/new`, body);
-}
-
-/** Complete the renegotiation the SFU asked for when tracks were pulled. */
-export function renegotiate(sessionId: string, answerSdp: string) {
-  return sfu(
-    `/sessions/${encodeURIComponent(sessionId)}/renegotiate`,
-    { sessionDescription: { type: "answer", sdp: answerSdp } },
-    "PUT"
-  );
-}
-
-// --------------------------------------------------------------- presence
-
-export type VoiceParticipant = {
-  userId: number;
-  username: string;
-  /** Their SFU session — what others pull tracks from. */
-  sessionId: string;
-  /** Track names they've published, e.g. ["mic-…", "cam-…"]. */
-  tracks: string[];
-  lastSeenAt: number;
-};
-
-const rooms = new Map<number, Map<number, VoiceParticipant>>();
-
-function room(channelId: number): Map<number, VoiceParticipant> {
-  let r = rooms.get(channelId);
-  if (!r) {
-    r = new Map();
-    rooms.set(channelId, r);
-  }
-  return r;
-}
-
-function sweep(channelId: number): void {
-  const r = rooms.get(channelId);
-  if (!r) return;
-  const cutoff = Date.now() - PRESENCE_TTL_SECONDS * 1000;
-  for (const [userId, p] of r) {
-    if (p.lastSeenAt < cutoff) r.delete(userId);
-  }
-  if (r.size === 0) rooms.delete(channelId);
-}
-
-/** Join or refresh: one presence per user per channel, latest session wins. */
-export function joinPresence(
-  channelId: number,
-  participant: Omit<VoiceParticipant, "lastSeenAt">
-): void {
-  room(channelId).set(participant.userId, {
-    ...participant,
-    lastSeenAt: Date.now(),
-  });
-}
-
-/** Update published tracks and bump liveness. */
-export function announceTracks(
-  channelId: number,
-  userId: number,
-  tracks: string[]
-): void {
-  const p = rooms.get(channelId)?.get(userId);
-  if (p) {
-    p.tracks = tracks;
-    p.lastSeenAt = Date.now();
-  }
-}
-
-export function heartbeat(channelId: number, userId: number): void {
-  const p = rooms.get(channelId)?.get(userId);
-  if (p) p.lastSeenAt = Date.now();
-}
-
-export function leavePresence(channelId: number, userId: number): void {
-  rooms.get(channelId)?.delete(userId);
-  sweep(channelId);
-}
-
-/** Everyone currently in the channel, stale entries swept on read. */
-export function participants(channelId: number): VoiceParticipant[] {
-  sweep(channelId);
-  return [...(rooms.get(channelId)?.values() ?? [])];
-}
-
-/**
- * May this (sessionId, trackName) be pulled from this channel?
- *
- * The authorization that makes voice per-channel and per-instance in fact
- * rather than by configuration. Session and track IDs are not secrets —
- * Cloudflare's own docs warn that a backend which forwards them unchecked
- * lets an attacker pull or disrupt sessions that aren't theirs. Only what
- * presence in *this channel on this instance* has announced is pullable;
- * a track from another channel, or from another instance sharing the same
- * Realtime app, was never announced here and is refused.
- */
-export function isAnnounced(
-  channelId: number,
-  sessionId: string,
-  trackName: string
-): boolean {
-  sweep(channelId);
-  for (const p of rooms.get(channelId)?.values() ?? []) {
-    if (p.sessionId === sessionId && p.tracks.includes(trackName)) return true;
-  }
-  return false;
-}
-
-/** Tests only: forget everything. */
-export function __resetPresenceForTests(): void {
-  rooms.clear();
+  return payload;
 }
