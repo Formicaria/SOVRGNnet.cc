@@ -1131,6 +1131,17 @@ export const appRouter = router({
       )
       .mutation(async ({ ctx, input }) => {
         await requireVoiceChannel(input.channelId, ctx.user.id);
+        // Only tracks this channel's presence announced may be pulled.
+        // Without this, client-supplied IDs would reach the SFU unchecked —
+        // across channels, and across instances sharing a Realtime app.
+        for (const t of input.tracks) {
+          if (!voice.isAnnounced(input.channelId, t.sessionId, t.trackName)) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "That track isn't published in this channel.",
+            });
+          }
+        }
         const result = await voice.newTracks(
           input.sessionId,
           input.tracks.map(t => ({ location: "remote" as const, ...t }))

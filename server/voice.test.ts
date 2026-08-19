@@ -86,3 +86,21 @@ describe("presence", () => {
     expect(alive.map(p => p.userId)).toEqual([2]);
   });
 });
+
+describe("per-channel, per-instance pull authorization", () => {
+  it("only what presence announced is pullable; other channels and foreign sessions are not", () => {
+    voice.joinPresence(1, { userId: 1, username: "a", sessionId: "sess-a", tracks: [] });
+    voice.announceTracks(1, 1, ["mic-a"]);
+    voice.joinPresence(2, { userId: 2, username: "b", sessionId: "sess-b", tracks: [] });
+    voice.announceTracks(2, 2, ["mic-b"]);
+
+    expect(voice.isAnnounced(1, "sess-a", "mic-a")).toBe(true);
+    // Same instance, different channel: refused.
+    expect(voice.isAnnounced(1, "sess-b", "mic-b")).toBe(false);
+    // Never announced anywhere here — e.g. another instance sharing the
+    // Realtime app: refused.
+    expect(voice.isAnnounced(1, "sess-zz", "mic-zz")).toBe(false);
+    // A track name that exists but under a different session: refused.
+    expect(voice.isAnnounced(1, "sess-b", "mic-a")).toBe(false);
+  });
+});
