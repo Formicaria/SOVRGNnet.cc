@@ -253,11 +253,14 @@ export function instanceDescriptor(
       // Derived by the same function the app reports everywhere else, so
       // this can never drift into claiming encryption that doesn't exist.
       e2ee: info.encryption,
-      // True only when the operator configured Cloudflare Realtime
-      // credentials — ADR 0013. Same posture as sso: unconfigured means
-      // honestly absent, not broken.
+      // True only when the operator runs their own LiveKit SFU and set its
+      // three values — ADR 0013 as superseded. Same posture as sso:
+      // unconfigured means honestly absent, not broken. Nothing here ever
+      // depends on a SOVRGN-held backend.
       voice: Boolean(
-        process.env.CF_REALTIME_APP_ID && process.env.CF_REALTIME_APP_SECRET
+        process.env.LIVEKIT_URL &&
+          process.env.LIVEKIT_API_KEY &&
+          process.env.LIVEKIT_API_SECRET
       ),
       federation: process.env.MATRIX_ALLOW_FEDERATION === "true",
       sso: info.sso.enabled,
