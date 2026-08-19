@@ -174,6 +174,29 @@ export function participants(channelId: number): VoiceParticipant[] {
   return [...(rooms.get(channelId)?.values() ?? [])];
 }
 
+/**
+ * May this (sessionId, trackName) be pulled from this channel?
+ *
+ * The authorization that makes voice per-channel and per-instance in fact
+ * rather than by configuration. Session and track IDs are not secrets —
+ * Cloudflare's own docs warn that a backend which forwards them unchecked
+ * lets an attacker pull or disrupt sessions that aren't theirs. Only what
+ * presence in *this channel on this instance* has announced is pullable;
+ * a track from another channel, or from another instance sharing the same
+ * Realtime app, was never announced here and is refused.
+ */
+export function isAnnounced(
+  channelId: number,
+  sessionId: string,
+  trackName: string
+): boolean {
+  sweep(channelId);
+  for (const p of rooms.get(channelId)?.values() ?? []) {
+    if (p.sessionId === sessionId && p.tracks.includes(trackName)) return true;
+  }
+  return false;
+}
+
 /** Tests only: forget everything. */
 export function __resetPresenceForTests(): void {
   rooms.clear();

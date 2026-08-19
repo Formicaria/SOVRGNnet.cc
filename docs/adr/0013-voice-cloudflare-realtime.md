@@ -78,6 +78,18 @@ operator who configures no credentials runs a fully working server whose
 descriptor says `voice: false`, and clients offer nothing. Nobody inherits
 the trade silently — which is the same posture SSO took.
 
+## Per-instance boundaries
+
+Voice is per-instance twice over, and only the second half is optional.
+**Configuration**: one Realtime app per instance — credentials are instance
+environment, never shared between deployments; the app created today
+belongs to staging, and the flagship mints its own when it exists.
+**Authorization**: the server refuses to pull any (session, track) pair
+that this channel's own presence didn't announce, so even two instances
+that wrongly share one app cannot reach each other's media, and no channel
+can reach another's. Session and track IDs are treated as the docs say to
+treat them: not secrets, and not authority.
+
 ## Consequences
 
 - Easier: voice works identically on a VPS, an LXC, and a laptop-hosted
