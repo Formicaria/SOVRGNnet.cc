@@ -70,6 +70,16 @@ pub struct HostSecrets {
     /// that function handles explicitly.
     #[serde(default)]
     pub matrix_server_name: String,
+    /// The key pair the bundled voice SFU accepts admission tokens under —
+    /// ADR 0013 as superseded. The key is an identifier (it becomes the
+    /// token issuer); the secret signs admissions. Generated and kept by the
+    /// frontend like everything else here. `default` for the same reason as
+    /// the fields above: a keychain entry from before voice existed must
+    /// still deserialize, and empty simply means voice stays off this start.
+    #[serde(default)]
+    pub livekit_api_key: String,
+    #[serde(default)]
+    pub livekit_api_secret: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -79,7 +89,13 @@ pub struct PortPlan {
     pub postgres: Vec<u16>,
     pub matrix: Vec<u16>,
     pub ipfs: Vec<u16>,
+    pub voice: Vec<u16>,
     pub app: Vec<u16>,
+    /// The UDP range WebRTC media rides, inclusive — VOICE_UDP_RANGE in
+    /// shared/hosting.ts. Fixed policy rather than picked here: UDP can't be
+    /// probed by binding a TCP listener, and the number belongs in
+    /// TypeScript with every other port decision.
+    pub voice_udp: (u16, u16),
 }
 
 // ---------------------------------------------------------------- filesystem
@@ -496,6 +512,45 @@ fn render_dendrite_config(
     Ok(path)
 }
 
+/// LiveKit reads its ports and keys from a config file — its own format,
+/// like dendrite.yaml, which is the one place secrets are allowed to touch
+/// disk. Rendered fresh each start because the port is picked fresh each
+/// start.
+///
+/// Two addresses in here are deliberate. `bind_addresses` is 0.0.0.0 because
+/// voice is the one component that must NOT live on loopback: the media has
+/// to be dialable by the people on the LAN the server claims to serve.
+/// `use_external_ip` is false because a desktop host is a LAN machine — the
+/// SFU should advertise the interfaces it actually has, not ask a STUN
+/// server for a public address nobody forwarded.
+fn render_livekit_config(
+    data: &Path,
+    port: u16,
+    udp: (u16, u16),
+    secrets: &HostSecrets,
+) -> Result<PathBuf, String> {
+    let (udp_start, udp_end) = udp;
+    let tcp_port = port + 1; // ICE/TCP fallback beside the ws port — the kubo gateway precedent
+    let rendered = format!(
+        "# Written by the desktop supervisor each start — hosting.rs.\n\
+         port: {port}\n\
+         bind_addresses:\n\
+         \x20 - \"0.0.0.0\"\n\
+         rtc:\n\
+         \x20 port_range_start: {udp_start}\n\
+         \x20 port_range_end: {udp_end}\n\
+         \x20 tcp_port: {tcp_port}\n\
+         \x20 use_external_ip: false\n\
+         keys:\n\
+         \x20 \"{key}\": \"{secret}\"\n",
+        key = secrets.livekit_api_key,
+        secret = secrets.livekit_api_secret,
+    );
+    let path = data.join("livekit.yaml");
+    std::fs::write(&path, rendered).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
 /// Start every component. Returns the final report; the same report is also
 /// emitted as an event so the UI can render without racing the invoke.
 #[tauri::command]
@@ -636,6 +691,51 @@ pub async fn host_start(
         }
     }
 
+    // -- livekit (voice) -----------------------------------------------------
+    // What makes `voice: true` true on a desktop-hosted instance — ADR 0013
+    // as superseded: every instance houses its own voice backend, and a
+    // laptop is an instance. Deliberately optional twice over: an older
+    // bundle has no binary, an older keychain (not yet backfilled by the
+    // frontend) has no keys, and either way the app below simply never
+    // receives LIVEKIT_* — the instance advertises voice: false rather than
+    // failing, exactly the posture a dedicated deployment takes when its
+    // operator hasn't set the three env lines.
+    //
+    // Reported as "starting" without waiting, the kubo reasoning: chat
+    // doesn't wait for voice, and the next host_state poll tells the truth.
+    let mut voice_port: Option<u16> = None;
+    {
+        let livekit = bundle_dir(&app)?.join(exe("livekit"));
+        if livekit.exists()
+            && !secrets.livekit_api_key.is_empty()
+            && !secrets.livekit_api_secret.is_empty()
+        {
+            match pick_port(&ports.voice) {
+                Ok(port) => match render_livekit_config(&data, port, ports.voice_udp, &secrets) {
+                    Ok(config) => {
+                        let mut c = Command::new(&livekit);
+                        c.arg("--config").arg(&config);
+                        match spawn_logged(c, &logs.join("livekit.log")) {
+                            Ok(child) => {
+                                processes.0.lock().unwrap().insert("voice".into(), child);
+                                voice_port = Some(port);
+                                components.push(ComponentReport {
+                                    id: "voice".into(),
+                                    state: "starting".into(),
+                                    port: Some(port),
+                                    error: None,
+                                });
+                            }
+                            Err(e) => fail(&mut components, "voice", e),
+                        }
+                    }
+                    Err(e) => fail(&mut components, "voice", e),
+                },
+                Err(e) => fail(&mut components, "voice", e),
+            }
+        }
+    }
+
     // -- app -----------------------------------------------------------------
     let app_port = pick_port(&ports.app)?;
     {
@@ -665,6 +765,17 @@ pub async fn host_start(
             .env("INSTANCE_NAME", "My computer")
             .env("INSTANCE_JOIN_POLICY", "invite")
             .env("SOVRGNNET_ACCESS_MODE", "lan");
+        // Only when the SFU actually started: these three are the exact
+        // switch behind the instance's `voice` capability flag, and setting
+        // them beside a component that failed to spawn would advertise a
+        // capability that isn't there. Loopback is correct here — the server
+        // substitutes the caller's own host at voice.join, the invite-link
+        // treatment (server/lanHost.ts).
+        if let Some(port) = voice_port {
+            c.env("LIVEKIT_URL", format!("ws://127.0.0.1:{port}"))
+                .env("LIVEKIT_API_KEY", &secrets.livekit_api_key)
+                .env("LIVEKIT_API_SECRET", &secrets.livekit_api_secret);
+        }
         // First boot applies migrations; the step is announced so the pause
         // reads as work rather than a hang.
         emit_step(&app, "migrate");
@@ -715,7 +826,7 @@ pub async fn host_stop(
 pub fn stop_all(app: &AppHandle, processes: &HostProcesses) {
     let mut map = processes.0.lock().unwrap();
 
-    for id in ["app", "ipfs", "matrix"] {
+    for id in ["app", "voice", "ipfs", "matrix"] {
         if let Some(mut child) = map.remove(id) {
             let _ = child.kill();
             let _ = child.wait();

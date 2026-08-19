@@ -27,6 +27,29 @@ systemctl restart sovrgnnet
 
 Your descriptor now says `voice: true`, and it's true.
 
+## Hosting from the desktop app: zero setup
+
+A server hosted from the desktop app ships its own SFU. The host bundle
+carries the `livekit` binary; the supervisor generates a signing pair
+(kept in your OS keychain with the other host secrets), starts the SFU
+beside the other components, and the instance advertises `voice: true`
+because it is. Nothing to install, no env to write.
+
+Two details worth knowing. The SFU is the one bundled component that
+listens beyond loopback — media has to be dialable by the people on your
+network — and its websocket port plus UDP 50000-50200 are what a
+software firewall will ask you about. And when someone on your LAN joins
+a voice channel, the server hands them the SFU at the address *they*
+dialled, not the loopback address it's configured with — the same
+substitution invite links get.
+
+One browser rule, stated rather than discovered: pages served over plain
+`http://` (which is how a LAN member reaches a desktop-hosted server)
+can join a voice channel and hear everyone, but browsers withhold the
+microphone on insecure origins — the same rule that already limits E2EE
+there. The owner at `127.0.0.1` is exempt and gets full duplex. Serving
+your LAN over TLS lifts it; that story is future work, not a claim.
+
 ## The honest constraint
 
 WebRTC media cannot ride a Cloudflare Tunnel. A voice-enabled instance

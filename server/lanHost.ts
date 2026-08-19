@@ -92,3 +92,47 @@ export function shareableHost(
 
   return port ? `${candidates[0]}:${port}` : candidates[0];
 }
+
+/**
+ * The voice-server URL a client should dial, given the configured one.
+ *
+ * Same bug shape as the invites above, one configuration value later. A
+ * desktop-hosted server runs its SFU on the same machine and is configured
+ * with `LIVEKIT_URL=ws://127.0.0.1:<port>` — correct from where the server
+ * stands, and the one address guaranteed wrong for everybody else: handed
+ * out verbatim, every LAN member's client would dial *their own* machine.
+ *
+ * The SFU lives on the same machine as the server, so whichever host the
+ * person dialled for chat is the host that reaches voice — after the same
+ * loopback treatment invites get, so the owner browsing at 127.0.0.1 hands
+ * out their LAN address too. Only the hostname moves; the scheme and the
+ * SFU's own port stay.
+ *
+ * An operator who configured a real address (`wss://voice.example.com`, or
+ * `ws://192.168.1.50:7880` per docs/VOICE.md) named something they know is
+ * dialable, and it passes through untouched — second-guessing it would break
+ * every deployment that already works.
+ */
+export function shareableVoiceUrl(
+  configured: string,
+  requestHost: string,
+  read: InterfaceReader = networkInterfaces
+): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(configured);
+  } catch {
+    return configured;
+  }
+  if (!isLoopbackName(parsed.hostname)) return configured;
+
+  const dialled = splitHostPort(shareableHost(requestHost, read)).name;
+  // Nothing better known: no Host header, or the owner really is alone on
+  // loopback (airplane mode). The configured URL still works for them.
+  if (!dialled || isLoopbackName(dialled)) return configured;
+
+  parsed.hostname = dialled;
+  // URL#toString appends "/" to a bare origin; the configured value never
+  // carried one (voiceUrl() strips trailing slashes), so neither does this.
+  return parsed.toString().replace(/\/$/, "");
+}

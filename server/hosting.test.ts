@@ -4,6 +4,7 @@ import {
   INSTALL_STEPS,
   PORT_SEARCH_RANGE,
   PREFERRED_PORTS,
+  VOICE_UDP_RANGE,
   evaluate,
   installProgress,
   isUsable,
@@ -31,6 +32,9 @@ describe("ports", () => {
     expect(PREFERRED_PORTS.postgres).not.toBe(5432);
     expect(PREFERRED_PORTS.ipfs).not.toBe(5001);
     expect(PREFERRED_PORTS.app).not.toBe(3000);
+    // 7880 is LiveKit's own default — and the port docs/VOICE.md tells a
+    // dedicated operator to run their SFU on, possibly on this machine.
+    expect(PREFERRED_PORTS.voice).not.toBe(7880);
   });
 
   it("offers a range to fall back through", () => {
@@ -43,6 +47,18 @@ describe("ports", () => {
   it("gives every component a distinct starting point", () => {
     const ports = Object.values(PREFERRED_PORTS);
     expect(new Set(ports).size).toBe(ports.length);
+  });
+
+  it("keeps the media range clear of everything else", () => {
+    // WebRTC media rides a fixed UDP range — fixed because UDP availability
+    // can't be probed by binding a TCP listener. It must not overlap where
+    // the TCP ports search, or a busy machine could hand a component a port
+    // the SFU believes is its media space.
+    const [start, end] = VOICE_UDP_RANGE;
+    expect(start).toBeLessThan(end);
+    for (const port of Object.values(PREFERRED_PORTS)) {
+      expect(port + PORT_SEARCH_RANGE).toBeLessThan(start);
+    }
   });
 });
 
@@ -71,7 +87,13 @@ describe("evaluate", () => {
   });
 
   it("reports stopped when nothing is up", () => {
-    const all = make({ postgres: "stopped", matrix: "stopped", ipfs: "stopped", app: "stopped" });
+    const all = make({
+      postgres: "stopped",
+      matrix: "stopped",
+      ipfs: "stopped",
+      voice: "stopped",
+      app: "stopped",
+    });
     expect(evaluate(all, URL).status).toBe("stopped");
   });
 
@@ -96,6 +118,21 @@ describe("evaluate", () => {
       if (state.status !== "degraded") throw new Error("expected degraded");
       // Not "ipfs: unhealthy" — that tells a non-technical person nothing.
       expect(state.problem).not.toMatch(/ipfs/i);
+      expect(state.problem).toMatch(/works/i);
+    });
+
+    it("stays usable when only voice is down", () => {
+      // Voice is the second optional component, same reasoning as file
+      // storage: refusing to open a working chat because voice channels are
+      // broken would be the wrong call.
+      const state = evaluate(make({ voice: "failed" }), URL);
+
+      expect(isUsable(make({ voice: "failed" }))).toBe(true);
+      expect(state.status).toBe("degraded");
+      if (state.status !== "degraded") throw new Error("expected degraded");
+      expect(state.url).toBe(URL);
+      expect(state.problem).toMatch(/voice/i);
+      expect(state.problem).not.toMatch(/livekit/i);
       expect(state.problem).toMatch(/works/i);
     });
   });

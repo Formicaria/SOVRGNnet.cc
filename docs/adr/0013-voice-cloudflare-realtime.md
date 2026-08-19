@@ -119,5 +119,16 @@ treat them: not secrets, and not authority.
 3. [x] Server voice: LiveKit admission tokens, membership-gated (docs/VOICE.md)
 4. [x] Client voice panel (livekit-client), Dashboard wiring
 5. [x] Desktop front door / multi-server (landed separately)
-6. [ ] Host bundle ships LiveKit for desktop-hosted servers
-7. [ ] Installer-time "also install the server" option
+6. [x] Host bundle ships LiveKit for desktop-hosted servers — the bundle
+   carries the SFU, the supervisor runs it with per-install keys from the
+   keychain, and voice.join hands out the SFU at the host the caller
+   dialled (the invite-link substitution), because the configured loopback
+   address is the one address guaranteed wrong for everyone else
+7. [x] ~~Installer-time "also install the server" option~~ — dropped, by
+   the owner, 2026-08-18. An installer checkbox can't shrink the download
+   (the bytes are already in the .exe); it saves disk alone, and costs a
+   vendored fork of the installer template that drifts with every Tauri
+   upgrade. The client/host choice already exists where it's cheap to
+   have: per-artifact on Linux (.deb hosts, AppImage doesn't), per-platform
+   on macOS. Windows keeps one installer that can do both, which is ADR
+   0002's ambition anyway — install it, and you're hosting

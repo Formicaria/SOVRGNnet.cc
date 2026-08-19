@@ -151,3 +151,7 @@ identity/INSTALL.md
 # on a failing run it contains screenshots of a real session.
 /test-results/
 /playwright-report/
+
+# vitest writes these beside vitest.config.ts and normally deletes them;
+# an interrupted run leaves them behind, and they are never source.
+vitest.config.ts.timestamp-*.mjs

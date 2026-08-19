@@ -148,9 +148,10 @@ export default function HostPanel({
               your machine; friends on your network can join with an invite.
             </p>
             <p className="dim">
-              Sets up a database, a chat server, and file storage — a few
-              hundred megabytes on disk, all under your user account, nothing
-              needing an administrator. The server runs while the app is open.
+              Sets up a database, a chat server, file storage, and a voice
+              server — a few hundred megabytes on disk, all under your user
+              account, nothing needing an administrator. The server runs while
+              the app is open.
             </p>
             <button className="primary" onClick={() => void installAndStart()}>
               Set up my server

@@ -163,6 +163,23 @@ if [ -n "$APP_VERSION" ]; then
   if [ -n "$dl_versions" ] && [ "$dl_stale" -eq 0 ]; then
     ok "download links point at v$APP_VERSION"
   fi
+
+  # Container image tags are version claims too. One sat at 0.6.0 through an
+  # entire 0.7.0 preflight because the two checks above only knew "vX.Y.Z
+  # alpha" prose and release-asset links — a third spelling of the same fact,
+  # unguarded, is how a claim goes quietly stale.
+  image_tags=$(grep -rhoE 'ghcr\.io/formicaria/sovrgnnet\.cc:[0-9]+\.[0-9]+\.[0-9]+' . 2>/dev/null | sed 's|.*:||' | sort -u || true)
+  image_stale=0
+  while IFS= read -r v; do
+    [ -n "$v" ] || continue
+    if [ "$v" != "$APP_VERSION" ]; then
+      problem "the site names container image :$v but package.json says $APP_VERSION"
+      image_stale=$((image_stale + 1))
+    fi
+  done <<< "$image_tags"
+  if [ -n "$image_tags" ] && [ "$image_stale" -eq 0 ]; then
+    ok "container image tags match ($APP_VERSION)"
+  fi
 fi
 
 # ------------------------------------------------ links into the repository

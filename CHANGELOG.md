@@ -16,6 +16,21 @@ needs its media port reachable. The client panel joins with mic or
 camera, shows whoever's there, mutes, leaves; create-channel grew the
 voice checkbox the schema had been ready for since the bootstrap.
 
+**A desktop-hosted server carries its own SFU, out of the box.** The host
+bundle ships the pinned `livekit` binary beside Dendrite and Kubo; the
+supervisor generates a per-install signing pair into the OS keychain
+(backfilled on installs that predate it), renders the SFU's config each
+start with ports the policy layer chose, and starts it with everything
+else — the one bundled component allowed off loopback, because media has
+to be dialable by the LAN the server claims to serve. `voice.join` now
+hands out the SFU at the host the caller dialled rather than the
+configured loopback address — the invite-origin bug's shape, caught this
+time before it shipped. Voice failing degrades the hosted server the way
+file storage does; it never takes chat down. The "also install the
+server" installer option named beside this work was dropped by owner
+call: it would save disk alone, and the client/host choice already
+exists per-artifact on Linux and per-platform on macOS.
+
 **The desktop's front door is a server address.** The mechanics always
 allowed connecting straight to a server with no SOVRGN account; the first
 screen taught the opposite by making sign-in the primary button. Paste an

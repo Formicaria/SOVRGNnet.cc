@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lanAddresses, shareableHost } from "./lanHost";
+import { lanAddresses, shareableHost, shareableVoiceUrl } from "./lanHost";
 import type { networkInterfaces } from "node:os";
 
 /**
@@ -111,5 +111,55 @@ describe("where substitution refuses to guess", () => {
   it("still uses a real 172.16-31 LAN when it isn't the docker default", () => {
     const rare_lan = reader({ eth0: [{ address: "172.22.8.14" }] });
     expect(shareableHost("localhost:3000", rare_lan)).toBe("172.22.8.14:3000");
+  });
+});
+
+describe("the voice URL gets the same treatment", () => {
+  // The desktop supervisor configures LIVEKIT_URL=ws://127.0.0.1:<port> —
+  // right from where the server stands, and a link to the recipient's own
+  // machine for everybody else. Same bug the invites had; same cure.
+  const CONFIGURED = "ws://127.0.0.1:7890";
+
+  it("hands a LAN member the host they dialled, on the SFU's port", () => {
+    expect(shareableVoiceUrl(CONFIGURED, "192.168.1.50:3100", HOME_LAN)).toBe(
+      "ws://192.168.1.50:7890"
+    );
+  });
+
+  it("hands the owner at 127.0.0.1 their LAN address, like invites do", () => {
+    expect(shareableVoiceUrl(CONFIGURED, "127.0.0.1:3100", HOME_LAN)).toBe(
+      "ws://192.168.1.50:7890"
+    );
+  });
+
+  it("keeps a configured non-loopback address exactly as the operator wrote it", () => {
+    // docs/VOICE.md tells operators to configure a dialable address. They
+    // named something they know works; second-guessing it would break every
+    // deployment that already does.
+    expect(shareableVoiceUrl("wss://voice.example.com", "app.example.com", HOME_LAN)).toBe(
+      "wss://voice.example.com"
+    );
+    expect(shareableVoiceUrl("ws://192.168.1.50:7880", "127.0.0.1:3100", HOME_LAN)).toBe(
+      "ws://192.168.1.50:7880"
+    );
+  });
+
+  it("keeps loopback when nothing better is known", () => {
+    // Airplane mode, or no Host header at all. The configured URL still
+    // works for the one person who can reach the server: its owner.
+    const only_lo = reader({ lo: [{ address: "127.0.0.1", internal: true }] });
+    expect(shareableVoiceUrl(CONFIGURED, "127.0.0.1:3100", only_lo)).toBe(CONFIGURED);
+    expect(shareableVoiceUrl(CONFIGURED, "", HOME_LAN)).toBe(CONFIGURED);
+  });
+
+  it("moves only the hostname — scheme, port, and any path stay", () => {
+    expect(shareableVoiceUrl("ws://localhost:7890/rtc", "192.168.1.50:3100", HOME_LAN)).toBe(
+      "ws://192.168.1.50:7890/rtc"
+    );
+  });
+
+  it("returns something unparseable untouched rather than guessing", () => {
+    expect(shareableVoiceUrl("", "192.168.1.50:3100", HOME_LAN)).toBe("");
+    expect(shareableVoiceUrl("not a url", "192.168.1.50:3100", HOME_LAN)).toBe("not a url");
   });
 });

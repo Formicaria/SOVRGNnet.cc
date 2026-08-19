@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { COMPONENTS, INSTALL_STEPS, PREFERRED_PORTS } from "@shared/hosting";
+import { COMPONENTS, INSTALL_STEPS, PREFERRED_PORTS, VOICE_UDP_RANGE } from "@shared/hosting";
 
 /**
  * Static checks on the desktop hosting stack — ADR 0005's seams.
@@ -77,6 +77,7 @@ describe("the supervisor and the bundle script agree on names", () => {
     "dendrite",
     "generate-keys",
     "kubo",
+    "livekit",
     "node",
     "dendrite.yaml.template",
   ];
@@ -402,6 +403,118 @@ describe("a desktop-hosted server can create its first account", () => {
     // file anyone will find — the app is the only thing that knows it.
     expect(PANEL).toContain("setupCode");
     expect(PANEL).toContain("hostSecrets");
+  });
+});
+
+describe("a desktop host offers voice out of the box (ADR 0013)", () => {
+  const SECRETS = readFileSync(join(__dirname, "..", "desktop/src/lib/hosting.ts"), "utf8");
+  const voiceDocs = readFileSync(join(ROOT, "docs", "VOICE.md"), "utf8");
+
+  it("the bundle ships the SFU for both hosting platforms", () => {
+    // The whole brick: a desktop-hosted server carries its own voice
+    // backend, because "every instance houses its own" includes laptops.
+    expect(bundleScript).toMatch(/LIVEKIT_VERSION=/);
+    expect(bundleScript).toContain("livekit-server");
+    expect(bundleScript).toMatch(/livekit_\$\{LIVEKIT_VERSION\}_linux_amd64/);
+    expect(bundleScript).toMatch(/livekit_\$\{LIVEKIT_VERSION\}_windows_amd64/);
+  });
+
+  it("the supervisor spawns it from a config it rendered", () => {
+    expect(supervisor).toMatch(/exe\("livekit"\)/);
+    expect(supervisor).toContain("render_livekit_config");
+    expect(supervisor).toContain("livekit.yaml");
+  });
+
+  it("voice is the one component allowed off loopback", () => {
+    // Media has to be dialable by the LAN the server claims to serve, so the
+    // SFU binds everything — and nothing else does. The homeserver stays on
+    // loopback deliberately (ADR 0005); if a second 0.0.0.0 ever appears
+    // here, something started listening wider than it should.
+    const code = supervisor.replace(/\/\/.*$/gm, "");
+    const binds = [...code.matchAll(/0\.0\.0\.0/g)];
+    expect(binds.length).toBe(1);
+    const livekitConfig = supervisor.slice(
+      supervisor.indexOf("fn render_livekit_config"),
+      supervisor.indexOf("fn render_livekit_config") + 2200
+    );
+    expect(livekitConfig).toContain("0.0.0.0");
+    expect(supervisor).toMatch(/127\.0\.0\.1:\{matrix_port\}/);
+  });
+
+  it("the media range is policy, not a Rust literal", () => {
+    // Same rule as every other port: the numbers live in TypeScript. The
+    // supervisor receives the UDP range through the PortPlan it's handed.
+    const [start, end] = VOICE_UDP_RANGE;
+    expect(supervisor.includes(String(start))).toBe(false);
+    expect(supervisor.includes(String(end))).toBe(false);
+    expect(supervisor).toMatch(/pub voice_udp/);
+    expect(bridge).toContain("voice_udp: VOICE_UDP_RANGE");
+  });
+
+  it("the range the desktop uses is the range the docs tell people to forward", () => {
+    // docs/VOICE.md names a UDP range for port forwarding and firewall
+    // rules. The desktop host must live inside the same numbers, or the
+    // documentation is quietly about somebody else's deployment.
+    const [start, end] = VOICE_UDP_RANGE;
+    expect(voiceDocs).toContain(`${start}-${end}`);
+  });
+
+  it("advertises voice only when the SFU actually started", () => {
+    // LIVEKIT_* env is the exact switch behind the instance's `voice`
+    // capability flag. Setting it beside a component that failed to spawn
+    // would advertise a capability that isn't there — so it has to sit
+    // inside the voice_port conditional, after the spawn succeeded.
+    const conditional = supervisor.indexOf("if let Some(port) = voice_port");
+    const url = supervisor.indexOf('"LIVEKIT_URL"');
+    expect(conditional).toBeGreaterThan(-1);
+    expect(url).toBeGreaterThan(conditional);
+    expect(supervisor).toContain('"LIVEKIT_API_KEY"');
+    expect(supervisor).toContain('"LIVEKIT_API_SECRET"');
+  });
+
+  it("a bundle without the SFU still hosts — voice off, honestly", () => {
+    // bundle_present() gates the offer to host at all. Voice is deliberately
+    // not among its requirements: a dev build or a pre-voice bundle runs a
+    // perfectly good chat server, and the app it starts simply never
+    // receives LIVEKIT_*, so the instance advertises voice: false rather
+    // than refusing to exist.
+    const guard = supervisor.slice(
+      supervisor.indexOf("fn bundle_present"),
+      supervisor.indexOf("fn bundle_present") + 700
+    );
+    expect(guard).not.toContain("livekit");
+  });
+
+  it("stops the SFU with everything else", () => {
+    expect(supervisor).toMatch(/\["app", "voice", "ipfs", "matrix"\]/);
+  });
+
+  it("mints and keeps the signing pair, like every other host secret", () => {
+    expect(SECRETS).toMatch(/livekit_api_key:\s*randomHex\(/);
+    expect(SECRETS).toMatch(/livekit_api_secret:\s*randomHex\(/);
+  });
+
+  it("backfills the pair for installs that predate voice", () => {
+    // Those machines have a running server whose keychain has no keys.
+    // Minting them now means voice lights up on the next start, and nothing
+    // else about the install changes.
+    const backfill = SECRETS.slice(SECRETS.indexOf("const existing ="));
+    expect(backfill).toMatch(/if \(!stored\.livekit_api_key \|\| !stored\.livekit_api_secret\)/);
+  });
+
+  it("agrees with the frontend on the field names", () => {
+    // The same serde seam as matrix_server_name: a rename on either side of
+    // the bridge is a silently empty string on the other, and empty means
+    // voice quietly never starts.
+    expect(supervisor).toMatch(/pub livekit_api_key: String/);
+    expect(supervisor).toMatch(/pub livekit_api_secret: String/);
+    expect(bridge).toMatch(/livekit_api_key: string/);
+    expect(bridge).toMatch(/livekit_api_secret: string/);
+  });
+
+  it("the release notes claim exactly what shipped", () => {
+    expect(releaseYml).toContain("its own voice server");
+    expect(releaseYml).toContain("Voice needs no setup");
   });
 });
 
