@@ -1,6 +1,26 @@
 # Changelog
 
-## Unreleased
+## v0.7.0 — 2026-08-18
+
+**Voice and video channels, end to end (ADR 0013).** Media rides the
+Cloudflare Realtime SFU — the one component a non-operator should never be
+asked to run, and the only way voice works behind tunnel-only deployments
+at all. Per-instance twice over: credentials are instance environment (no
+credentials, no claim — the sso posture), and the server refuses to pull
+any track this channel's own presence didn't announce, so neither channels
+nor instances sharing an app can reach each other's media. The client
+panel joins with mic or camera, tiles whoever's there, mutes, leaves;
+create-channel grew the voice checkbox the schema had been ready for since
+the bootstrap. The trade is recorded where trades live: the SFU is a
+decrypting hop, taken per-operator, never silently.
+
+**The desktop's front door is a server address.** The mechanics always
+allowed connecting straight to a server with no SOVRGN account; the first
+screen taught the opposite by making sign-in the primary button. Paste an
+address, it queries, that server's own sign-in takes it from there; the
+SOVRGN account is the optional layer that carries servers between
+machines — never the gate.
+
 
 **The hub: app.sovrgnnet.cc becomes the place your servers live.** Sign in
 once with the SOVRGN account — password or any configured provider — and
