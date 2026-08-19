@@ -1,8 +1,21 @@
 # ADR-0013: Voice and video channels over Cloudflare Realtime SFU
 
-**Status:** Accepted
+**Status:** Superseded — same day, by the owner, and the reversal is the
+architecture: *"This is going to be hundreds of thousands of instances,
+each instance should house its own voice backend. SOVRGN servers must run
+their own voice."* A shared Cloudflare app — even one-per-operator — makes
+SOVRGN's cloud account a dependency of somebody else's server, which is
+exactly the dependency this product exists to refuse. Voice moves to
+**Option B: a self-hosted SFU (LiveKit) per instance**, credentials and
+media on the operator's own machine. The honest cost moves with it: a
+voice-enabled instance needs one directly reachable media port (UDP, or
+TURN-TLS as fallback) — tunnel-only deployments get text until their
+operator opens that door, and the capability flag stays honest either way.
+The Cloudflare app created under this ADR is dissolved. The server surface
+(join → credentials, membership-gated, capability-advertised) survives the
+provider swap; the proxy/presence half does not.
 **Date:** 2026-08-18
-**Deciders:** xchronusx (owner call, made explicitly)
+**Deciders:** xchronusx (owner call, made explicitly — both times)
 
 ## Context
 
