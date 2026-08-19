@@ -40,16 +40,22 @@ export default function FirstRun({
       <img className="firstrun-mark" src={markUrl} alt="" />
       <h1>Welcome to SOVRGNnet</h1>
       <p className="dim">
-        Chat on servers people own, not companies. Sign in to bring your servers
-        with you, connect to one directly — or run your own, right here.
+        Chat on servers people own, not companies. Paste a server's address to
+        connect straight to it — its own sign-in takes it from there. A SOVRGN
+        account is the optional layer that carries your servers between
+        machines; it is never the door.
       </p>
 
       <div className="firstrun-actions">
-        <button className="primary" onClick={onSignIn}>
-          Sign in with SOVRGNnet
-        </button>
-        <button className="ghost" onClick={onAddServer}>
+        {/* The address is the primary action on purpose — the server is the
+            product and its own auth is sovereign. The SOVRGN account is a
+            convenience that follows, never a gate; making it the big button
+            taught people the opposite, one first-run at a time. */}
+        <button className="primary" onClick={onAddServer}>
           I have a server address
+        </button>
+        <button className="ghost" onClick={onSignIn}>
+          Sign in with SOVRGN to bring your servers
         </button>
         {canHost && onHost && (
           <button className="ghost" onClick={onHost}>
