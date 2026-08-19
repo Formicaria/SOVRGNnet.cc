@@ -155,3 +155,7 @@ identity/INSTALL.md
 # vitest writes these beside vitest.config.ts and normally deletes them;
 # an interrupted run leaves them behind, and they are never source.
 vitest.config.ts.timestamp-*.mjs
+
+# The self-contained host-server build (pnpm build:host) — an artifact of
+# running scripts/host-bundle.sh on a workstation, never source.
+/dist-host/
