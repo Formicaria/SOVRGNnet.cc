@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.1 — 2026-08-19
+
+**The first Windows walk of v0.7.0 found a door nobody could open, and
+this release removes the door.** Fresh install, "Set up my server",
+everything green — and then a sign-up form demanding a setup code whose
+only display had closed itself the moment the server started. The code
+was a ceremony with no threat model: it exists to stop strangers over
+the network claiming a fresh instance, and the person it was stopping
+was the operator, in the same program that had minted it. Now the
+hosting panel finishes the job it starts — the server comes up, the
+panel asks for a username and password, and the app creates the first
+account (the administrator) itself, spending the token it already held
+in the keychain. The server-side guard is byte-for-byte unchanged:
+network sign-ups still need the token or an invite, exactly as before.
+The code survives in the panel only as the fallback for setting up from
+another device's browser, and the web form's helper text stops telling
+desktop hosts about a `.env` they don't have.
+
 ## v0.7.0 — 2026-08-18
 
 **Voice and video channels, per instance, end to end (ADR 0013 as

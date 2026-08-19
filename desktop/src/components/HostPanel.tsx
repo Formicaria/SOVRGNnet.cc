@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { INSTALL_STEPS, installProgress, type HostState } from "@shared/hosting";
 import {
+  createFirstAccount,
   hostAvailable,
   hostInstall,
+  hostNeedsFirstAccount,
   hostSecrets,
   hostStart,
   hostStop,
@@ -37,6 +39,14 @@ export default function HostPanel({
   const [busy, setBusy] = useState<"install" | "start" | "stop" | null>(null);
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The server is up but has no accounts yet: the very next thing is the
+  // form below, and the panel stays open until it's done. This used to close
+  // the panel and show a setup code instead — leaving the person at a
+  // sign-up form demanding a code whose only display had just closed.
+  const [accountUrl, setAccountUrl] = useState<string | null>(null);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [creating, setCreating] = useState(false);
   const unlisten = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -60,6 +70,34 @@ export default function HostPanel({
 
   if (!open) return null;
 
+  // The server is up. If it has no accounts yet, the panel's job isn't done:
+  // creating the first one — the administrator — happens right here, with
+  // the token this app already holds. Only then does the server open.
+  const handOff = async (url: string) => {
+    if (await hostNeedsFirstAccount(url)) {
+      setAccountUrl(url);
+    } else {
+      onStarted(url);
+    }
+  };
+
+  const createAccount = async () => {
+    if (!accountUrl) return;
+    setError(null);
+    setCreating(true);
+    try {
+      await createFirstAccount(accountUrl, { username, password });
+      const url = accountUrl;
+      setAccountUrl(null);
+      setPassword("");
+      onStarted(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const installAndStart = async () => {
     setError(null);
     setBusy("install");
@@ -73,7 +111,7 @@ export default function HostPanel({
       setBusy("start");
       const started = await hostStart();
       if (started.status === "running" || started.status === "degraded") {
-        onStarted(started.url);
+        await handOff(started.url);
       } else if (started.status === "failed") {
         setError(started.problem);
       }
@@ -93,7 +131,7 @@ export default function HostPanel({
     try {
       const started = await hostStart();
       if (started.status === "running" || started.status === "degraded") {
-        onStarted(started.url);
+        await handOff(started.url);
       } else if (started.status === "failed") {
         setError(started.problem);
       }
@@ -172,7 +210,67 @@ export default function HostPanel({
         {busy === "start" && <p>Starting your server…</p>}
         {busy === "stop" && <p>Stopping…</p>}
 
-        {busy === null && (state.status === "running" || state.status === "degraded") && (
+        {/* The server is running and waiting for its first account. This
+            form spends the setup token the app already holds — hostSecrets,
+            same keychain entry the server was started with — so nobody
+            transcribes a code between two panes of one program. The panel
+            used to close itself here and show the code instead; a fresh
+            Windows install walked straight into a sign-up form demanding a
+            code whose only display had just closed. The server-side guard is
+            unchanged: strangers over the network still need the token, and
+            this is its owner using it. */}
+        {busy === null && accountUrl && (
+          <>
+            <p>
+              Your server is running. Create your account — the first one
+              becomes its administrator.
+            </p>
+            <input
+              placeholder="Username"
+              value={username}
+              autoFocus
+              onChange={event => setUsername(event.target.value)}
+              disabled={creating}
+            />
+            <input
+              type="password"
+              placeholder="Password (8 characters or more)"
+              value={password}
+              onChange={event => setPassword(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === "Enter") void createAccount();
+              }}
+              disabled={creating}
+            />
+            <button
+              className="primary"
+              onClick={() => void createAccount()}
+              disabled={creating || username.trim().length === 0 || password.length < 8}
+            >
+              {creating ? "Creating…" : "Create my account"}
+            </button>
+            {/* The code survives only as the fallback for someone who'd
+                rather do this from another device's browser — that sign-up
+                form asks for it, and this app is the only thing that has it. */}
+            {setupCode && (
+              <p className="dim">
+                Setting up from another device instead? Its sign-up form will
+                ask for this setup code:{" "}
+                <code>{setupCode}</code>{" "}
+                <button
+                  className="linky inline"
+                  onClick={() => void navigator.clipboard.writeText(setupCode)}
+                >
+                  copy
+                </button>
+              </p>
+            )}
+          </>
+        )}
+
+        {busy === null &&
+          !accountUrl &&
+          (state.status === "running" || state.status === "degraded") && (
           <>
             <p>
               Your server is running at <code>{state.url}</code>.
@@ -189,32 +287,6 @@ export default function HostPanel({
                 </li>
               ))}
             </ul>
-            {/* The setup code, because this app is the only thing that has it.
-                The sign-up screen asks for one and, being the ordinary web
-                client, tells people it "was printed when it was installed and
-                is in its .env" — true of a server somebody installed in a
-                terminal, and true of nothing here. There is no terminal and no
-                file anyone is going to find.
-
-                Shown only while the server is running and only until the first
-                account exists, which is exactly when it is needed and useful
-                to nobody afterwards. */}
-            {setupCode && (
-              <div className="panel-setup-code">
-                <p>
-                  Creating the first account needs this setup code. It makes
-                  that account the administrator, and stops mattering once it
-                  exists.
-                </p>
-                <code>{setupCode}</code>
-                <button
-                  className="ghost"
-                  onClick={() => void navigator.clipboard.writeText(setupCode)}
-                >
-                  Copy
-                </button>
-              </div>
-            )}
             <p className="dim">
               It stops when the app quits. Settings, invites, and members are
               managed inside the server itself — select it in the rail.

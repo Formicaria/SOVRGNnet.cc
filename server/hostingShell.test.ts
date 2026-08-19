@@ -396,13 +396,49 @@ describe("a desktop-hosted server can create its first account", () => {
     expect(backfill).toMatch(/if \(!stored\.setup_token\)/);
   });
 
-  it("shows it, because nothing else can", () => {
-    // The sign-up form is the ordinary web client and says the code "was
-    // printed when it was installed and is in its .env". True of a server
-    // somebody installed in a terminal. There is no terminal here, and no
-    // file anyone will find — the app is the only thing that knows it.
+  it("spends the token itself — nobody transcribes a code between panes", () => {
+    // The Windows walk found the failure this design invited: the panel
+    // closed itself the moment the server started, and the sign-up form in
+    // the webview demanded a code whose only display had just closed. The
+    // token exists to stop strangers over the network; the person who
+    // clicked "Set up my server" is its owner. So the app now creates the
+    // first account — the administrator — with the token it already holds,
+    // and the server-side guard is untouched.
+    expect(SECRETS).toContain('"/api/trpc/auth.register"');
+    expect(SECRETS).toContain("setupToken: secrets.setup_token");
+    expect(PANEL).toContain("createFirstAccount(");
+    expect(PANEL).toContain("hostNeedsFirstAccount(");
+  });
+
+  it("asks the instance, not a guess, whether a first account is needed", () => {
+    // The same needsSetup the web sign-up form consults — the instance is
+    // the only authority on whether it has accounts, and probing it means
+    // a restarted server with an admin goes straight to the rail.
+    expect(SECRETS).toContain('"/api/instance"');
+    expect(SECRETS).toContain("needsSetup");
+  });
+
+  it("speaks the server's own wire shape", () => {
+    // The tRPC transformer is superjson: input rides as { json: ... } and a
+    // raw body reaches the procedure as undefined. The e2e harness learned
+    // this the hard way; the desktop must not relearn it.
+    expect(SECRETS).toMatch(/JSON\.stringify\(\{\s+json: \{/);
+  });
+
+  it("never hands off to a sign-up that will dead-end", () => {
+    // Both start paths route through the probe; the old direct hand-off —
+    // close the panel, hope the person finds the code — must not return.
+    const handOffs = [...PANEL.matchAll(/await handOff\(started\.url\)/g)];
+    expect(handOffs.length).toBeGreaterThanOrEqual(2);
+    expect(PANEL).not.toContain("onStarted(started.url)");
+  });
+
+  it("keeps the code only as the fallback for another device", () => {
+    // A LAN browser's sign-up form still asks for it, and this app is still
+    // the only thing that has it.
     expect(PANEL).toContain("setupCode");
     expect(PANEL).toContain("hostSecrets");
+    expect(PANEL).toContain("another device");
   });
 });
 

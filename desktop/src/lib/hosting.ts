@@ -162,6 +162,73 @@ export async function hostAvailable(): Promise<{ bundled: boolean; installed: bo
   return await invoke("host_available");
 }
 
+/**
+ * Whether the hosted instance is still waiting for its first account.
+ *
+ * Read from the instance's own descriptor — the same `needsSetup` the web
+ * sign-up form consults — because the instance is the only authority on
+ * whether it has accounts. Unreachable reads as "no": the wrong answer here
+ * merely skips a form, while a false "yes" would show account creation for
+ * a server that can't accept one.
+ */
+export async function hostNeedsFirstAccount(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(new URL("/api/instance", url));
+    if (!response.ok) return false;
+    const info = (await response.json()) as { needsSetup?: boolean };
+    return info.needsSetup === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Create the hosted server's first account — the administrator — spending
+ * the setup token this app already holds.
+ *
+ * The token exists to stop a stranger over the network claiming a freshly
+ * reachable instance. The person who clicked "Set up my server" is not that
+ * stranger: the token was minted by this app, lives in this machine's
+ * keychain, and making its owner transcribe it from one pane into another
+ * was a ceremony with no threat model — the Windows walk found people
+ * stranded at a sign-up form demanding a code whose only display had
+ * closed. The guard on the server is untouched; this is the app using the
+ * key it was always holding.
+ *
+ * Wire shape matches the server's tRPC transformer (superjson): input rides
+ * as `{ json: ... }`, and errors come back wrapped the same way.
+ */
+export async function createFirstAccount(
+  url: string,
+  account: { username: string; password: string; email?: string }
+): Promise<void> {
+  const secrets = await hostSecrets();
+  const response = await fetch(new URL("/api/trpc/auth.register", url), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      json: {
+        username: account.username,
+        password: account.password,
+        ...(account.email ? { email: account.email } : {}),
+        setupToken: secrets.setup_token,
+      },
+    }),
+  });
+  if (!response.ok) {
+    let message = `The server refused (${response.status}).`;
+    try {
+      const body = (await response.json()) as {
+        error?: { json?: { message?: string }; message?: string };
+      };
+      message = body.error?.json?.message ?? body.error?.message ?? message;
+    } catch {
+      /* an unreadable error body keeps the status-code message */
+    }
+    throw new Error(message);
+  }
+}
+
 export async function hostInstall(): Promise<void> {
   await invoke("host_install", { secrets: await hostSecrets() });
 }

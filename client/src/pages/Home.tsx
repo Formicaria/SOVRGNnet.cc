@@ -403,12 +403,14 @@ export default function Home() {
                   disabled={authLoading}
                 />
                 <p className="text-xs text-slate-500 text-left">
-                  This instance has no accounts yet, so the next one becomes its
-                  administrator. The setup code was printed when it was
-                  installed and is in its{" "}
+                  This instance has no accounts yet, so the next one becomes
+                  its administrator. The setup code came with the server: the
+                  installer printed it (it stays in{" "}
                   <span className="font-mono">.env</span> as{" "}
-                  <span className="font-mono">SOVRGN_SETUP_TOKEN</span>. It
-                  stops being needed after this.
+                  <span className="font-mono">SOVRGN_SETUP_TOKEN</span>), and a
+                  server hosted from the desktop app shows it in the hosting
+                  panel — though there, the app offers to create this account
+                  itself. It stops being needed after this.
                 </p>
               </>
             )}

@@ -209,7 +209,8 @@ body {
   user-select: text;
 }
 .dialog h2 { font-size: 17px; margin-bottom: 4px; }
-.dialog input {
+.dialog input,
+.panel input {
   width: 100%;
   margin-top: 14px;
   padding: 10px 12px;
@@ -220,7 +221,8 @@ body {
   font-family: var(--mono);
   font-size: 13px;
 }
-.dialog input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.dialog input:focus,
+.panel input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
 
