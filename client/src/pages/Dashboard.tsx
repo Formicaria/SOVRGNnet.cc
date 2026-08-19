@@ -27,6 +27,7 @@ import {
   Send,
   LogOut,
   Hash,
+  Volume2,
   Compass,
   AlertCircle,
   Paperclip,
@@ -47,6 +48,7 @@ import {
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import VoicePanel from "@/components/VoicePanel";
 import MemberList from "@/components/MemberList";
 import AddServerDialog from "@/components/AddServerDialog";
 import ServerSettings from "@/components/ServerSettings";
@@ -137,6 +139,7 @@ export default function Dashboard() {
   const [discoverOpen, setDiscoverOpen] = useState(false);
   const [newServerName, setNewServerName] = useState("");
   const [newChannelName, setNewChannelName] = useState("");
+  const [newChannelVoice, setNewChannelVoice] = useState(false);
   const [serverDialogOpen, setServerDialogOpen] = useState(false);
   const [channelDialogOpen, setChannelDialogOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1017,7 +1020,11 @@ export default function Dashboard() {
                   : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
               }`}
             >
-              <Hash className="w-4 h-4 shrink-0" />
+              {channel.type !== "text" ? (
+                <Volume2 className="w-4 h-4 shrink-0" />
+              ) : (
+                <Hash className="w-4 h-4 shrink-0" />
+              )}
               <span className="truncate">{channel.name}</span>
               {channel.encrypted && (
                 <span
@@ -1058,10 +1065,19 @@ export default function Dashboard() {
                       createChannel.mutate({
                         serverId: selectedServerId,
                         name: newChannelName.trim(),
+                        type: newChannelVoice ? ("voice" as const) : ("text" as const),
                       });
                     }
                   }}
                 />
+                <label className="flex items-center gap-2 mt-3 text-sm text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newChannelVoice}
+                    onChange={e => setNewChannelVoice(e.target.checked)}
+                  />
+                  Voice channel — people talk here instead of typing
+                </label>
                 <DialogFooter>
                   <Button
                     disabled={!newChannelName.trim() || createChannel.isPending}
@@ -1070,6 +1086,7 @@ export default function Dashboard() {
                       createChannel.mutate({
                         serverId: selectedServerId,
                         name: newChannelName.trim(),
+                        type: newChannelVoice ? ("voice" as const) : ("text" as const),
                       })
                     }
                   >
@@ -1102,7 +1119,11 @@ export default function Dashboard() {
           </button>
           {selectedChannel ? (
             <>
-              <Hash className="w-4 h-4 text-slate-500" />
+              {selectedChannel.type !== "text" ? (
+                <Volume2 className="w-4 h-4 text-slate-500" />
+              ) : (
+                <Hash className="w-4 h-4 text-slate-500" />
+              )}
               <span className="font-semibold">{selectedChannel.name}</span>
               {selectedChannel.encrypted ? (
                 <Tooltip>
@@ -1174,6 +1195,14 @@ export default function Dashboard() {
           </div>
         )}
 
+        {selectedChannel && selectedChannel.type !== "text" ? (
+          <VoicePanel
+            key={selectedChannel.id}
+            channelId={selectedChannel.id}
+            channelName={selectedChannel.name}
+          />
+        ) : (
+        <>
         <div
           className={`flex-1 overflow-y-auto px-4 py-3 space-y-3 ${
             isDragging
@@ -1508,6 +1537,8 @@ export default function Dashboard() {
               </Button>
             </div>
           </div>
+        )}
+        </>
         )}
       </main>
 
