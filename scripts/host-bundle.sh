@@ -12,6 +12,7 @@
 #     dendrite[.exe]       the Matrix homeserver, built from the pinned tag
 #     generate-keys[.exe]  its signing-key tool, same build
 #     kubo[.exe]           IPFS
+#     livekit[.exe]        the voice SFU, so a desktop host offers voice out of the box
 #     node[.exe]           the Node runtime that runs the app bundle
 #     app/                 self-contained server: index.mjs, public/, drizzle/
 #     dendrite.yaml.template
@@ -42,6 +43,9 @@ DENDRITE_TAG="${HOST_DENDRITE_TAG:-v0.15.2}"      # = docker-compose.yml dendrit
 # zonky's embedded-postgres binaries: plain PostgreSQL, repackaged per
 # platform, on Maven Central. Major matches the compose file's postgres:16.
 PG_VERSION="${HOST_PG_VERSION:-16.6.0}"
+# No compose-file counterpart to match: a dedicated deployment's operator runs
+# their own SFU (docs/VOICE.md), so this pin is the desktop host's alone.
+LIVEKIT_VERSION="${HOST_LIVEKIT_VERSION:-1.13.1}"
 
 HOST_DIR="desktop/src-tauri/host"
 WORK="$(mktemp -d -t sovrgnnet-host.XXXXXX)"
@@ -155,6 +159,29 @@ case "$TARGET" in
   windows-x64) cp "$WORK/dendrite/dendrite.exe" "$HOST_DIR/dendrite.exe"; cp "$WORK/dendrite/generate-keys.exe" "$HOST_DIR/generate-keys.exe" ;;
 esac
 ok "dendrite + generate-keys built"
+
+# --- livekit -----------------------------------------------------------------
+# The voice SFU — ADR 0013 as superseded: every instance houses its own voice
+# backend, and a desktop-hosted instance is no exception. Shipping it is what
+# makes the supervisor able to say `voice: true` honestly, out of the box.
+# The `install`/`cp` below fails loudly if upstream's archive layout ever
+# stops putting `livekit-server` at the root — the fix belongs here, where
+# re-running this script is the fix, not on somebody's first run.
+say "LiveKit $LIVEKIT_VERSION"
+LIVEKIT_BASE="https://github.com/livekit/livekit/releases/download/v$LIVEKIT_VERSION"
+case "$TARGET" in
+  linux-x64)
+    fetch "$LIVEKIT_BASE/livekit_${LIVEKIT_VERSION}_linux_amd64.tar.gz" "$WORK/livekit.tgz"
+    unpack "$WORK/livekit.tgz" "$WORK/livekit"
+    install -m 755 "$WORK/livekit/livekit-server" "$HOST_DIR/livekit"
+    ;;
+  windows-x64)
+    fetch "$LIVEKIT_BASE/livekit_${LIVEKIT_VERSION}_windows_amd64.zip" "$WORK/livekit.zip"
+    unpack "$WORK/livekit.zip" "$WORK/livekit"
+    cp "$WORK/livekit/livekit-server.exe" "$HOST_DIR/livekit.exe"
+    ;;
+esac
+ok "livekit in place"
 
 # --- postgres ----------------------------------------------------------------
 say "PostgreSQL $PG_VERSION (zonky embedded binaries)"

@@ -302,10 +302,12 @@ jobs:
 
             **The Linux .deb and Windows installers can also host.** "Run a
             server on this computer" sets up a complete instance — database,
-            homeserver, file storage — under your user account, no terminal
-            involved. It runs while the app is open, and friends join with an
-            invite. The AppImage and macOS builds are client-only, and say so
-            in the app.
+            homeserver, file storage, and its own voice server — under your
+            user account, no terminal involved. It runs while the app is open,
+            and friends join with an invite. Voice needs no setup: the bundled
+            SFU runs on your machine and people on your network connect to it
+            directly. The AppImage and macOS builds are client-only, and say
+            so in the app.
 
             **Channels are end-to-end encrypted by default** on instances
             whose deployment can support it — a reachable homeserver and a

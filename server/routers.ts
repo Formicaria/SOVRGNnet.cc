@@ -39,7 +39,7 @@ import { checkUsername, foldUsername, renameConsequences } from "@shared/usernam
 import { appserviceConfigured } from "./appservice";
 import * as db from "./db";
 import { isIpfsReachable } from "./ipfsService";
-import { shareableHost } from "./lanHost";
+import { shareableHost, shareableVoiceUrl } from "./lanHost";
 import { directSync } from "./matrixPublic";
 import * as matrix from "./matrixService";
 import {
@@ -1075,8 +1075,17 @@ export const appRouter = router({
       .input(z.object({ channelId: z.number() }))
       .mutation(async ({ ctx, input }) => {
         const channel = await requireVoiceChannel(input.channelId, ctx.user.id);
+        // The invite-link treatment, for the SFU address: a desktop host is
+        // configured with a loopback LIVEKIT_URL, and handing that out
+        // verbatim would point every LAN member's client at their own
+        // machine. The host the caller dialled for chat is the host that
+        // reaches voice; a configured non-loopback address passes through
+        // untouched. See shareableVoiceUrl.
+        const rawHost = String(
+          ctx.req.headers["x-forwarded-host"] ?? ctx.req.headers.host ?? ""
+        );
         return {
-          url: voice.voiceUrl(),
+          url: shareableVoiceUrl(voice.voiceUrl(), rawHost),
           room: voice.roomName(channel.id),
           token: await voice.mintVoiceToken({
             channelId: channel.id,

@@ -10,8 +10,12 @@
  * See docs/adr/0005-desktop-hosts-a-server.md.
  */
 
-/** The pieces a hosted server is made of, in start order. */
-export const COMPONENTS = ["postgres", "matrix", "ipfs", "app"] as const;
+/**
+ * The pieces a hosted server is made of, in start order. Voice starts before
+ * the app because the app reads the SFU's address from its environment at
+ * boot — the one ordering dependency here that isn't about data.
+ */
+export const COMPONENTS = ["postgres", "matrix", "ipfs", "voice", "app"] as const;
 export type ComponentId = (typeof COMPONENTS)[number];
 
 export type ComponentState =
@@ -53,11 +57,21 @@ export const PREFERRED_PORTS: Record<ComponentId, number> = {
   postgres: 5433, // not 5432 — a developer's own Postgres is likely there
   matrix: 8018, // not 8008 — Dendrite's default, and a developer may run one
   ipfs: 5101, // not 5001 — a developer's own Kubo is likely there
+  voice: 7890, // not 7880 — LiveKit's own default, and docs/VOICE.md tells operators to run one there
   app: 3100, // not 3000 — everything uses 3000
 };
 
 /** How many ports to try past the preferred one before giving up. */
 export const PORT_SEARCH_RANGE = 40;
+
+/**
+ * The UDP range WebRTC media rides, inclusive. Fixed rather than picked:
+ * UDP availability can't be probed by binding a TCP listener, and this is
+ * the range docs/VOICE.md names for port forwarding — the desktop host and
+ * the documentation should not quietly disagree. Two hundred ports carries
+ * more simultaneous participants than a laptop will.
+ */
+export const VOICE_UDP_RANGE: [number, number] = [50000, 50200];
 
 export function portCandidates(component: ComponentId): number[] {
   const first = PREFERRED_PORTS[component];
@@ -143,6 +157,7 @@ const HUMAN_NAMES: Record<ComponentId, string> = {
   postgres: "the database",
   matrix: "the chat server",
   ipfs: "file storage",
+  voice: "the voice server",
   app: "the app",
 };
 
@@ -158,6 +173,9 @@ function describeDegradation(ailing: Component[]): string {
   const names = ailing.map(c => HUMAN_NAMES[c.id]);
   if (ailing.some(c => c.id === "ipfs")) {
     return "Everything works except file sharing — file storage isn't responding.";
+  }
+  if (ailing.every(c => c.id === "voice")) {
+    return "Everything works except voice channels — the voice server isn't responding.";
   }
   return `Running, but ${names.join(" and ")} ${names.length === 1 ? "is" : "are"} not responding.`;
 }

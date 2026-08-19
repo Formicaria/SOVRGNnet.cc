@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   COMPONENTS,
+  VOICE_UDP_RANGE,
   evaluate,
   portCandidates,
   type Component,
@@ -55,6 +56,16 @@ export interface HostSecrets {
    * it: there is no terminal to print it to and nobody to read it.
    */
   setup_token: string;
+  /**
+   * The key pair the bundled voice SFU accepts admission tokens under — what
+   * makes a desktop host's `voice: true` true out of the box (ADR 0013 as
+   * superseded). The key is an identifier — it rides every token as the
+   * issuer — and the secret signs admissions; both are per-install for the
+   * same reason the server name is: nothing about one person's machine
+   * should verify on another's.
+   */
+  livekit_api_key: string;
+  livekit_api_secret: string;
 }
 
 interface ComponentReport {
@@ -122,6 +133,15 @@ export async function hostSecrets(): Promise<HostSecrets> {
       stored.setup_token = randomHex(16);
       changed = true;
     }
+    // Voice, for installs that predate it. Backfilling mints the pair the
+    // bundled SFU signs against, and voice lights up on the next start —
+    // nothing else about the install changes, and a bundle too old to carry
+    // the SFU simply never consults these.
+    if (!stored.livekit_api_key || !stored.livekit_api_secret) {
+      stored.livekit_api_key = randomHex(8);
+      stored.livekit_api_secret = randomHex(24);
+      changed = true;
+    }
     if (changed) await credentials.store(HOST_KEYCHAIN_ID, JSON.stringify(stored));
     return stored as HostSecrets;
   }
@@ -131,6 +151,8 @@ export async function hostSecrets(): Promise<HostSecrets> {
     matrix_shared_secret: randomHex(32),
     matrix_server_name: freshServerName(),
     setup_token: randomHex(16),
+    livekit_api_key: randomHex(8),
+    livekit_api_secret: randomHex(24),
   };
   await credentials.store(HOST_KEYCHAIN_ID, JSON.stringify(fresh));
   return fresh;
@@ -152,7 +174,9 @@ export async function hostStart(): Promise<HostState> {
       postgres: portCandidates("postgres"),
       matrix: portCandidates("matrix"),
       ipfs: portCandidates("ipfs"),
+      voice: portCandidates("voice"),
       app: portCandidates("app"),
+      voice_udp: VOICE_UDP_RANGE,
     },
   });
   return interpret(report);
@@ -185,7 +209,14 @@ function interpret(report: HostReport): HostState {
   if (!report.installed) return { status: "absent" };
 
   const byId = new Map(report.components.map(c => [c.id, c]));
-  const components: Component[] = COMPONENTS.map((id: ComponentId) => {
+  const components: Component[] = COMPONENTS.filter((id: ComponentId) => {
+    // Voice is the one optional component: a dev build or a bundle from
+    // before the SFU shipped runs a perfectly good server without it, and a
+    // permanent "stopped" row for something that was never going to start
+    // reads as a problem. Absent from the report means absent from the
+    // machine; the rows below mean "expected and not answering".
+    return id !== "voice" || byId.has(id);
+  }).map((id: ComponentId) => {
     const raw = byId.get(id);
     return {
       id,
