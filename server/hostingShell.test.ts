@@ -559,6 +559,54 @@ describe("a desktop host offers voice out of the box (ADR 0013)", () => {
     expect(panel).toContain("panel-dep-note");
   });
 
+  it("rebases the template's /var/lib storage into the data dir", () => {
+    // Learned from a corpse: the template's jetstream and media paths belong
+    // to the systemd install (StateDirectory) and to Docker (root container).
+    // A desktop user cannot mkdir /var/lib/dendrite — JetStream said exactly
+    // that, fatally, on every boot this machine ever attempted, while the
+    // harness stayed green on the identical template. The supervisor must
+    // rewrite the /var/lib/dendrite family, the same treatment the signing
+    // key's /etc path gets.
+    const render = supervisor.slice(
+      supervisor.indexOf("fn render_dendrite_config"),
+      supervisor.indexOf("fn render_livekit_config")
+    );
+    expect(render).toMatch(/replace\(\s*"\/var\/lib\/dendrite"/);
+  });
+
+  it("the supervisor rewrites every absolute path family the template uses", () => {
+    // The rewrite above covers the families known today. If the template
+    // grows a storage path outside them, the desktop inherits another
+    // unwritable default and dies the same silent death — so every absolute
+    // path in the template must belong to a family render_dendrite_config
+    // rebases.
+    const absolute = [...dendriteTemplate.matchAll(/^\s*[a-z_]+:\s*(\/[^\s#]+)/gm)].map(
+      m => m[1]
+    );
+    expect(absolute.length).toBeGreaterThan(0);
+    for (const path of absolute) {
+      expect(
+        path === "/etc/dendrite/matrix_key.pem" || path.startsWith("/var/lib/dendrite"),
+        `template path ${path} is outside the families the desktop supervisor rewrites`
+      ).toBe(true);
+    }
+  });
+
+  it("a resume failure becomes a failed state, never 'this build can't host'", () => {
+    // The launch effect once wrapped hostAvailable() and hostStart() in one
+    // try/catch whose only answer was setCanHost(false) — so a server that
+    // failed to start wore the face of a build that never could, and a real
+    // walk stared at a refused connection with no words anywhere. The two
+    // failures must stay separated: only the availability probe may conclude
+    // "can't host"; a start failure surfaces as a failed HostState.
+    const app = readFileSync(join(ROOT, "desktop", "src", "App.tsx"), "utf8");
+    const code = app.replace(/^\s*\/\/.*$/gm, "");
+    const resume = code.slice(code.indexOf("await hostStart()"));
+    const catchBlock = resume.slice(resume.indexOf("catch"), resume.indexOf("catch") + 400);
+    expect(catchBlock).toContain('status: "failed"');
+    expect(catchBlock).not.toContain("setCanHost");
+  });
+
   it("stops the SFU with everything else", () => {
     expect(supervisor).toMatch(/\["app", "voice", "ipfs", "matrix"\]/);
   });

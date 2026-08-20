@@ -210,18 +210,38 @@ export default function App() {
       // A machine that hosts starts its server with the app, without being
       // asked each time — that's what "your server" means. A machine that
       // doesn't host notices nothing.
+      //
+      // Two failures, two catches — deliberately not one. The original
+      // single catch answered a hostStart() rejection with setCanHost(false),
+      // which renders as "this build can't host": a server that failed to
+      // start wearing the face of a build that never could. The walk that
+      // found it stared at a refused connection with no words anywhere,
+      // because the panel's failed-state face — which exists and says the
+      // problem out loud — never received a state on this path. Only the
+      // availability probe may conclude "can't host"; a start failure is a
+      // state with words, like every other failure on this stack.
+      let availability: { bundled: boolean; installed: boolean } | null = null;
       try {
-        const availability = await hostAvailable();
+        availability = await hostAvailable();
         setCanHost(availability.bundled);
-        if (availability.bundled && availability.installed) {
+      } catch {
+        setCanHost(false);
+      }
+      if (availability?.bundled && availability.installed) {
+        try {
           const started = await hostStart();
           setHost(started);
           if (started.status === "running" || started.status === "degraded") {
             await adoptHostedServer(started.url);
           }
+        } catch (error) {
+          setHost({
+            status: "failed",
+            components: [],
+            problem:
+              error instanceof Error ? error.message : String(error),
+          });
         }
-      } catch {
-        setCanHost(false);
       }
     })();
   }, [reload, open, adoptHostedServer]);
