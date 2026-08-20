@@ -309,6 +309,12 @@ export default function ServerSettings({
               </div>
             </div>
 
+            {/* The directory this consents to does not exist yet (ROADMAP,
+                0.7 — unchecked). The flag shipped ahead of it so consent is a
+                standing setting an operator makes once, not a launch-day
+                email campaign — but the copy must not promise findability
+                nothing provides. When the directory ships, this text changes
+                in the same commit that makes it true. */}
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -319,8 +325,10 @@ export default function ServerSettings({
               <span>
                 <span className="text-sm block">List in the public directory</span>
                 <span className="text-xs text-slate-400">
-                  Makes this server findable by name on sovrgnnet.cc. Joining
-                  still follows the rule above. Off by default.
+                  Consents to this server appearing in the sovrgnnet.cc
+                  directory when it launches — the directory doesn't exist
+                  yet, so nothing is listed anywhere today. Joining will
+                  still follow the rule above. Off by default.
                 </span>
               </span>
             </label>

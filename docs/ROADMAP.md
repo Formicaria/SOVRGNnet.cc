@@ -84,17 +84,17 @@ Invite links now name the server as well as the code: `https://host/invite/<code
 
 The connection layer is done and tested (`shared/connections.ts`, 23 tests): add a server by address, probe it before showing a login screen, de-duplicate by instance id so the same server at a new address stays one entry, reorder the rail, and refresh — keeping unreachable servers rather than deleting a community because a laptop was shut for the night.
 
-The Tauri scaffold is in `desktop/`: window, `sovrgn://` deep links including cold-start replay, single-instance focus, and per-server credentials in the OS keychain. It currently loads each server's own web UI in a webview, which means it works against server versions older than itself — a property worth keeping until keys move client-side.
+The Tauri scaffold is in `desktop/`: window, `sovrgn://` deep links including cold-start replay, single-instance focus, and per-server credentials in the OS keychain. It currently loads each server's own web UI in a webview, which means it works against server versions older than itself. That property was originally justified as "until keys move client-side"; keys moved (ADR 0011, shipped 0.5.1) and the webview stayed anyway, because version tolerance turned out to be its own reason — a newer client keeps working against servers nobody has upgraded.
 
 The client side landed too: `ConnectionsContext` owns the known-servers list, the rail grows a host strip above the community rail once you know more than one server, and an add-server dialog probes an address *before* saving it — two steps, look then join, so a typo produces "that isn't a SOVRGNnet server" rather than a password prompt on a stranger's website. Encryption status is stated plainly on that screen every time, because someone about to type a password deserves to know which kind of server they're looking at.
 
 **The browser's honest limit:** sessions are httpOnly cookies scoped to one origin, so a web page at one server cannot authenticate against another. On the web this is an address book, not a switchboard — switching hosts navigates there. The desktop client is what turns it into real multiplexing, and the UI says so rather than pretending.
 
-**Remaining:** sign-in per server in the desktop client, and replacing the webview with a native UI.
+**Remaining:** replacing the webview with a native UI. Sign-in per server stopped being remaining in v0.7.0: the front door is a server address, and pasting one hands you to that server's own sign-in inside the webview — the SOVRGN account is the optional layer that carries servers between machines, never the gate.
 
 ## Phase 7.5 — The desktop app hosts a server 🚧
 
-On Windows, installing the app should mean you're hosting — not just connecting. [ADR 0002](adr/0002-windows-bundled-server.md) records how: **WSL2**, running the identical Linux stack, rather than a second homeserver implementation. Conduit ships Linux binaries only, and swapping to Dendrite on Windows would mean two config formats, two sets of quirks, and two upgrade paths forever — a permanent tax to serve the platform least likely to be hosting anything.
+On Windows — and everywhere else — installing the app can mean you're hosting, not just connecting. [ADR 0002](adr/0002-windows-bundled-server.md) first answered how with **WSL2**, back when Conduit shipped Linux binaries only; [ADR 0005](adr/0005-desktop-hosts-a-server.md) superseded that: everything bundled and native — Dendrite, Kubo, embedded Postgres, and since v0.7.0 a LiveKit SFU — run by a supervisor inside the app itself. No Docker, no distro. ADR 0002 is retained because its reasoning is what made the cost of the reversal legible.
 
 Done: settings moved out of environment variables into an `instanceSettings` table, with the environment as bootstrap defaults and stored values winning once an admin saves. `admin.getSettings` / `updateSettings` / `listUsers` / `setUserRole` give the client everything an owner would otherwise SSH in to change — as a normal authenticated API, so administering a box in your closet from your laptop is the ordinary case rather than a special one.
 
@@ -102,9 +102,9 @@ Done: settings moved out of environment variables into an `instanceSettings` tab
 
 Also fixed: **the join policy was advertised but never enforced.** `/api/instance` reported `open`/`invite`/`closed` and registration ignored all three, so a server its owner had deliberately closed still accepted anyone who found the address. Now enforced — with the bootstrap exception that matters, since the default is invite-only and without it a fresh install could never create its own first account. Closed means closed even for someone holding an old invite link.
 
-A settings dialog in the client covers name, description, join policy, and directory listing, and states plainly that messages aren't encrypted and the administrator can read them.
+A settings dialog in the client covers name, description, join policy, and directory listing, and states the encryption truth for the deployment it's on: originally "messages aren't encrypted and the administrator can read them," and since E2EE-by-default (0.6.0) the conditional version — encrypted channels the admin can't read, pre-encryption channels and all metadata they can.
 
-**Remaining:** WSL2 provisioning from the installer, lifecycle supervision, LAN reachability (WSL2's NAT address changes across reboots), and surfacing backups somewhere visible in Windows rather than inside the distro.
+**Remaining:** a recorded [VERIFY_DESKTOP](VERIFY_DESKTOP.md) walk on a v0.7.1 build. The v0.7.0 Windows walk is what found the first-account dead end; the fix shipped in v0.7.1 compiled but not yet walked. The items that used to stand here — WSL2 provisioning, lifecycle supervision, NAT reachability, backups hidden inside a distro — dissolved with ADR 0005 rather than being done: there is no distro to provision, the supervisor is the app's own, and the bundle binds real interfaces directly. Backups remain CLI operations by choice (they move data), not as a gap.
 
 ## Phase 7.6 — One account across every server 🚧
 
@@ -130,7 +130,9 @@ The token comes back in the URL **fragment**, never the query string — fragmen
 
 Sign-in, registration, and a recovery-codes screen are served by the identity service itself, same-origin with its API. The codes screen is a deliberate full stop with a checkbox, because in codes-only mode someone who clicks past it and later forgets their password has lost the account outright. The sign-in page names the server being signed in to, since that's the actual decision being made.
 
-**Remaining:** turning it on. `INSTANCE_ALLOW_SSO` is off everywhere, so none of this is reachable yet.
+It is on where it was built to be on: `id.sovrgnnet.cc` is live, and since v0.7.0 the hub at `app.sovrgnnet.cc` signs into it — password or any configured provider — with every server entry riding the same `/authorize` mint. `INSTANCE_ALLOW_SSO` stays `false` by default for self-hosted instances, which is the design rather than a gap: an operator opts into the central identity, never the reverse.
+
+**Remaining:** desktop SSO walked end-to-end on a real build. The CORS fix that unblocked the device flow shipped compiled-but-unwalked; [VERIFY_DESKTOP](VERIFY_DESKTOP.md) step 9 exists to close exactly that.
 
 ---
 
@@ -168,9 +170,10 @@ this project exists to avoid.
       into an index built from homeserver pushes; clients author messages over
       their own session when `clientMatrix && eventIngest`; encrypted events
       already stored content-blind ([ADR 0009](adr/0009-appservice-ingest.md))
-- [ ] **E2EE** via Olm/Megolm, with device verification and key backup — the
-      architecture beneath it is now in place; what remains is the crypto
-      itself, which is client work (keys, verification, backup, recovery)
+- [x] **E2EE** via Olm/Megolm, with device verification and key backup —
+      shipped 0.5.1, on by default for new channels since 0.6.0
+      ([ADR 0011](adr/0011-crypto-machine.md)); the note below records what
+      it cost and where it stops
 
 ## 0.5 — Portable infrastructure
 
@@ -221,8 +224,10 @@ this project exists to avoid.
 
 ## Later
 
-Voice, screen sharing, plugins, integrations, optional wallet/ENS, and other
-social features. Deliberately after the architecture, not before it.
+Screen sharing, plugins, integrations, optional wallet/ENS, and other social
+features. Deliberately after the architecture, not before it. Voice stood in
+this list until v0.7.0 shipped it per-instance — [VOICE.md](VOICE.md) for what
+exists, and the closing section below for how the constraint resolved.
 
 ---
 
@@ -283,8 +288,11 @@ data quietly:
 - **Native installs couldn't restore at all.** `restore.sh` assumed Docker,
   despite `backup.sh` supporting both.
 
-Remaining: encryption at rest. A backup is password material and the tooling
-still doesn't encrypt it.
+Encryption at rest closed later in 0.5: an scrypt + AES-256-GCM envelope
+around the unchanged archive, opted into by setting
+`SOVRGN_BACKUP_PASSPHRASE`. A wrong passphrase or a corrupt archive fails
+loudly at open, not quietly at restore — and `backup.sh` says out loud when
+it writes an unencrypted archive, because a backup is password material.
 
 Full detail in [BACKUP.md](BACKUP.md).
 
@@ -336,25 +344,36 @@ design. Correct for serving traffic on defaults, useless as a probe. A
 readiness check that cannot fail is not a check, and an orchestrator would have
 routed traffic to a broken instance forever.
 
-Still to add: the authenticated surface — registration, membership, roles,
-invites — which needs credentials and so can't run against an instance you
-don't operate.
+The authenticated surface followed: `pnpm conformance:auth` drives
+registration against the advertised join policy, the membership walls (reads
+and writes, including the refusal-ordering rule that keeps encryption
+invisible to strangers), role floors and the authority rule, and invite
+preview uniformity — given credentials, because it can't run against an
+instance you don't operate, and it says so before it writes a row. PROTOCOL.md
+gained the section that makes those behaviours normative rather than "whatever
+the reference happens to do"; `e2e.sh` runs the suite against the throwaway
+stack so it never ships having only refused to start. What it deliberately
+skips, it reports as skipped with the reason — on an all-encrypted instance
+the moderation checks need a message no plain-HTTP runner can author.
 
-## Later
+## Voice — the constraint, and how it resolved (shipped v0.7.0)
 
-Voice, which is a bigger architectural decision than a feature list suggests,
-so the constraint is written down here rather than discovered later.
+Voice was a bigger architectural decision than a feature list suggests, so
+the constraint was written down here before anything was built. It held, and
+this section is kept as the record of the decision — [VOICE.md](VOICE.md) is
+what exists now.
 
 **The Cloudflare Tunnel cannot carry it.** The tunnel is HTTP-oriented and has
 no public UDP support, and WebRTC media is UDP. Everything else in this project
 reaches the internet through that tunnel, which is what lets an instance run
 behind a home router with nothing forwarded — a property `identity/DEPLOY.md`
-states outright as "no VPN, no static IP, no port forwarding anywhere in the
-design." Voice is the first thing that does not fit through it, and shipping
-self-hosted voice makes that sentence false. It would need correcting in the
-same commit, not afterwards.
+stated outright as "no VPN, no static IP, no port forwarding anywhere in the
+design." Voice was the first thing that did not fit through it, and this
+section demanded that shipping self-hosted voice correct that sentence in the
+same commit, not afterwards. That is what happened: a voice-enabled instance
+needs its media port reachable, and the docs say so where the ports are named.
 
-Three ways out, none free:
+Three ways out, none free — as written before any was built:
 
 - **A managed SFU/TURN (Cloudflare Realtime or equivalent).** No ports opened,
   no new machine, and it fits the topology already in place — the account and
@@ -371,18 +390,31 @@ Three ways out, none free:
   than it first sounds. If this is the choice, the capability disclosure says
   so plainly rather than reporting `voice: true` and leaving people to guess
   where their audio goes.
+
+  *This was built first — and reversed the same day, by the owner, before it
+  shipped. [ADR 0013](adr/0013-voice-cloudflare-realtime.md) records both the
+  cut and the reversal: a shared Cloudflare app makes SOVRGN's cloud account a
+  dependency of somebody else's server, which is exactly the dependency this
+  product exists to refuse.*
 - **Self-hosted LiveKit plus coturn.** Sovereign, and the honest fit for the
   rest of the design. Costs a real machine, real inbound UDP port forwarding,
   and ongoing relay bandwidth that someone pays for whenever NAT is hostile.
+
+  *This is what shipped, minus coturn, per instance: the operator runs their
+  own SFU (a desktop-hosted server bundles one and starts it itself), the
+  server's only role is the admission decision, and media flows client ↔ that
+  SFU without touching anything SOVRGN hosts.*
 - **TURN over TCP/443 only.** Traverses nearly everything, needs no UDP, and
   degrades badly under packet loss because TCP retransmits audio nobody will
   ever hear in time. A fallback, not a plan.
 
-`voice: false` in the capability protocol is accurate today, and
-`explainMissing` already tells someone on an instance without it why the button
-is absent rather than hiding it. That stays true until an SFU actually exists;
-flipping the flag on signalling alone would be the exact overstatement this
-project exists to avoid.
+The rule the last paragraph of this section used to state — `voice: false`
+stays accurate until an SFU actually exists, because flipping the flag on
+signalling alone would be the exact overstatement this project exists to
+avoid — is now enforced rather than promised: `voice: true` is per-instance,
+derived from a fully configured SFU (URL, key, and secret all present —
+configuration, not a reachability probe), so an instance without one still
+says `false` and `explainMissing` still says why.
 
 Screen sharing.
 Plugins and integrations. Optional wallet linking and ENS display names. The

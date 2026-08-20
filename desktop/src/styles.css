@@ -431,6 +431,17 @@ button.ghost:hover { color: var(--text); }
 .panel-dep-state { font-size: 11px; color: var(--muted); }
 .panel-deps li.up .panel-dep-state { color: var(--ok); }
 .panel-deps li.down .panel-dep-state { color: var(--danger); }
+/* Off is a decision, not a defect — muted, never red. */
+.panel-deps li.off .panel-dep-state { color: var(--muted); }
+
+/* The reason a component is off or failed, in words. Wraps under the row. */
+.panel-dep-note {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.panel-deps li { flex-wrap: wrap; }
 
 .panel-caps li span:last-child { font-size: 11px; color: var(--muted); }
 .panel-caps li.yes span:last-child { color: var(--ok); }

@@ -137,6 +137,28 @@ describe("evaluate", () => {
     });
   });
 
+  describe("off on purpose is not a problem", () => {
+    // The state exists because its absence was field-tested: the first walk
+    // of the voice release found a machine with no SFU process, no config,
+    // and no log — and no way to tell "skipped on purpose" from "broken"
+    // from any surface the app offers. Off is the supervisor saying which.
+    // It must never read as damage.
+    it("a running host with a deliberately-off SFU is running, not degraded", () => {
+      expect(evaluate(make({ voice: "off" }), URL).status).toBe("running");
+    });
+
+    it("a stopped host stays stopped even with an off row in the list", () => {
+      const all = make({
+        postgres: "stopped",
+        matrix: "stopped",
+        ipfs: "stopped",
+        voice: "off",
+        app: "stopped",
+      });
+      expect(evaluate(all, URL).status).toBe("stopped");
+    });
+  });
+
   describe("actually broken", () => {
     it("fails when the database is down", () => {
       const state = evaluate(make({ postgres: "failed", app: "failed" }), URL);

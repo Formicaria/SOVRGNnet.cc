@@ -521,6 +521,44 @@ describe("a desktop host offers voice out of the box (ADR 0013)", () => {
     expect(guard).not.toContain("livekit");
   });
 
+  it("a skipped SFU is a row that says why, never a silence", () => {
+    // Field-tested the hard way: the first walk of the voice release probed
+    // a machine and found no process, no config, no log — and nothing on any
+    // surface saying whether voice was skipped, crashed, or never reached.
+    // The skip branch must push an "off" component whose error carries the
+    // reason in words.
+    const code = supervisor.replace(/^\s*\/\/.*$/gm, "");
+    expect(code).toContain('state: "off".into()');
+    expect(code).toMatch(/\*VOICE_OFF_REASON\.lock\(\)\.unwrap\(\) = Some\(/);
+  });
+
+  it("the off row survives host_state polls, which rebuild from live children", () => {
+    // host_state reports only spawned processes; a never-spawned SFU has no
+    // child, so without the persisted reason the off row would appear in the
+    // start report once and evaporate on the first poll.
+    const poll = supervisor.slice(supervisor.indexOf("pub async fn host_state"));
+    expect(poll).toMatch(/VOICE_OFF_REASON\.lock\(\)\.unwrap\(\)\.clone\(\)/);
+  });
+
+  it("stopping clears the reason — a stopped server explains nothing", () => {
+    const stop = supervisor.slice(
+      supervisor.indexOf("pub fn stop_all"),
+      supervisor.indexOf("pub fn stop_all") + 900
+    );
+    expect(stop).toMatch(/\*VOICE_OFF_REASON\.lock\(\)\.unwrap\(\) = None/);
+  });
+
+  it("the panel gives off its own face and shows the words", () => {
+    // Off painted red would say "broken" about a decision; off with no text
+    // would say nothing at all. Neutral color, reason rendered.
+    const panel = readFileSync(
+      join(ROOT, "desktop", "src", "components", "HostPanel.tsx"),
+      "utf8"
+    );
+    expect(panel).toContain('component.state === "off"');
+    expect(panel).toContain("panel-dep-note");
+  });
+
   it("stops the SFU with everything else", () => {
     expect(supervisor).toMatch(/\["app", "voice", "ipfs", "matrix"\]/);
   });

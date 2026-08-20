@@ -24,14 +24,24 @@ export type ComponentState =
   | "running"
   /** Running but not answering health checks — starting up, or wedged. */
   | "unhealthy"
-  | "failed";
+  | "failed"
+  /**
+   * Deliberately not running, with the reason in `error`. Distinct from
+   * "stopped" (would run next start) and "failed" (tried and couldn't): an
+   * SFU skipped because the bundle carries none is neither. The state exists
+   * because its absence was field-tested: the first walk of the voice
+   * release found three silences — no process, no config, no log — and no
+   * surface anywhere saying whether that was intended. "Off on purpose, and
+   * here's why" has to be something the supervisor can say out loud.
+   */
+  | "off";
 
 export type Component = {
   id: ComponentId;
   state: ComponentState;
   /** Port it was actually given, which is not necessarily the one we wanted. */
   port: number | null;
-  /** Set when state is "failed", for showing a person something true. */
+  /** Set when state is "failed" or "off", for showing a person something true. */
   error: string | null;
 };
 
@@ -115,7 +125,11 @@ export function evaluate(components: Component[], url: string): HostState {
     };
   }
 
-  if (components.every(c => c.state === "stopped")) {
+  // "off" counts as stopped here: a host whose every process is stopped is
+  // stopped, and a deliberately-off SFU is not a process that's about to
+  // change that. Without this, one off row would keep a fully stopped host
+  // from ever reading as stopped.
+  if (components.every(c => c.state === "stopped" || c.state === "off")) {
     return { status: "stopped", components };
   }
 

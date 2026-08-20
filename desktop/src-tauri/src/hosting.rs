@@ -25,6 +25,16 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Child processes, keyed by component id. One instance of hosting per app.
 pub struct HostProcesses(pub Mutex<HashMap<String, Child>>);
 
+/// Why voice is deliberately not running, when it isn't.
+///
+/// host_state rebuilds its component list from live child processes, and a
+/// component that was never spawned has no child — so a skipped SFU would
+/// appear in the start report once and then vanish from every poll, leaving
+/// the panel unable to say why there's no voice. A module static rather than
+/// a field on HostProcesses because hosting is a singleton per app and the
+/// reason has exactly one writer (host_start) and one reader (host_state).
+static VOICE_OFF_REASON: Mutex<Option<String>> = Mutex::new(None);
+
 #[derive(Clone, Serialize)]
 pub struct ComponentReport {
     pub id: String,
@@ -701,15 +711,26 @@ pub async fn host_start(
     // failing, exactly the posture a dedicated deployment takes when its
     // operator hasn't set the three env lines.
     //
+    // Skipping is a state, not an absence. The first version of this block
+    // pushed nothing when the gate didn't pass, and the first real walk of
+    // the voice release probed a machine and found three silences — no
+    // process, no config, no log — with nothing anywhere saying whether
+    // voice had been skipped, had crashed, or had never been reached. A
+    // person cannot tell "off on purpose" from "broken" unless the
+    // supervisor says which, so it says which: an "off" row with the reason
+    // in words, held in VOICE_OFF_REASON so host_state polls (which rebuild
+    // from live processes) keep saying it.
+    //
     // Reported as "starting" without waiting, the kubo reasoning: chat
     // doesn't wait for voice, and the next host_state poll tells the truth.
     let mut voice_port: Option<u16> = None;
     {
         let livekit = bundle_dir(&app)?.join(exe("livekit"));
-        if livekit.exists()
-            && !secrets.livekit_api_key.is_empty()
-            && !secrets.livekit_api_secret.is_empty()
-        {
+        let have_binary = livekit.exists();
+        let have_keys = !secrets.livekit_api_key.is_empty()
+            && !secrets.livekit_api_secret.is_empty();
+        *VOICE_OFF_REASON.lock().unwrap() = None;
+        if have_binary && have_keys {
             match pick_port(&ports.voice) {
                 Ok(port) => match render_livekit_config(&data, port, ports.voice_udp, &secrets) {
                     Ok(config) => {
@@ -733,6 +754,23 @@ pub async fn host_start(
                 },
                 Err(e) => fail(&mut components, "voice", e),
             }
+        } else {
+            let reason = if !have_binary {
+                // Only release bundles carry the SFU; a bundle assembled
+                // before the voice release simply doesn't have the file.
+                "this bundle carries no voice server — chat is unaffected"
+            } else {
+                // hostSecrets() backfills the pair before every start, so an
+                // empty key here means the keychain refused to hand it over.
+                "no voice signing pair — the keychain didn't provide one at start"
+            };
+            *VOICE_OFF_REASON.lock().unwrap() = Some(reason.to_string());
+            components.push(ComponentReport {
+                id: "voice".into(),
+                state: "off".into(),
+                port: None,
+                error: Some(reason.to_string()),
+            });
         }
     }
 
@@ -824,6 +862,11 @@ pub async fn host_stop(
 }
 
 pub fn stop_all(app: &AppHandle, processes: &HostProcesses) {
+    // A stopped server has no voice row to explain. The reason belongs to a
+    // running-but-voiceless host; leaving it set would make host_state report
+    // an "off" SFU for a server that is entirely off.
+    *VOICE_OFF_REASON.lock().unwrap() = None;
+
     let mut map = processes.0.lock().unwrap();
 
     for id in ["app", "voice", "ipfs", "matrix"] {
@@ -878,6 +921,17 @@ pub async fn host_state(
             state: state.0,
             port: None,
             error: state.1,
+        });
+    }
+
+    // A deliberately-off SFU has no child to poll; keep saying why it's off,
+    // or the panel's voice row exists for one report and then evaporates.
+    if let Some(reason) = VOICE_OFF_REASON.lock().unwrap().clone() {
+        components.push(ComponentReport {
+            id: "voice".into(),
+            state: "off".into(),
+            port: None,
+            error: Some(reason),
         });
     }
 
