@@ -278,12 +278,30 @@ export default function HostPanel({
             {state.status === "degraded" && <p className="warn-inline">{state.problem}</p>}
             <ul className="panel-deps">
               {state.components.map(component => (
-                <li key={component.id} className={component.state === "running" ? "up" : "down"}>
+                <li
+                  key={component.id}
+                  // "off" is neither up nor down: a deliberately skipped SFU
+                  // painted red would say "broken" about a decision. Neutral,
+                  // with the reason below.
+                  className={
+                    component.state === "running"
+                      ? "up"
+                      : component.state === "off"
+                        ? "off"
+                        : "down"
+                  }
+                >
                   <span className="panel-dep-name">{component.id}</span>
                   <span className="panel-dep-state">
                     {component.state}
                     {component.port ? ` · :${component.port}` : ""}
                   </span>
+                  {/* The words, not just the color — the reason a component
+                      is off or failed is the part a person can act on, and
+                      the walk that motivated this found only silences. */}
+                  {component.error && component.state !== "running" && (
+                    <span className="panel-dep-note">{component.error}</span>
+                  )}
                 </li>
               ))}
             </ul>

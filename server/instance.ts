@@ -40,7 +40,12 @@ export type InstanceInfo = {
   joinPolicy: JoinPolicy;
   /** Whether messages on this instance are end-to-end encrypted. */
   encryption: boolean;
-  /** Whether this instance is listed in the sovrgnnet.cc directory. */
+  /**
+   * The operator's standing consent to appear in the sovrgnnet.cc directory.
+   * The directory does not exist yet (ROADMAP 0.7), so today this is consent
+   * on record, consulted by nothing — named that way here so no client reads
+   * `listed: true` as "currently findable somewhere."
+   */
   listed: boolean;
   /**
    * Whether this server accepts sovrgnnet.cc accounts, and where from.

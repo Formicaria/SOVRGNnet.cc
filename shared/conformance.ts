@@ -60,19 +60,21 @@ export interface Probes {
   matrixVersions?: Probe;
 }
 
-const pass = (id: string, title: string, detail: string): CheckResult => ({
+// Exported for conformanceAuth.ts, which builds its results the same way —
+// one definition of "a check result" rather than a drifting copy per suite.
+export const pass = (id: string, title: string, detail: string): CheckResult => ({
   id,
   title,
   status: "pass",
   detail,
 });
-const fail = (id: string, title: string, detail: string): CheckResult => ({
+export const fail = (id: string, title: string, detail: string): CheckResult => ({
   id,
   title,
   status: "fail",
   detail,
 });
-const warn = (id: string, title: string, detail: string): CheckResult => ({
+export const warn = (id: string, title: string, detail: string): CheckResult => ({
   id,
   title,
   status: "warn",
@@ -85,7 +87,7 @@ const skip = (id: string, title: string, detail: string): CheckResult => ({
   detail,
 });
 
-function asRecord(value: unknown): Record<string, unknown> | null {
+export function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;

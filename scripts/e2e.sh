@@ -495,6 +495,34 @@ E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" E2E_SETUP_TOKEN="$SETUP_TOKEN" \
   pnpm exec tsx scripts/e2e-journey.ts \
   || die "The journey failed."
 
+# ----------------------------------------------- authenticated conformance
+#
+# The runner every operator is told to point at their own instance, proven
+# here against a stack that is nobody's. It runs with the journey's accounts
+# because this instance is invite-policy: without credentials it could only
+# prove refusals, and a suite that has never taken its own deep path is
+# exactly the "compiled but never run" pattern this project keeps paying for.
+# This stack is encrypted, so the run also exercises the refusal-ordering
+# check (membership before encryption) against a real Dendrite.
+
+step "Authenticated conformance"
+
+CONF_STATE="$WORK_DIR/journey-state.json"
+CONF_OWNER="$(sed -n 's/.*"ownerUsername": *"\([^"]*\)".*/\1/p' "$CONF_STATE" 2>/dev/null)"
+CONF_GUEST="$(sed -n 's/.*"guestUsername": *"\([^"]*\)".*/\1/p' "$CONF_STATE" 2>/dev/null)"
+CONF_PASS="$(sed -n 's/.*"password": *"\([^"]*\)".*/\1/p' "$CONF_STATE" 2>/dev/null)"
+
+if [ -z "$CONF_OWNER" ] || [ -z "$CONF_GUEST" ] || [ -z "$CONF_PASS" ]; then
+  die "journey-state.json didn't yield two accounts for the authenticated suite."
+fi
+
+pnpm exec tsx scripts/conformance-auth.ts "$BASE" \
+  --i-operate-this-instance \
+  --user-a="$CONF_OWNER:$CONF_PASS" \
+  --user-b="$CONF_GUEST:$CONF_PASS" \
+  || die "The instance doesn't conform on its authenticated surface."
+ok "Authenticated surface conforms"
+
 # -------------------------------------------------------------------- crypto
 #
 # The journey drives HTTP and cannot encrypt anything. This runs the shipped
