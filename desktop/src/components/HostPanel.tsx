@@ -23,12 +23,19 @@ import {
 export default function HostPanel({
   open,
   state,
+  version,
   onClose,
   onStarted,
   onStopped,
 }: {
   open: boolean;
   state: HostState;
+  /**
+   * The shell's own version, stamped in the header. Seven relaunches of the
+   * first Linux walk probed a stale process because nothing on screen said
+   * which build had drawn the window — the panel now says it.
+   */
+  version?: string | null;
   onClose: () => void;
   /** The server is up at this address — connect and show it. */
   onStarted: (url: string) => void;
@@ -163,6 +170,7 @@ export default function HostPanel({
       <aside className="panel" onClick={event => event.stopPropagation()}>
         <header className="panel-head">
           <h2>Your server</h2>
+          {version && <span className="panel-version">v{version}</span>}
           <button className="panel-close" onClick={onClose} aria-label="Close">
             ✕
           </button>

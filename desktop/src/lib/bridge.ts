@@ -87,6 +87,35 @@ export async function appVersion(): Promise<string> {
   return await invoke<string>("app_version");
 }
 
+/**
+ * Did the installer (or a --host-setup launch) ask this run to open the
+ * server setup? Windows answers via a marker file the NSIS hook left beside
+ * the executable; Linux answers via the flag, because package installs
+ * never prompt by policy. Asked once — consuming it writes a tombstone so
+ * the question can't reopen on every launch forever.
+ */
+export async function hostSetupRequested(): Promise<boolean> {
+  return await invoke<boolean>("host_setup_requested");
+}
+
+export async function consumeHostSetup(): Promise<void> {
+  await invoke("consume_host_setup");
+}
+
+/**
+ * Quit, deliberately.
+ *
+ * The Rust side calls `app.exit`, which fires `RunEvent::Exit` — where
+ * `stop_all` lives — so the hosted server's children go down with the app,
+ * Postgres through pg_ctl so it checkpoints. This is the same path a window
+ * close takes; it exists as a button because the first Linux walk proved the
+ * alternatives lie: relaunching just focuses the old instance, and SIGTERM
+ * skips the Exit handler and orphans the children.
+ */
+export async function quitApp(): Promise<void> {
+  await invoke("quit_app");
+}
+
 /** A stable, filesystem-safe webview label for a connection. */
 export function webviewLabel(instanceId: string): string {
   return `server-${instanceId}`;

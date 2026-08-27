@@ -60,6 +60,20 @@ fn forget_credential(instance_id: String) -> Result<(), String> {
     }
 }
 
+/// Quit, on purpose, from a button.
+///
+/// `app.exit` fires `RunEvent::Exit`, which is where `stop_all` lives — the
+/// same cleanup a window close gets. It exists as a command because the first
+/// Linux walk had no deliberate way to say "quit": single-instance focus made
+/// a stale build look freshly launched, and killing the shell with SIGTERM
+/// skips the Exit handler entirely, leaving the hosted server as four orphans
+/// holding the ports. A person asked to quit-and-relaunch needs a control
+/// that provably does the first half.
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 /// Width of the shell's rail, and height of its title strip. The server's own
 /// webview is inset by these so the frame stays visible around it.
 const RAIL_WIDTH: f64 = 68.0;
@@ -215,6 +229,55 @@ fn app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+/// Did the installer — or a `--host-setup` launch — ask this run to open
+/// the server setup?
+///
+/// An NSIS hook can only leave a file behind, so the file is the message:
+/// `host-setup.requested` beside the executable, written when the person
+/// said yes to "also set up a server" during install. The flag form exists
+/// for Linux, where package installs never prompt by policy and a scripted
+/// setup still needs a way to ask.
+#[tauri::command]
+fn host_setup_requested(app: tauri::AppHandle) -> bool {
+    if std::env::args().any(|a| a == "--host-setup") {
+        return true;
+    }
+    let marker = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("host-setup.requested")));
+    let Some(marker) = marker else { return false };
+    if !marker.exists() {
+        return false;
+    }
+    // The tombstone outlives the marker on purpose: deleting a file beside
+    // the executable can fail across a permissions boundary, and a question
+    // that reopens on every launch forever is worse than a file that stays.
+    let consumed = app
+        .path()
+        .app_data_dir()
+        .map(|d| d.join("host-setup.consumed"))
+        .ok();
+    match consumed {
+        Some(tombstone) => !tombstone.exists(),
+        None => true,
+    }
+}
+
+/// The answer was shown; never ask again. Best-effort on the marker itself,
+/// authoritative on the tombstone.
+#[tauri::command]
+fn consume_host_setup(app: tauri::AppHandle) {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let _ = std::fs::remove_file(dir.join("host-setup.requested"));
+        }
+    }
+    if let Ok(data) = app.path().app_data_dir() {
+        let _ = std::fs::create_dir_all(&data);
+        let _ = std::fs::write(data.join("host-setup.consumed"), b"");
+    }
+}
+
 /// Hand a sovrgn:// URL to the frontend, which knows how to parse it.
 ///
 /// Parsing lives in TypeScript (shared/invite.ts) so there is exactly one
@@ -272,6 +335,9 @@ fn main() {
             close_server,
             open_external,
             app_version,
+            host_setup_requested,
+            consume_host_setup,
+            quit_app,
             hosting::host_available,
             hosting::host_install,
             hosting::host_start,

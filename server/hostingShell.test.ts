@@ -559,6 +559,54 @@ describe("a desktop host offers voice out of the box (ADR 0013)", () => {
     expect(panel).toContain("panel-dep-note");
   });
 
+  it("rebases the template's /var/lib storage into the data dir", () => {
+    // Learned from a corpse: the template's jetstream and media paths belong
+    // to the systemd install (StateDirectory) and to Docker (root container).
+    // A desktop user cannot mkdir /var/lib/dendrite — JetStream said exactly
+    // that, fatally, on every boot this machine ever attempted, while the
+    // harness stayed green on the identical template. The supervisor must
+    // rewrite the /var/lib/dendrite family, the same treatment the signing
+    // key's /etc path gets.
+    const render = supervisor.slice(
+      supervisor.indexOf("fn render_dendrite_config"),
+      supervisor.indexOf("fn render_livekit_config")
+    );
+    expect(render).toMatch(/replace\(\s*"\/var\/lib\/dendrite"/);
+  });
+
+  it("the supervisor rewrites every absolute path family the template uses", () => {
+    // The rewrite above covers the families known today. If the template
+    // grows a storage path outside them, the desktop inherits another
+    // unwritable default and dies the same silent death — so every absolute
+    // path in the template must belong to a family render_dendrite_config
+    // rebases.
+    const absolute = [...dendriteTemplate.matchAll(/^\s*[a-z_]+:\s*(\/[^\s#]+)/gm)].map(
+      m => m[1]
+    );
+    expect(absolute.length).toBeGreaterThan(0);
+    for (const path of absolute) {
+      expect(
+        path === "/etc/dendrite/matrix_key.pem" || path.startsWith("/var/lib/dendrite"),
+        `template path ${path} is outside the families the desktop supervisor rewrites`
+      ).toBe(true);
+    }
+  });
+
+  it("a resume failure becomes a failed state, never 'this build can't host'", () => {
+    // The launch effect once wrapped hostAvailable() and hostStart() in one
+    // try/catch whose only answer was setCanHost(false) — so a server that
+    // failed to start wore the face of a build that never could, and a real
+    // walk stared at a refused connection with no words anywhere. The two
+    // failures must stay separated: only the availability probe may conclude
+    // "can't host"; a start failure surfaces as a failed HostState.
+    const app = readFileSync(join(ROOT, "desktop", "src", "App.tsx"), "utf8");
+    const code = app.replace(/^\s*\/\/.*$/gm, "");
+    const resume = code.slice(code.indexOf("await hostStart()"));
+    const catchBlock = resume.slice(resume.indexOf("catch"), resume.indexOf("catch") + 400);
+    expect(catchBlock).toContain('status: "failed"');
+    expect(catchBlock).not.toContain("setCanHost");
+  });
+
   it("stops the SFU with everything else", () => {
     expect(supervisor).toMatch(/\["app", "voice", "ipfs", "matrix"\]/);
   });
@@ -628,5 +676,45 @@ describe("frame dialogs are not drawn under the instance", () => {
   it("brings the instance back when the last one closes", () => {
     const effect = APP.slice(APP.indexOf("const overlayOpen"));
     expect(effect.slice(0, 1200)).toContain("showServer(");
+  });
+});
+
+describe("the frame can quit, and the host has a door (first Linux walk)", () => {
+  const FRAME = readFileSync(join(__dirname, "..", "desktop/src/App.tsx"), "utf8");
+  const RAIL = readFileSync(join(__dirname, "..", "desktop/src/components/Rail.tsx"), "utf8");
+  const PANEL = readFileSync(join(__dirname, "..", "desktop/src/components/HostPanel.tsx"), "utf8");
+  const SEAM = readFileSync(join(__dirname, "..", "desktop/src/lib/bridge.ts"), "utf8");
+
+  it("quit is a command that takes the Exit path, not a signal", () => {
+    // The walk killed the shell with SIGTERM and got four orphans holding the
+    // ports: signals skip RunEvent::Exit, where stop_all lives. The button
+    // goes through app.exit so the same cleanup a window close gets runs.
+    // The registration sweep above already proves the invoke name and the
+    // shell command agree.
+    const command = shell.slice(shell.indexOf("fn quit_app"));
+    expect(shell).toContain("fn quit_app");
+    expect(command.slice(0, 120)).toContain("app.exit(0)");
+    expect(SEAM).toContain('invoke("quit_app")');
+  });
+
+  it("the rail offers Quit always, and Host on builds that can host", () => {
+    // HostPanel's only other door is the FirstRun screen, which renders only
+    // while the rail is empty — so the machine actually hosting a server was
+    // the one machine that couldn't reach its own status or Stop button.
+    expect(RAIL).toContain("onClick={onHost}");
+    expect(RAIL).toContain("onClick={onQuit}");
+    // Gated on capability, not on host state: a stopped server still needs
+    // its door — that's where "Start it" lives.
+    expect(FRAME).toContain("onHost={canHost");
+    expect(FRAME).toContain("onQuit={() => void quitApp()}");
+  });
+
+  it("the Host panel says which build drew it", () => {
+    // Seven relaunches probed a stale process because nothing on screen said
+    // which build was running; single-instance focus makes an old window and
+    // a fresh one identical. The version the shell reports is in the header.
+    expect(PANEL).toContain("panel-version");
+    expect(PANEL).toContain("v{version}");
+    expect(FRAME).toContain("version={version}");
   });
 });
