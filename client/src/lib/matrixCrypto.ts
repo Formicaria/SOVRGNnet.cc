@@ -184,6 +184,15 @@ export interface CryptoSession {
    */
   backedUpKeyCount(): Promise<number>;
   listDevices(): Promise<DeviceEntry[]>;
+  /**
+   * The device ids this session's crypto currently knows for another user —
+   * downloading them if it must. A sender encrypts to the devices it knows
+   * at the moment of sending, so "do I know their device yet" is the fact a
+   * caller has to be able to wait on; anything sent before this answers yes
+   * silently excludes that device from the room-key share, and no waiting
+   * afterwards can deliver a key that was never sent.
+   */
+  peerDevices(userId: string): Promise<string[]>;
   /** Ask another of this user's devices to verify this one. */
   requestOwnVerification(): Promise<VerificationRequest>;
   /** Drive a request to emoji, whichever side started it. */
@@ -727,6 +736,11 @@ export async function startCryptoSession(
       // Unverified first: the list exists so somebody notices an unexpected
       // device, and sorting it by name would bury the one that matters.
       return entries.sort((a, b) => Number(a.verified) - Number(b.verified));
+    },
+
+    async peerDevices(userId: string) {
+      const map = await crypto.getUserDeviceInfo([userId], true);
+      return Array.from(map.get(userId)?.keys() ?? []);
     },
 
     async requestOwnVerification() {
