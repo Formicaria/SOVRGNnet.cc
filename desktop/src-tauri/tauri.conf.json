@@ -24,19 +24,27 @@
     ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data: https: http:; connect-src 'self' https: http: ws: wss:; style-src 'self' 'unsafe-inline'",
-      "capabilities": ["default"]
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "plugins": {
     "deep-link": {
       "desktop": {
-        "schemes": ["sovrgn"]
+        "schemes": [
+          "sovrgn"
+        ]
       }
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "nsis", "dmg"],
+    "targets": [
+      "deb",
+      "nsis",
+      "dmg"
+    ],
     "resources": {
       "host": "host"
     },
@@ -49,11 +57,14 @@
     ],
     "category": "SocialNetworking",
     "shortDescription": "Your own chat network",
-    "longDescription": "SOVRGNnet desktop client. Connect to servers your friends run, on hardware they own — or host one yourself.",
+    "longDescription": "SOVRGNnet desktop client. Connect to servers your friends run, on hardware they own \u2014 or host one yourself.",
     "licenseFile": "../../LICENSE",
     "linux": {
       "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"],
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ],
         "desktopTemplate": "sovrgnnet.desktop"
       },
       "appimage": {
@@ -63,7 +74,10 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "languages": ["English"]
+        "languages": [
+          "English"
+        ],
+        "installerHooks": "./windows/installer-hooks.nsh"
       }
     },
     "macOS": {

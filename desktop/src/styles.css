@@ -73,6 +73,12 @@ body {
 }
 .rail-add .rail-badge { font-size: 20px; color: var(--accent); }
 
+/* App-level controls live at the rail's foot, pushed there by the spacer. */
+.rail-spacer { flex: 1 1 auto; min-height: 8px; }
+.rail-host .rail-badge { font-size: 17px; }
+.rail-quit .rail-badge { font-size: 16px; color: var(--muted); }
+.rail-quit:hover .rail-badge { color: #e5484d; background: #3a1d2a; }
+
 /* Reachability, not presence: whether the machine answered recently. */
 .rail-dot {
   position: absolute;
@@ -357,6 +363,7 @@ button.ghost:hover { color: var(--text); }
 .panel-head { display: flex; align-items: flex-start; gap: 12px; }
 .panel-head h2 { font-size: 16px; font-weight: 600; }
 .panel-host { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-top: 2px; }
+.panel-version { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-top: 4px; }
 .panel-close {
   margin-left: auto;
   background: none; border: 0; color: var(--muted);

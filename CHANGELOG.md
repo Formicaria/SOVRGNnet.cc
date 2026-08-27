@@ -49,6 +49,15 @@ server" installer option named beside this work was dropped by owner
 call: it would save disk alone, and the client/host choice already
 exists per-artifact on Linux and per-platform on macOS.
 
+**The installer asks the third question.** Windows installs now offer
+"also run a server on this computer" the moment the app is installed — an
+NSIS hook leaves a one-time marker, first launch opens the server setup,
+and a tombstone makes sure the question never repeats. Declining changes
+nothing: the same setup stays one click away inside the app, and the
+client connects to any instance regardless, by design. Linux package
+installs never prompt by policy; `--host-setup` exists there for scripted
+installs, and FirstRun remains the offer.
+
 **The desktop's front door is a server address.** The mechanics always
 allowed connecting straight to a server with no SOVRGN account; the first
 screen taught the opposite by making sign-in the primary button. Paste an

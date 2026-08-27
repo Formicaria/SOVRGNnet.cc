@@ -22,7 +22,7 @@ import InstancePanel from "@/components/InstancePanel";
 import Rail from "@/components/Rail";
 import SignIn from "@/components/SignIn";
 import UpdatePrompt from "@/components/UpdatePrompt";
-import { appVersion, credentials } from "@/lib/bridge";
+import { appVersion, consumeHostSetup, credentials, hostSetupRequested, quitApp } from "@/lib/bridge";
 import { hostAvailable, hostStart, onHostState } from "@/lib/hosting";
 import type { HostState } from "@shared/hosting";
 
@@ -210,18 +210,38 @@ export default function App() {
       // A machine that hosts starts its server with the app, without being
       // asked each time — that's what "your server" means. A machine that
       // doesn't host notices nothing.
+      //
+      // Two failures, two catches — deliberately not one. The original
+      // single catch answered a hostStart() rejection with setCanHost(false),
+      // which renders as "this build can't host": a server that failed to
+      // start wearing the face of a build that never could. The walk that
+      // found it stared at a refused connection with no words anywhere,
+      // because the panel's failed-state face — which exists and says the
+      // problem out loud — never received a state on this path. Only the
+      // availability probe may conclude "can't host"; a start failure is a
+      // state with words, like every other failure on this stack.
+      let availability: { bundled: boolean; installed: boolean } | null = null;
       try {
-        const availability = await hostAvailable();
+        availability = await hostAvailable();
         setCanHost(availability.bundled);
-        if (availability.bundled && availability.installed) {
+      } catch {
+        setCanHost(false);
+      }
+      if (availability?.bundled && availability.installed) {
+        try {
           const started = await hostStart();
           setHost(started);
           if (started.status === "running" || started.status === "degraded") {
             await adoptHostedServer(started.url);
           }
+        } catch (error) {
+          setHost({
+            status: "failed",
+            components: [],
+            problem:
+              error instanceof Error ? error.message : String(error),
+          });
         }
-      } catch {
-        setCanHost(false);
       }
     })();
   }, [reload, open, adoptHostedServer]);
@@ -241,6 +261,21 @@ export default function App() {
     if (!ready) return;
     void manager.refreshAll().then(() => reload());
   }, [ready, manager, reload]);
+
+  // The installer's "also set up a server?" answer, honored exactly once.
+  // Yes at install time opens the host setup on first launch; declining —
+  // or Linux, where installs never prompt — leaves FirstRun's own offer as
+  // the way in, and the client is fully usable against any instance either
+  // way. That ordering is ADR 0013's last action item, not a convenience.
+  useEffect(() => {
+    if (!ready || !canHost) return;
+    void (async () => {
+      if (await hostSetupRequested()) {
+        await consumeHostSetup();
+        setHostOpen(true);
+      }
+    })();
+  }, [ready, canHost]);
 
   useEffect(() => {
     return deepLinks.onLink(async (action: DeepLinkAction) => {
@@ -280,6 +315,12 @@ export default function App() {
         activeId={activeId}
         onSelect={connection => void open(connection)}
         onAdd={() => setAddOpen(true)}
+        // Gated on canHost, not on host state: a stopped server still needs
+        // its door (that's where "Start it" lives). Without this the panel's
+        // only entry was FirstRun, which renders only while the rail is
+        // empty — the hosting machine was locked out of its own controls.
+        onHost={canHost ? () => setHostOpen(true) : undefined}
+        onQuit={() => void quitApp()}
       />
 
       <main className="stage">
@@ -337,6 +378,7 @@ export default function App() {
       <HostPanel
         open={hostOpen}
         state={host}
+        version={version}
         onClose={() => setHostOpen(false)}
         onStarted={async url => {
           setHostOpen(false);

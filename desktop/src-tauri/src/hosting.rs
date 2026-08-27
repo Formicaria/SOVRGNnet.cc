@@ -515,6 +515,21 @@ fn render_dendrite_config(
         &data.join("matrix_key.pem").display().to_string(),
     );
 
+    // Same treatment for the storage paths, and this one was learned from a
+    // corpse: the template's /var/lib/dendrite belongs to the systemd install
+    // (StateDirectory) and to Docker (a root container writes /var/lib
+    // freely). A desktop user cannot mkdir /var/lib/dendrite, and JetStream
+    // said exactly that — level=fatal, first boot, every boot — while the
+    // harness stayed green on the identical template. Windows quietly
+    // tolerated it by creating \var\lib on the current drive, which is why
+    // the Windows walk met a live homeserver and this Linux host never did.
+    // Every /var/lib/dendrite path is rebased into the data dir; Dendrite
+    // creates the subdirectories itself once their parent is writable.
+    let rendered = rendered.replace(
+        "/var/lib/dendrite",
+        &data.join("dendrite").display().to_string(),
+    );
+
     // The listen port is a CLI flag at spawn, not a config field — the port
     // is picked fresh each start and the config shouldn't pretend otherwise.
     let path = data.join("dendrite.yaml");

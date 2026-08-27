@@ -27,11 +27,23 @@ export default function Rail({
   activeId,
   onSelect,
   onAdd,
+  onHost,
+  onQuit,
 }: {
   connections: Connection[];
   activeId: string | null;
   onSelect: (connection: Connection) => void;
   onAdd: () => void;
+  /**
+   * Opens the Host panel. Optional because it only exists on builds that can
+   * host — and it must exist *here*: the panel's other door is the FirstRun
+   * screen, which renders only while the rail is empty, so the machine
+   * actually hosting a server was the one machine locked out of its own
+   * status and Stop button.
+   */
+  onHost?: () => void;
+  /** Quit the app — deliberately, through the path that stops the server. */
+  onQuit?: () => void;
 }) {
   return (
     <nav className="rail" aria-label="Your servers">
@@ -63,6 +75,29 @@ export default function Rail({
           <strong>Add a server</strong>
         </span>
       </button>
+
+      {/* App-level controls sit at the rail's foot, below the servers. */}
+      {(onHost || onQuit) && <div className="rail-spacer" aria-hidden="true" />}
+
+      {onHost && (
+        <button className="rail-item rail-host" onClick={onHost} title="Your server">
+          <span className="rail-badge">⌂</span>
+          <span className="rail-tip">
+            <strong>Your server</strong>
+            <em>status, voice, stop</em>
+          </span>
+        </button>
+      )}
+
+      {onQuit && (
+        <button className="rail-item rail-quit" onClick={onQuit} title="Quit SOVRGNnet">
+          <span className="rail-badge">⏻</span>
+          <span className="rail-tip">
+            <strong>Quit</strong>
+            <em>stops your server too</em>
+          </span>
+        </button>
+      )}
     </nav>
   );
 }
