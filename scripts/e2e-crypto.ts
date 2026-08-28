@@ -382,6 +382,23 @@ async function main(): Promise<void> {
   assert(ready.deviceVerified, "the setting-up device should verify itself");
   ok("This device reports itself cross-signed, with backup running");
 
+  // The sender encrypts to the devices it knows at the moment of sending —
+  // a share, not a broadcast. Bob's key upload and the sender's device-list
+  // stream are asynchronous, and the 0.7.1 preflight caught the window: the
+  // authenticated-conformance stage new in that release runs before this
+  // one, its extra accounts and sessions pushed device-list propagation
+  // past the send, Bob was silently excluded from the share, and twenty
+  // seconds of waiting afterwards polled for a key that was never sent.
+  // So wait on the fact that matters — the sender can see the recipient's
+  // device — which is also what a real client guarantees between "they
+  // joined" and the first message reaching them.
+  await until(
+    "the sender to see the second account's device",
+    () => alice.session.peerDevices(bob.credentials.matrixUserId),
+    ids => ids.includes(bob.credentials.deviceId)
+  );
+  ok("The sender can see the second account's device");
+
   const secret = `ciphertext round trip ${Date.now()}`;
   const eventId = await alice.session.send(room, secret);
   ok("Message sent through the shipped send path");
