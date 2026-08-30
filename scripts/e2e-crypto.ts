@@ -411,15 +411,53 @@ async function main(): Promise<void> {
   );
   ok("The sender can see the second account's device");
 
-  // Say the audience out loud before sending. The regression this exposed:
-  // the crypto layer encrypts to loaded members, and lazy-loaded sync had
-  // left the guest unloaded — one line here would have named it on the
-  // first failing run instead of the fourth.
+  // Read the sender's wire instead of anyone's logs. The audience prints
+  // below say who the crypto layer *intends* to reach; this says what
+  // actually left the machine. It exists because both prior witnesses
+  // turned out weaker than they looked: Dendrite's "Claimed local keys"
+  // line names the requester, not the claim's target, and Dendrite may not
+  // log sendToDevice at info at all — so "no sendToDevice in the log" was
+  // never the conviction it was treated as. The claim's *response body*
+  // names whose one-time key was handed over, and the sendToDevice *request
+  // body* names its recipients. Those two are the facts; everything else
+  // was inference.
+  const http = (alice.session.client as any).http;
+  const realAuthedRequest = http.authedRequest.bind(http);
+  const WIRE = /keys\/(?:query|claim)|sendToDevice/;
+  const brief = (value: unknown) => JSON.stringify(value)?.slice(0, 400);
+  http.authedRequest = async (method: unknown, path: string, ...rest: unknown[]) => {
+    if (!WIRE.test(path)) return realAuthedRequest(method, path, ...rest);
+    const body = rest[1];
+    try {
+      const response = await realAuthedRequest(method, path, ...rest);
+      console.log(
+        `  ▸ wire: ${String(method)} ${path}` +
+          `${body ? `\n      sent: ${brief(body)}` : ""}\n      got:  ${brief(response)}`
+      );
+      return response;
+    } catch (error) {
+      console.log(`  ▸ wire: ${String(method)} ${path} FAILED: ${String(error)}`);
+      throw error;
+    }
+  };
+
+  // Say the audience out loud before sending, and what the sender's own
+  // device store holds for each member — the share is computed from that
+  // store, not from the audience list, so a user who is in the audience
+  // but has no devices *in the store* is shared with nobody, silently.
   const aliceRoom = alice.session.client.getRoom(room)!;
   const targets = await aliceRoom.getEncryptionTargetMembers();
   console.log(
     `  ▸ encryption audience: ${targets.map(m => m.userId).join(", ")}`
   );
+  const cryptoApi = alice.session.client.getCrypto()!;
+  for (const member of targets) {
+    const known = await cryptoApi.getUserDeviceInfo([member.userId]);
+    const devices = Array.from(known.get(member.userId)?.keys() ?? []);
+    console.log(
+      `  ▸ sender's store for ${member.userId}: ${devices.join(", ") || "(no devices)"}`
+    );
+  }
   const rawMembers: any = await (alice.session.client as any).http.authedRequest(
     "GET" as never,
     `/rooms/${encodeURIComponent(room)}/members`
@@ -489,6 +527,11 @@ async function main(): Promise<void> {
     `decrypted to the wrong thing: ${JSON.stringify(decrypted!.body)}`
   );
   ok("A second device received the room key and decrypted it");
+
+  // The ledger has answered by now either way. Take the tap off before the
+  // verification exchange, whose SAS messages ride sendToDevice and would
+  // print dozens of lines that diagnose nothing.
+  http.authedRequest = realAuthedRequest;
 
   // -- emoji verification, driven from both ends -----------------------------
   //
