@@ -347,8 +347,13 @@ describe("the crypto stage exercises the shipped code, not a copy of it", () => 
 
   it("is wired into the harness", () => {
     expect(harness).toMatch(/e2e-crypto\.ts/);
-    // A stage whose failure doesn't fail the run is decoration.
-    expect(harness).toMatch(/e2e-crypto\.ts[\s\S]{0,80}\|\|\s*die/);
+    // A stage whose failure doesn't fail the run is decoration. The stage
+    // became an if-block when failure started dumping Dendrite's log before
+    // dying, so the guard accepts either form — what it insists on is that
+    // a crypto failure still reaches die().
+    expect(harness).toMatch(
+      /(?:e2e-crypto\.ts[\s\S]{0,80}\|\|\s*die)|(?:if\s+!\s[\s\S]{0,120}e2e-crypto\.ts[\s\S]{0,1600}die "The crypto checks failed\.")/
+    );
   });
 
   it("imports the module the browser runs", () => {

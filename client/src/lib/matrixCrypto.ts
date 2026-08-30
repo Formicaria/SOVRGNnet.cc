@@ -582,6 +582,8 @@ export async function startCryptoSession(
       // encrypted — which is what puts the file's key beyond the instance's
       // reach. Composing this event without encryption would publish the key
       // next to the ciphertext it opens.
+      // Same membership belt as send() — the audience must be loaded.
+      await client.getRoom(roomId)?.loadMembersIfNeeded();
       const result = await client.sendEvent(
         roomId,
         "m.room.message" as never,
@@ -611,6 +613,16 @@ export async function startCryptoSession(
       // `m.room.encryption` from room state and encrypts or doesn't — and a
       // client that decided for itself would be a client that can get it
       // wrong in the direction that matters.
+      //
+      // Membership is loaded explicitly first, because the share audience is
+      // whoever is *loaded*, not whoever exists. Under lazy-loaded sync a
+      // busy account's room can arrive without its full member list, and the
+      // room key is then shared with nobody who was left out — silently,
+      // deterministically, and discovered by the e2e walk only after an
+      // extra pre-crypto stage made the initial sync too busy to carry the
+      // membership. The homeserver's log for that failure shows one
+      // /keys/claim for the sender's own user and no /sendToDevice at all.
+      await client.getRoom(roomId)?.loadMembersIfNeeded();
       const result = await client.sendEvent(
         roomId,
         "m.room.message" as never,

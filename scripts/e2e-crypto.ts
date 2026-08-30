@@ -411,6 +411,26 @@ async function main(): Promise<void> {
   );
   ok("The sender can see the second account's device");
 
+  // Say the audience out loud before sending. The regression this exposed:
+  // the crypto layer encrypts to loaded members, and lazy-loaded sync had
+  // left the guest unloaded — one line here would have named it on the
+  // first failing run instead of the fourth.
+  const aliceRoom = alice.session.client.getRoom(room)!;
+  const targets = await aliceRoom.getEncryptionTargetMembers();
+  console.log(
+    `  ▸ encryption audience: ${targets.map(m => m.userId).join(", ")}`
+  );
+  const rawMembers: any = await (alice.session.client as any).http.authedRequest(
+    "GET" as never,
+    `/rooms/${encodeURIComponent(room)}/members`
+  );
+  console.log(
+    `  ▸ homeserver /members: ${(rawMembers.chunk ?? [])
+      .filter((e: any) => e.content?.membership === "join")
+      .map((e: any) => e.state_key)
+      .join(", ")}`
+  );
+
   const secret = `ciphertext round trip ${Date.now()}`;
   const eventId = await alice.session.send(room, secret);
   ok("Message sent through the shipped send path");
