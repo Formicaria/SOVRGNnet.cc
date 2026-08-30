@@ -350,6 +350,18 @@ async function main(): Promise<void> {
   const bob = await session(guest, "bob");
   ok("Second device started, with its own keys");
 
+  // Diagnosis tap, not a check: count the Olm-encrypted to-device traffic
+  // Bob's client receives. When the room-key share goes missing, this one
+  // number splits the fault space in half — zero means the share was never
+  // sent or never delivered (sender or transport); nonzero-but-undecrypted
+  // means it arrived and the Olm channel itself failed (one-time keys,
+  // session establishment). The 0.7.1 regression reads identically from
+  // the outside either way, which is exactly why this exists.
+  let bobEncryptedToDevice = 0;
+  (bob.session.client as any).on("toDeviceEvent", (ev: any) => {
+    if (ev?.getType?.() === "m.room.encrypted") bobEncryptedToDevice += 1;
+  });
+
   // Both clients must have synced the room before a key can be shared into it.
   const room = channel.matrixRoomId;
   await until(
@@ -438,7 +450,20 @@ async function main(): Promise<void> {
     "the second device to decrypt",
     () => bob.session.lookup(eventId),
     found => found?.verdict.state === "decrypted" && found.body.length > 0
-  );
+  ).catch(async error => {
+    // The tap's moment: say which half of the fault space this is before
+    // dying. Also re-ask the sender who it can see, so "knew the device,
+    // still didn't share" is on the record next to the delivery count.
+    const seen = await alice.session
+      .peerDevices(bob.credentials.matrixUserId)
+      .catch(() => []);
+    console.error(
+      `  ▸ diagnosis: Bob received ${bobEncryptedToDevice} Olm to-device event(s); ` +
+        `sender sees ${JSON.stringify(seen)} for ${bob.credentials.matrixUserId} ` +
+        `(bob's device: ${bob.credentials.deviceId})`
+    );
+    throw error;
+  });
   assert(
     decrypted!.body === secret,
     `decrypted to the wrong thing: ${JSON.stringify(decrypted!.body)}`
