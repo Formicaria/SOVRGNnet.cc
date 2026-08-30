@@ -533,8 +533,19 @@ ok "Authenticated surface conforms"
 step "Crypto"
 info "Two devices, a room key, and bytes the instance can't read."
 
-E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" pnpm exec tsx scripts/e2e-crypto.ts \
-  || die "The crypto checks failed."
+if ! E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" pnpm exec tsx scripts/e2e-crypto.ts; then
+  # Evidence before teardown erases it. The key-share regression reads as
+  # zero to-device events at the recipient while the sender can see their
+  # device — which is two different faults: a share the client never sent,
+  # or one Dendrite accepted and never delivered. The homeserver's own log
+  # is the only witness that can tell them apart, and it dies with the
+  # containers.
+  echo "▸ Dendrite's view of to-device traffic (last 200 lines, filtered):"
+  compose logs --tail 200 matrix 2>&1 | grep -iE "sendToDevice|send_to_device|to.device|keys/claim|keys/upload|OTK|one.time" | tail -40 || true
+  echo "▸ App log tail:"
+  compose logs --tail 30 app 2>&1 | tail -30 || true
+  die "The crypto checks failed."
+fi
 ok "real Olm/Megolm end to end"
 
 # ------------------------------------------------- backup / verify / restore
