@@ -544,6 +544,43 @@ async function main(): Promise<void> {
           : "") +
         (rawSync?.fetchError ? ` (fetch failed: ${rawSync.fetchError})` : "")
     );
+    // Is the pipe dead for everything, or just for the room key? A plain,
+    // unencrypted to-device ping through the same door — no Olm, no
+    // Megolm, no SDK machinery, just a PUT and a raw sync. Dendrite
+    // v0.15.0 refactored the NATS JetStream plumbing this rides on and
+    // fixed device deletion (the conformance stage holds this walk's only
+    // logout), and v0.15.x arrived between the last green preflight and
+    // the first red one. If this ping also vanishes, the homeserver's
+    // to-device pipeline itself stopped storing after the stage, and the
+    // crypto stack was never the defendant.
+    try {
+      await (alice.session.client as any).http.authedRequest(
+        "PUT",
+        `/sendToDevice/m.sovrgnnet.ping/probe${Date.now()}`,
+        undefined,
+        {
+          messages: {
+            [bob.credentials.matrixUserId]: {
+              [bob.credentials.deviceId]: { ping: true },
+            },
+          },
+        }
+      );
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      const after: any = await fetch(
+        `${HOMESERVER}/_matrix/client/v3/sync?timeout=0`,
+        { headers: { authorization: `Bearer ${bob.credentials.accessToken}` } }
+      ).then(r => r.json());
+      const types = (after?.to_device?.events ?? []).map((e: any) => e.type);
+      console.error(
+        `  ▸ plain to-device ping, crypto bypassed entirely: bob's raw /sync now holds ` +
+          `[${types.join(", ") || "nothing"}]`
+      );
+    } catch (probeError) {
+      console.error(
+        `  ▸ plain to-device ping could not be sent: ${String(probeError)}`
+      );
+    }
     throw error;
   });
   assert(

@@ -541,7 +541,7 @@ if ! E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" pnpm exec tsx scripts/e2e-crypto.ts; 
   # is the only witness that can tell them apart, and it dies with the
   # containers.
   echo "▸ Dendrite's view of to-device traffic (last 200 lines, filtered):"
-  compose logs --tail 200 matrix 2>&1 | grep -iE "sendToDevice|send_to_device|to.device|keys/claim|keys/upload|OTK|one.time" | tail -40 || true
+  compose logs --tail 200 matrix 2>&1 | grep -iE "sendToDevice|send_to_device|to.device|keys/claim|OTK|error|jetstream|nats|consumer|appservice" | tail -40 || true
   echo "▸ App log tail:"
   compose logs --tail 30 app 2>&1 | tail -30 || true
   # The wire ledger proved the sender PUT the room key and Dendrite answered
