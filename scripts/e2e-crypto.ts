@@ -520,6 +520,30 @@ async function main(): Promise<void> {
         `sender sees ${JSON.stringify(seen)} for ${bob.credentials.matrixUserId} ` +
         `(bob's device: ${bob.credentials.deviceId})`
     );
+    // The wire ledger proved the sender PUT the room key and got 200 — so
+    // ask the homeserver directly what it is still holding for Bob. A
+    // to-device message is deleted only once a sync *past* it is
+    // acknowledged, so a raw initial sync (fresh since-token, not the
+    // SDK's) must return anything genuinely queued. Queued here but absent
+    // from Bob's SDK stream is a position bug in the serving; absent here
+    // too, read beside the syncapi table dump the harness prints after
+    // this, which distinguishes never-stored from stored-then-discarded.
+    const rawSync: any = await fetch(
+      `${HOMESERVER}/_matrix/client/v3/sync?timeout=0`,
+      { headers: { authorization: `Bearer ${bob.credentials.accessToken}` } }
+    )
+      .then(r => r.json())
+      .catch(e => ({ fetchError: String(e) }));
+    const queued: any[] = rawSync?.to_device?.events ?? [];
+    console.error(
+      `  ▸ raw initial /sync for bob: ${queued.length} to-device event(s)` +
+        (queued.length
+          ? ` — ${queued
+              .map((e: any) => `${e.type} from ${e.sender}`)
+              .join("; ")}`
+          : "") +
+        (rawSync?.fetchError ? ` (fetch failed: ${rawSync.fetchError})` : "")
+    );
     throw error;
   });
   assert(

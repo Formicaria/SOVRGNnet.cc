@@ -544,6 +544,17 @@ if ! E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" pnpm exec tsx scripts/e2e-crypto.ts; 
   compose logs --tail 200 matrix 2>&1 | grep -iE "sendToDevice|send_to_device|to.device|keys/claim|keys/upload|OTK|one.time" | tail -40 || true
   echo "▸ App log tail:"
   compose logs --tail 30 app 2>&1 | tail -30 || true
+  # The wire ledger proved the sender PUT the room key and Dendrite answered
+  # 200 — so the last question is what Dendrite did with it. Its syncapi
+  # queue table is the ground truth: a row still here was stored and never
+  # served; an empty table after a 200 means delivered-and-acknowledged or
+  # swallowed, which the recipient's raw-sync probe (printed above by the
+  # crypto script) disambiguates.
+  echo "▸ Dendrite's stored to-device queue (syncapi tables):"
+  compose exec -T db psql -U sovrgn -d dendrite -Atc \
+    "SELECT table_name FROM information_schema.tables WHERE table_name LIKE '%to_device%';" 2>&1 || true
+  compose exec -T db psql -U sovrgn -d dendrite -c \
+    "SELECT id, user_id, device_id, left(content, 80) AS content_head FROM syncapi_send_to_device ORDER BY id;" 2>&1 || true
   die "The crypto checks failed."
 fi
 ok "real Olm/Megolm end to end"
