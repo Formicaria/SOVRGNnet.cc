@@ -610,7 +610,12 @@ ok "Authenticated surface conforms"
 # just run. Non-fatal either way — the crypto stage below supplies the
 # canonical failure and the forensic dump; this line supplies the verdict
 # that decides what kind of bug we are hunting.
-if [ -n "${E2E_REPRO_WALK:-}" ]; then
+#
+# The first sentinel walk went GREEN END TO END — crypto included, twelve
+# straight reds before it — so the probes changed the outcome instead of
+# measuring it. E2E_REPRO_NO_HARVEST keeps the plant but skips this block,
+# splitting "pre-walk traffic heals" from "the harvest's gap heals".
+if [ -n "${E2E_REPRO_WALK:-}" ] && [ -z "${E2E_REPRO_NO_HARVEST:-}" ]; then
   step "Harvesting sentinels (did bystanders survive the arming stage?)"
   if REPRO_HS="$(read_env MATRIX_PUBLIC_URL)" REPRO_SECRET="$DENDRITE_SECRET" \
      REPRO_MODE=harvest REPRO_STATE="$REPRO_SENTINELS" \
@@ -619,6 +624,17 @@ if [ -n "${E2E_REPRO_WALK:-}" ]; then
   else
     info "Sentinels LOST — the to-device pipeline is dead instance-wide"
   fi
+fi
+
+# Timing-only control: E2E_CRYPTO_DELAY seconds of nothing between the
+# arming stage and crypto — no sentinels, no traffic, just silence. Against
+# the sentinel-walk green this splits "the harvest's few seconds closed a
+# loss window" from "its to-device traffic itself healed the pipeline".
+# The old sleep-75 control was green, so a window upper bound exists; this
+# probes the bottom of it.
+if [ -n "${E2E_CRYPTO_DELAY:-}" ]; then
+  step "(time control: ${E2E_CRYPTO_DELAY}s of silence before crypto)"
+  sleep "${E2E_CRYPTO_DELAY}"
 fi
 
 # -------------------------------------------------------------------- crypto
