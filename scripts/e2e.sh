@@ -290,16 +290,25 @@ chmod 600 dendrite/appservice-e2e.yaml
 # harness opts in. Appending a top-level section to the rendered config is
 # valid YAML as long as the template never grows its own; the guard below
 # turns that collision into a loud failure instead of a duplicate-key one.
+#
+# E2E_REPRO_NO_AS leaves the section out entirely — a repro-mode control
+# (see below) that asks whether the to-device loss needs the appservice
+# registered at all. Only meaningful with E2E_REPRO; the normal walk would
+# just fail its ingest checks without the appservice.
 if grep -q '^app_service_api:' dendrite/dendrite.yaml; then
   die "dendrite.yaml.template now has app_service_api; e2e.sh must stop appending its own."
 fi
-cat >> dendrite/dendrite.yaml <<'YAML'
+if [ -n "${E2E_REPRO_NO_AS:-}" ]; then
+  ok "Appservice registration SKIPPED (E2E_REPRO_NO_AS control)"
+else
+  cat >> dendrite/dendrite.yaml <<'YAML'
 
 app_service_api:
   config_files:
     - /etc/dendrite/appservice-e2e.yaml
 YAML
-ok "Appservice registration wired (eventIngest will be live)"
+  ok "Appservice registration wired (eventIngest will be live)"
+fi
 
 step "Starting the stack"
 info "Postgres, Dendrite, Kubo, and the app. First run builds the image."
@@ -477,6 +486,63 @@ else
   die "Dendrite never came up. The journey can't run without it."
 fi
 
+# Evidence before teardown erases it — everything the post-mortem needs,
+# gathered while the containers still breathe. The chain so far: the sender
+# provably PUT the room key (and later a plain ping) to the recipient's
+# device and Dendrite answered 200; nothing was delivered, nothing was
+# queued for a fresh initial sync, and syncapi_send_to_device held zero
+# rows. Vitals from a red run ruled out the easy stories — no container
+# restart, one NATS boot banner, no panics, no consumer-fetch warnings —
+# and the bisection then isolated the trigger to a single operation: a
+# second servers.create (four plain CS-API requests) arms the loss. Defined
+# up here because two callers need it: the repro mode below and the crypto
+# stage, both of which want the corpse photographed before `down -v`.
+crypto_failure_dump() {
+  echo "▸ Dendrite container vitals:"
+  docker inspect --format 'restarts={{.RestartCount}} started={{.State.StartedAt}} oom={{.State.OOMKilled}}' \
+    sovrgnnet-matrix 2>&1 || true
+  echo "▸ NATS boot banners across the full log (1 = clean boot, 2+ = restarted mid-run):"
+  compose logs matrix 2>&1 | grep -c "Starting nats-server" || true
+  echo "▸ Unfiltered severity sweep (panic/fatal/error), last 30:"
+  compose logs matrix 2>&1 | grep -iE "panic|fatal|level=error" | tail -30 || true
+  echo "▸ Dendrite's view of to-device traffic (last 200 lines, filtered):"
+  compose logs --tail 200 matrix 2>&1 | grep -iE "sendToDevice|send_to_device|to.device|keys/claim|OTK|error|jetstream|nats|consumer|appservice" | tail -40 || true
+  echo "▸ App log tail:"
+  compose logs --tail 30 app 2>&1 | tail -30 || true
+  echo "▸ Dendrite's stored to-device queue (syncapi tables):"
+  compose exec -T db psql -U sovrgn -d dendrite -Atc \
+    "SELECT table_name FROM information_schema.tables WHERE table_name LIKE '%to_device%';" 2>&1 || true
+  compose exec -T db psql -U sovrgn -d dendrite -c \
+    "SELECT id, user_id, device_id, left(content, 80) AS content_head FROM syncapi_send_to_device ORDER BY id;" 2>&1 || true
+  compose logs matrix > /tmp/sovrgnnet-dendrite-last-fail.log 2>&1 || true
+  echo "▸ Full Dendrite log saved to /tmp/sovrgnnet-dendrite-last-fail.log"
+}
+
+# ------------------------------------------------------------------ repro
+#
+# E2E_REPRO=1 turns the harness into a bare-Dendrite testbed: skip every
+# stage and run scripts/dendrite-repro.ts, which talks only to the
+# homeserver — shared-secret registration, the faithful four-request
+# servers.create sequence, and plain to-device pings between two users who
+# are in no rooms at all. If the pings die here, the SOVRGN app is out of
+# the story entirely and the transcript is the upstream Dendrite issue.
+# Controls: E2E_REPRO_ROUNDS (create-rounds, default 2), E2E_REPRO_NO_AS
+# (leave the appservice unregistered), REPRO_SKIP (thin the round for
+# minimization — see the script header).
+if [ -n "${E2E_REPRO:-}" ]; then
+  step "Dendrite to-device repro (no app involvement)"
+  if REPRO_HS="$(read_env MATRIX_PUBLIC_URL)" \
+     REPRO_SECRET="$DENDRITE_SECRET" \
+     REPRO_ROUNDS="${E2E_REPRO_ROUNDS:-2}" \
+     pnpm exec tsx scripts/dendrite-repro.ts; then
+    ok "All probes delivered — not reproduced under this configuration"
+    exit 0
+  else
+    crypto_failure_dump
+    die "Repro verdicts above; Dendrite state dumped."
+  fi
+fi
+
 # --------------------------------------------------------------- conformance
 
 step "Protocol conformance"
@@ -529,40 +595,6 @@ ok "Authenticated surface conforms"
 # crypto module itself — two device-scoped sessions, real Olm, real Megolm,
 # against the Dendrite above — because nothing else in this repository proves
 # a message ever becomes ciphertext or ever comes back.
-
-# Evidence before teardown erases it — everything the post-mortem needs,
-# gathered while the containers still breathe. The chain so far: the sender
-# provably PUT the room key (and later a plain ping) to the recipient's
-# device and Dendrite answered 200; nothing was delivered, nothing was
-# queued for a fresh initial sync, and syncapi_send_to_device held zero
-# rows. That is a homeserver accepting messages and discarding them. The
-# leading theory is the embedded NATS restarting mid-run — a restart
-# orphans every consumer subscribed to the first instance, after which
-# publishes still 200 and land in a stream nobody is reading. One boot
-# banner in a tail window can't distinguish first-boot from reboot, so
-# this counts banners across the FULL log, reads the container's restart
-# count, sweeps for panics unfiltered, and saves the whole Dendrite log to
-# a stable path teardown won't eat.
-crypto_failure_dump() {
-  echo "▸ Dendrite container vitals:"
-  docker inspect --format 'restarts={{.RestartCount}} started={{.State.StartedAt}} oom={{.State.OOMKilled}}' \
-    sovrgnnet-matrix 2>&1 || true
-  echo "▸ NATS boot banners across the full log (1 = clean boot, 2+ = restarted mid-run):"
-  compose logs matrix 2>&1 | grep -c "Starting nats-server" || true
-  echo "▸ Unfiltered severity sweep (panic/fatal/error), last 30:"
-  compose logs matrix 2>&1 | grep -iE "panic|fatal|level=error" | tail -30 || true
-  echo "▸ Dendrite's view of to-device traffic (last 200 lines, filtered):"
-  compose logs --tail 200 matrix 2>&1 | grep -iE "sendToDevice|send_to_device|to.device|keys/claim|OTK|error|jetstream|nats|consumer|appservice" | tail -40 || true
-  echo "▸ App log tail:"
-  compose logs --tail 30 app 2>&1 | tail -30 || true
-  echo "▸ Dendrite's stored to-device queue (syncapi tables):"
-  compose exec -T db psql -U sovrgn -d dendrite -Atc \
-    "SELECT table_name FROM information_schema.tables WHERE table_name LIKE '%to_device%';" 2>&1 || true
-  compose exec -T db psql -U sovrgn -d dendrite -c \
-    "SELECT id, user_id, device_id, left(content, 80) AS content_head FROM syncapi_send_to_device ORDER BY id;" 2>&1 || true
-  compose logs matrix > /tmp/sovrgnnet-dendrite-last-fail.log 2>&1 || true
-  echo "▸ Full Dendrite log saved to /tmp/sovrgnnet-dendrite-last-fail.log"
-}
 
 step "Crypto"
 info "Two devices, a room key, and bytes the instance can't read."
