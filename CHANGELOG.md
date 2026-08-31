@@ -18,6 +18,19 @@ The code survives in the panel only as the fallback for setting up from
 another device's browser, and the web form's helper text stops telling
 desktop hosts about a `.env` they don't have.
 
+**The first encrypted message on a fresh instance now arrives.** Dendrite
+v0.15.2 permanently drops the first to-device message its cold pipeline
+receives within seconds of a room-creation burst — a 200 to the sender,
+nothing stored, nothing delivered, and that device never receives again.
+That is precisely the flagship path: install, create a community, invite
+a friend, send the first encrypted message; the friend's device would
+never get the room key. Sixteen controlled end-to-end runs cornered the
+trigger and proved the cure in both directions
+(docs/upstream/dendrite-to-device-loss.md). The server now warms the
+pipeline at boot with one no-op ping to itself, so no user's first room
+key is ever the pipeline's first message. Reported upstream; the warm-up
+is removable once Dendrite fixes it.
+
 ## v0.7.0 — 2026-08-18
 
 **Voice and video channels, per instance, end to end (ADR 0013 as
