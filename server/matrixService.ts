@@ -927,3 +927,93 @@ export async function completeUiaPasswordStage(
     );
   }
 }
+
+/**
+ * Warm the homeserver's to-device pipeline, so its first real message is
+ * never also its first message ever.
+ *
+ * Dendrite v0.15.2 loses to-device messages permanently — accepted with a
+ * 200, never stored (syncapi_send_to_device stays empty), never delivered,
+ * and every later message to that device lost too — when two conditions
+ * meet: the internal OutputSendToDeviceEvent stream has carried nothing
+ * since boot, and the first send lands within seconds of a burst of
+ * room-creation traffic. That is exactly a fresh instance's flagship path:
+ * create a community, invite someone, exchange the first encrypted room
+ * key. Sixteen controlled harness runs proved it in both directions — the
+ * loss is deterministic when both conditions hold, and either healer alone
+ * (any earlier to-device traffic, or an ~8-second gap) prevents it every
+ * time. docs/upstream/dendrite-to-device-loss.md holds the evidence chain
+ * and the upstream report.
+ *
+ * The mitigation is the healer, productized: at startup the server sends
+ * one no-op ping to itself. A probe account whose password is derived from
+ * the shared secret (never stored, survives restarts) logs in under a
+ * fixed device and PUTs an m.sovrgnnet.warm message to that same device.
+ * The pipeline is warm minutes before any user could send a room key.
+ * Fire-and-forget: failure logs one line and changes nothing else.
+ */
+export async function warmToDevicePipeline(): Promise<boolean> {
+  if (!ENV.matrixSharedSecret) return false;
+  try {
+    const localpart = "sovrgnnet-pipeline";
+    const password = createHmac("sha1", ENV.matrixSharedSecret)
+      .update("pipeline-probe")
+      .digest("hex");
+
+    let creds: MatrixCredentials;
+    try {
+      const { nonce } = await matrixRequest<{ nonce: string }>(
+        "GET",
+        "/_synapse/admin/v1/register"
+      );
+      const reg = await matrixRequest<{
+        user_id: string;
+        access_token: string;
+        device_id?: string;
+      }>("POST", "/_synapse/admin/v1/register", {
+        nonce,
+        username: localpart,
+        password,
+        admin: false,
+        mac: sharedSecretMac(ENV.matrixSharedSecret, nonce, localpart, password, false),
+      });
+      creds = {
+        userId: reg.user_id,
+        accessToken: reg.access_token,
+        deviceId: reg.device_id ?? null,
+      };
+    } catch (err) {
+      // Second boot onwards: the account exists, log back in. The fixed
+      // device id replaces the previous session instead of accumulating.
+      if (
+        err instanceof MatrixError &&
+        (err.errcode === "M_USER_IN_USE" || err.status === 400)
+      ) {
+        creds = await login(localpart, password, {
+          deviceId: "SOVRGN_PIPELINE",
+          displayName: "SOVRGNnet pipeline probe",
+        });
+      } else {
+        throw err;
+      }
+    }
+
+    await matrixRequest(
+      "PUT",
+      `/_matrix/client/v3/sendToDevice/m.sovrgnnet.warm/warm${Date.now()}`,
+      {
+        messages: {
+          [creds.userId]: { [creds.deviceId ?? "*"]: { ts: Date.now() } },
+        },
+      },
+      creds.accessToken
+    );
+    console.log("[matrix] to-device pipeline warmed");
+    return true;
+  } catch (err) {
+    console.warn(
+      `[matrix] couldn't warm the to-device pipeline: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return false;
+  }
+}

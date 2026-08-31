@@ -136,6 +136,14 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    // Dendrite permanently loses the first to-device message a cold
+    // pipeline receives near a room-creation burst — the fresh-instance
+    // flagship path (docs/upstream/dendrite-to-device-loss.md). Warming it
+    // at boot means no user's first room key is ever that message. Dynamic
+    // import and a swallowed rejection: warming can never break startup.
+    void import("../matrixService")
+      .then(m => m.warmToDevicePipeline())
+      .catch(() => {});
   });
 }
 
