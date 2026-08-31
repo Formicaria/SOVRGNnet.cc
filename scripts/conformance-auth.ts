@@ -384,7 +384,29 @@ async function main(): Promise<void> {
   }
 
   // -- Membership, roles, invites: need both accounts and a sandbox server.
-  if (haveA && haveB) {
+  //
+  // Bisection stop-points. E2E_CONF_STOP_AFTER names how deep this runner
+  // goes, so a failing walk can be split without editing this file. The
+  // stage still exits green — fewer checks, all passed — which is what
+  // lets the crypto stage that follows testify about what the operations
+  // run so far did to the homeserver. Points: "registered" stops after
+  // account provisioning; "server-created" stops after the sandbox server
+  // and its encrypted room exist but before any invite is joined.
+  const stopAfter = process.env.E2E_CONF_STOP_AFTER ?? "";
+  const stoppedEarly = (point: string): boolean => {
+    if (stopAfter !== point) return false;
+    results.push(
+      skip(
+        "bisection",
+        `Stopped after "${point}"`,
+        "E2E_CONF_STOP_AFTER cut the run here on purpose, to isolate which " +
+          "of this stage's operations arms the to-device loss seen afterwards."
+      )
+    );
+    return true;
+  };
+
+  if (!stoppedEarly("registered") && haveA && haveB) {
     const createdServer = await a.mutate("servers.create", {
       name: `conformance ${stamp}`,
       description: "Created by conformance-auth. Safe to ignore; cannot be deleted via the API.",
@@ -410,6 +432,8 @@ async function main(): Promise<void> {
       );
     } else {
       created.push(`server "conformance ${stamp}" (id ${serverId}) with #general`);
+
+      if (!stoppedEarly("server-created")) {
 
       // The walls, from outside.
       results.push(
@@ -530,6 +554,8 @@ async function main(): Promise<void> {
       // Logout last: it ends the session the other checks were using.
       await b.mutate("auth.logout");
       results.push(checkLogout(await b.query("auth.me")));
+
+      }
     }
   } else {
     // Always say why the deep half didn't run. A list that quietly shrinks is
