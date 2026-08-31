@@ -18,6 +18,9 @@ was tried and what it cost.
 | [0009](0009-appservice-ingest.md) | Matrix becomes the source of record; the database becomes an index built from it | Accepted |
 | [0010](0010-federated-senders.md) | The index holds senders with no local account | Accepted |
 | [0011](0011-crypto-machine.md) | matrix-js-sdk owns the client session; cross-signing setup goes through the instance | Accepted |
+| [0012](0012-username-rename.md) | Renaming changes the username, not the Matrix ID | Accepted |
+| [0013](0013-voice-cloudflare-realtime.md) | Voice over Cloudflare Realtime SFU | **Superseded same day — self-hosted LiveKit per instance** |
+| [0014](0014-implementation-language.md) | TypeScript stays; the restructure is the homeserver swap, not a rewrite | Proposed |
 
 ## The through-line
 
