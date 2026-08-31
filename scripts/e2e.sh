@@ -543,6 +543,23 @@ if [ -n "${E2E_REPRO:-}" ]; then
   fi
 fi
 
+# The bare repro above came back fully green — with and without the
+# appservice — so the create sequence alone is not the trigger; it needs the
+# journey's accumulated state underneath it. E2E_REPRO_WALK=1 runs the REAL
+# walk with two sentinel bystanders registered before any stage touches the
+# instance. They are probed again right after the arming stage: still
+# delivered while the crypto stage fails = the loss is per-user (journey
+# accounts carry corrupted state); lost = the pipeline died globally.
+REPRO_SENTINELS="$WORK_DIR/repro-sentinels.json"
+if [ -n "${E2E_REPRO_WALK:-}" ]; then
+  step "Planting to-device sentinels (walk untouched, bystanders only)"
+  REPRO_HS="$(read_env MATRIX_PUBLIC_URL)" REPRO_SECRET="$DENDRITE_SECRET" \
+    REPRO_MODE=plant REPRO_STATE="$REPRO_SENTINELS" \
+    pnpm exec tsx scripts/dendrite-repro.ts \
+    || die "Sentinel baseline lost — the stack is broken before the walk begins."
+  ok "Sentinels planted, baseline delivered"
+fi
+
 # --------------------------------------------------------------- conformance
 
 step "Protocol conformance"
@@ -588,6 +605,21 @@ pnpm exec tsx scripts/conformance-auth.ts "$BASE" \
   --user-b="$CONF_GUEST:$CONF_PASS" \
   || die "The instance doesn't conform on its authenticated surface."
 ok "Authenticated surface conforms"
+
+# The moment of truth for the sentinels: the stage that arms the loss has
+# just run. Non-fatal either way — the crypto stage below supplies the
+# canonical failure and the forensic dump; this line supplies the verdict
+# that decides what kind of bug we are hunting.
+if [ -n "${E2E_REPRO_WALK:-}" ]; then
+  step "Harvesting sentinels (did bystanders survive the arming stage?)"
+  if REPRO_HS="$(read_env MATRIX_PUBLIC_URL)" REPRO_SECRET="$DENDRITE_SECRET" \
+     REPRO_MODE=harvest REPRO_STATE="$REPRO_SENTINELS" \
+     pnpm exec tsx scripts/dendrite-repro.ts; then
+    ok "Sentinels alive — per-user corruption, not pipeline death"
+  else
+    info "Sentinels LOST — the to-device pipeline is dead instance-wide"
+  fi
+fi
 
 # -------------------------------------------------------------------- crypto
 #

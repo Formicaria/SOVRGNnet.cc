@@ -35,7 +35,21 @@
  * secret), REPRO_ROUNDS (default 2), REPRO_SKIP (comma list to thin a round:
  * "encryption", "child", "restricted", "space-type" — for minimization runs
  * after a red one).
+ *
+ * SENTINEL MODES (REPRO_MODE=plant|harvest, REPRO_STATE=<json path>).
+ * The bare run above came back fully green — twice, with and without the
+ * appservice — so the four requests alone are the spark, not the fuel; the
+ * trigger needs the journey's accumulated state underneath it. These modes
+ * split the next question: when the harness arms the loss, is to-device
+ * dead for EVERYONE (global pipeline death — upstream's problem, homeserver
+ * swap justified) or only for the journey's own users (per-user state
+ * corruption — our traffic pattern is implicated)?
+ *   plant   — before the walk: register three bystander users who will
+ *             never touch a room, take a baseline probe, save credentials.
+ *   harvest — after the arming stage: probe the same bystanders. Delivered
+ *             while the crypto stage still fails = per-user. Lost = global.
  */
+import { readFileSync, writeFileSync } from "node:fs";
 
 import { createHmac } from "node:crypto";
 
@@ -226,8 +240,53 @@ async function probe(
   return hit;
 }
 
+const MODE = process.env.REPRO_MODE ?? "full";
+const STATE = process.env.REPRO_STATE ?? "";
+
+interface SentinelState {
+  sender: Account;
+  receiver: Account;
+}
+
+/** Register bystanders, prove baseline delivery, save them for later. */
+async function plant(): Promise<void> {
+  if (!STATE) throw new Error("REPRO_MODE=plant needs REPRO_STATE.");
+  const stamp = Date.now().toString(36);
+  const sender = await register(`sentinel-sender-${stamp}`);
+  const receiver = await register(`sentinel-receiver-${stamp}`);
+  console.log(`  sentinels: ${sender.userId} -> ${receiver.userId}`);
+  const ok = await probe("sentinel-baseline", sender, receiver);
+  writeFileSync(STATE, JSON.stringify({ sender, receiver } satisfies SentinelState));
+  if (!ok) {
+    console.log(
+      "Baseline lost before the walk even started — the stack is broken " +
+        "independently of anything the walk does."
+    );
+    process.exit(1);
+  }
+  process.exit(0);
+}
+
+/** Probe the planted bystanders after the walk has armed the loss. */
+async function harvest(): Promise<void> {
+  if (!STATE) throw new Error("REPRO_MODE=harvest needs REPRO_STATE.");
+  const { sender, receiver } = JSON.parse(readFileSync(STATE, "utf8")) as SentinelState;
+  const ok = await probe("sentinel-post-arming", sender, receiver);
+  console.log(
+    ok
+      ? "Sentinels still receive to-device — the loss is PER-USER: the " +
+          "journey's own accounts carry corrupted state, the pipeline " +
+          "itself is alive."
+      : "Sentinels lost too — the loss is GLOBAL: the pipeline is dead " +
+          "for users who never touched a room."
+  );
+  process.exit(ok ? 0 : 1);
+}
+
 async function main(): Promise<void> {
-  console.log(`Dendrite to-device repro against ${HS}`);
+  console.log(`Dendrite to-device repro against ${HS} (mode: ${MODE})`);
+  if (MODE === "plant") return plant();
+  if (MODE === "harvest") return harvest();
   console.log(`  rounds=${ROUNDS} skip=[${[...SKIP].join(",") || "none"}]`);
 
   const stamp = Date.now().toString(36);
