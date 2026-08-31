@@ -530,31 +530,45 @@ ok "Authenticated surface conforms"
 # against the Dendrite above — because nothing else in this repository proves
 # a message ever becomes ciphertext or ever comes back.
 
-step "Crypto"
-info "Two devices, a room key, and bytes the instance can't read."
-
-if ! E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" pnpm exec tsx scripts/e2e-crypto.ts; then
-  # Evidence before teardown erases it. The key-share regression reads as
-  # zero to-device events at the recipient while the sender can see their
-  # device — which is two different faults: a share the client never sent,
-  # or one Dendrite accepted and never delivered. The homeserver's own log
-  # is the only witness that can tell them apart, and it dies with the
-  # containers.
+# Evidence before teardown erases it — everything the post-mortem needs,
+# gathered while the containers still breathe. The chain so far: the sender
+# provably PUT the room key (and later a plain ping) to the recipient's
+# device and Dendrite answered 200; nothing was delivered, nothing was
+# queued for a fresh initial sync, and syncapi_send_to_device held zero
+# rows. That is a homeserver accepting messages and discarding them. The
+# leading theory is the embedded NATS restarting mid-run — a restart
+# orphans every consumer subscribed to the first instance, after which
+# publishes still 200 and land in a stream nobody is reading. One boot
+# banner in a tail window can't distinguish first-boot from reboot, so
+# this counts banners across the FULL log, reads the container's restart
+# count, sweeps for panics unfiltered, and saves the whole Dendrite log to
+# a stable path teardown won't eat.
+crypto_failure_dump() {
+  echo "▸ Dendrite container vitals:"
+  docker inspect --format 'restarts={{.RestartCount}} started={{.State.StartedAt}} oom={{.State.OOMKilled}}' \
+    sovrgnnet-matrix 2>&1 || true
+  echo "▸ NATS boot banners across the full log (1 = clean boot, 2+ = restarted mid-run):"
+  compose logs matrix 2>&1 | grep -c "Starting nats-server" || true
+  echo "▸ Unfiltered severity sweep (panic/fatal/error), last 30:"
+  compose logs matrix 2>&1 | grep -iE "panic|fatal|level=error" | tail -30 || true
   echo "▸ Dendrite's view of to-device traffic (last 200 lines, filtered):"
   compose logs --tail 200 matrix 2>&1 | grep -iE "sendToDevice|send_to_device|to.device|keys/claim|OTK|error|jetstream|nats|consumer|appservice" | tail -40 || true
   echo "▸ App log tail:"
   compose logs --tail 30 app 2>&1 | tail -30 || true
-  # The wire ledger proved the sender PUT the room key and Dendrite answered
-  # 200 — so the last question is what Dendrite did with it. Its syncapi
-  # queue table is the ground truth: a row still here was stored and never
-  # served; an empty table after a 200 means delivered-and-acknowledged or
-  # swallowed, which the recipient's raw-sync probe (printed above by the
-  # crypto script) disambiguates.
   echo "▸ Dendrite's stored to-device queue (syncapi tables):"
   compose exec -T db psql -U sovrgn -d dendrite -Atc \
     "SELECT table_name FROM information_schema.tables WHERE table_name LIKE '%to_device%';" 2>&1 || true
   compose exec -T db psql -U sovrgn -d dendrite -c \
     "SELECT id, user_id, device_id, left(content, 80) AS content_head FROM syncapi_send_to_device ORDER BY id;" 2>&1 || true
+  compose logs matrix > /tmp/sovrgnnet-dendrite-last-fail.log 2>&1 || true
+  echo "▸ Full Dendrite log saved to /tmp/sovrgnnet-dendrite-last-fail.log"
+}
+
+step "Crypto"
+info "Two devices, a room key, and bytes the instance can't read."
+
+if ! E2E_BASE="$BASE" E2E_WORK="$WORK_DIR" pnpm exec tsx scripts/e2e-crypto.ts; then
+  crypto_failure_dump
   die "The crypto checks failed."
 fi
 ok "real Olm/Megolm end to end"
