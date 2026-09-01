@@ -164,6 +164,19 @@ jobs:
         with:
           workspaces: desktop/src-tauri
 
+      # tauri.conf.json declares `host` as a bundled resource, and
+      # tauri-build refuses to configure a build whose resources don't
+      # exist — right at release time, where host-bundle.sh has filled the
+      # directory, and wrong here, where compiling the supervisor is the
+      # point and 376MB of PostgreSQL is not. An empty directory satisfies
+      # the existence check without pretending to be a bundle; this job
+      # checks and never bundles. Discovered the slow way: the resource was
+      # declared while this job's path filter slept, so the first Rust
+      # change afterwards inherited a job that had been broken for weeks.
+      - name: Stand in for the host bundle
+        shell: bash
+        run: mkdir -p desktop/src-tauri/host
+
       - name: cargo check
         working-directory: desktop/src-tauri
         run: cargo check --locked
