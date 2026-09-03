@@ -227,6 +227,34 @@ export function registerInstanceRoutes(app: Express): void {
   });
 
   /**
+   * The desktop shell's account-creation preflight.
+   *
+   * The shell's webview runs on an origin of its own — http://tauri.localhost
+   * on Windows — so its JSON POST to auth.register is cross-origin and
+   * non-simple, and the webview asks OPTIONS first. Nothing answered: the
+   * tRPC mount speaks only GET and POST. WebView2 refused to send the real
+   * request, and a fresh Windows install ended at the first-account form
+   * with the webview's entire account of it, "Failed to fetch". Linux never
+   * met this because tauri:// requests aren't CORS-enforced there.
+   *
+   * Registered here because this file already owns the before-you-have-an-
+   * account surface, and it runs ahead of the tRPC mount. Scoped to the one
+   * procedure the shell calls directly rather than the whole tRPC surface.
+   * The wildcard adds no credentialed exposure — browsers refuse to pair `*`
+   * with cookies — and register is guarded by the setup token, not a session.
+   */
+  app.use("/api/trpc/auth.register", (req, res, next) => {
+    // Stamped on the POST response too, not just the preflight: a readable
+    // preflight with an unreadable response would create the account and
+    // then report failure to the person who now owns it.
+    res.set("Access-Control-Allow-Origin", "*");
+    if (req.method !== "OPTIONS") return next();
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "content-type");
+    res.sendStatus(204);
+  });
+
+  /**
    * What am I being invited to?
    *
    * Lets a client show "Join **Zach's server** → #general?" before asking

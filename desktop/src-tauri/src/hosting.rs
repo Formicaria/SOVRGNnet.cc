@@ -530,6 +530,22 @@ fn render_dendrite_config(
         &data.join("dendrite").display().to_string(),
     );
 
+    // Dendrite's Windows build fatals on the template's `std` logging hook —
+    // log_windows.go recognises only `file` — so the very first Windows boot
+    // died in SetupHookLogging before binding a port, and the panel read
+    // "starting" forever. The hook is redundant on a desktop host anyway:
+    // dendrite logs to stderr unconditionally, and the supervisor captures
+    // stderr into dendrite.log on every platform. Dropped everywhere rather
+    // than cfg-gated so Linux and Windows render the same config; the
+    // production template keeps its hook, same policy as the path rewrites
+    // above.
+    let rendered = rendered.replace("logging:\n  - type: std\n    level: info", "logging: []");
+    if rendered.contains("type: std") {
+        // Same guard as the placeholders: a hook that survives rewriting
+        // means the template changed shape and this code no longer knows it.
+        return Err("dendrite template's std logging hook survived rewriting".to_string());
+    }
+
     // The listen port is a CLI flag at spawn, not a config field — the port
     // is picked fresh each start and the config shouldn't pretend otherwise.
     let path = data.join("dendrite.yaml");

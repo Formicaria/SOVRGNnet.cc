@@ -203,18 +203,30 @@ export async function createFirstAccount(
   account: { username: string; password: string; email?: string }
 ): Promise<void> {
   const secrets = await hostSecrets();
-  const response = await fetch(new URL("/api/trpc/auth.register", url), {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      json: {
-        username: account.username,
-        password: account.password,
-        ...(account.email ? { email: account.email } : {}),
-        setupToken: secrets.setup_token,
-      },
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(new URL("/api/trpc/auth.register", url), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        json: {
+          username: account.username,
+          password: account.password,
+          ...(account.email ? { email: account.email } : {}),
+          setupToken: secrets.setup_token,
+        },
+      }),
+    });
+  } catch {
+    // The webview's entire account of any network-layer failure is "Failed
+    // to fetch" — shown on a panel that just said the server is running.
+    // Say what is known and what to do instead.
+    throw new Error(
+      `Couldn't reach your server at ${url} to create the account. ` +
+        "It was answering a moment ago — close this panel and try again. " +
+        "If it keeps happening, the last lines under host/logs/ say why."
+    );
+  }
   if (!response.ok) {
     let message = `The server refused (${response.status}).`;
     try {
