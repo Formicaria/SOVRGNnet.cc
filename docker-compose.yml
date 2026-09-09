@@ -57,6 +57,24 @@ services:
       MATRIX_APPSERVICE_HS_TOKEN: ${MATRIX_APPSERVICE_HS_TOKEN:-}
       IPFS_API_URL: ${IPFS_API_URL:-http://ipfs:5001}
       REACT_APP_WALLET_CONNECT_PROJECT_ID: ${REACT_APP_WALLET_CONNECT_PROJECT_ID}
+      # Everything below was documented in .env.example as configurable and
+      # never reached the container, so setting it there did nothing while
+      # reading as if it should. Since v0.8 each of these is also editable
+      # from the admin settings screen, where a stored value beats the
+      # environment; these passthroughs are for operators who prefer a file.
+      # Empty defaults, so an unset variable stays "unset" rather than becoming
+      # the literal empty string that some of these treat as "off".
+      INSTANCE_NAME: ${INSTANCE_NAME:-}
+      INSTANCE_DESCRIPTION: ${INSTANCE_DESCRIPTION:-}
+      INSTANCE_JOIN_POLICY: ${INSTANCE_JOIN_POLICY:-}
+      INSTANCE_LISTED: ${INSTANCE_LISTED:-}
+      INSTANCE_ALLOW_SSO: ${INSTANCE_ALLOW_SSO:-}
+      IDENTITY_ISSUER: ${IDENTITY_ISSUER:-}
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      READY_TIMEOUT_MS: ${READY_TIMEOUT_MS:-}
     logging: *default-logging
     depends_on:
       db:

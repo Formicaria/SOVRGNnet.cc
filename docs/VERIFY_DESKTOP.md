@@ -38,11 +38,31 @@ build shows only two and the host panel says this build can't host; if a
 *release* build says that, stop here, the bundle didn't ship.
 
 **2. Set up the server.**
-Click through. Expected: named install steps in order (unpacking → database →
-chat server → storage → keys → tables → starting), then "Your server is
-running at `http://127.0.0.1:31xx`", and the server appears in the rail as a
-connection. On Windows additionally expected: **no console windows flash**
-during install or start.
+Expected first: the panel asks **how people should reach it** — two cards,
+*Anyone with the link* and *Just my network*, neither preselected, and the
+Set up button disabled until one is chosen. A preselected card, or a start
+without the question, means the choice is being made for the person. Pick
+*Anyone with the link*. Then: named install steps in order (unpacking →
+database → chat server → storage → keys → tables → starting), "Your server
+is running at `http://127.0.0.1:31xx`", and the server appears in the rail
+as a connection. On Windows additionally expected: **no console windows
+flash** during install or start.
+
+**2b. The public link.**
+Open the host panel. Expected: a **Public link** section showing
+`https://<words>.trycloudflare.com` with a Copy button, and the sentence
+saying it changes on restart. If it says "Getting your public link from
+Cloudflare…" for more than a minute, read `host/logs/tunnel.log` — a
+captive portal or a firewall that blocks outbound QUIC and HTTP/2 is the
+usual reason, and the row should then say so as a failed component with
+the server still reachable on the LAN. Open the link on a phone **off**
+Wi-Fi: expected, the sign-up page, demanding a setup code (step 3 applies
+here too, and matters more — this address is on the internet).
+
+**2c. The rows move.**
+Watch the Components list for thirty seconds. Expected: `ipfs` and `voice`
+go from *starting* to *running* on their own, without closing the panel.
+Rows that never change are the bug this release fixed.
 
 **3. The claim check, from the second device, before any account exists.**
 Open `http://<LAN-IP>:<port>` on the second device now. Expected: the page
@@ -64,11 +84,38 @@ plaintext and the interface *says so* (status panel: "not end-to-end
 encrypted"). A lock icon here would be a lie; absence of one is the pass.
 
 **6. The invite link.**
-Create an invite from the community. Expected: the link reads
-`http://<LAN-IP>:<port>/invite/<code>` — **not** `127.0.0.1`. Loopback here
-is the exact bug `server/lanHost.ts` exists to kill; record the URL you got.
-(Offline/airplane-mode machines keep loopback deliberately — there is no
-better answer to give.)
+Create an invite from the community. Expected with *Anyone with the link*:
+the link reads `https://<words>.trycloudflare.com/invite/<code>` — the
+public address from 2b, https, no port. With *Just my network*:
+`http://<LAN-IP>:<port>/invite/<code>`. Either way **not** `127.0.0.1`;
+loopback here is the exact bug `server/lanHost.ts` exists to kill. Record
+the URL you got. (Offline/airplane-mode machines keep loopback
+deliberately — there is no better answer to give.)
+
+**6b. Every setting, from the server's own screen.**
+Open the server's settings (gear in its rail, or *Open server settings*
+from the host panel). Expected: the Settings tab has sections — Identity,
+Access, Federation, Matrix, Voice, Storage, Single sign-on, Advanced — and
+every field says where its value comes from (*from the environment* /
+*set here*). Change the name and save: the rail updates. Toggle federation
+off and save: the switch reads *set here* afterwards, and *use the
+environment's* appears beside it. Set a metrics token: the field shows
+*Set* and the value is not shown again anywhere, including after reload.
+The three read-only facts (Matrix name, instance ID, encryption) have no
+input and each has a sentence saying why. Then the account screen (person
+icon in the rail): change your username and read the consequence preview
+before confirming; the Sessions tab lists this device and lets you end
+another; Profile saves a bio. Members: ban someone from a second account,
+open the ban list, lift it. Invites: revoke, then create a new one — the
+old link dies, the new one works.
+
+**6c. Change how it is reached, and undo it.**
+Host panel → pick the other card. Expected: an inset note saying it takes a
+restart, with *Restart now* and *Keep it as is*. Keep it: the card snaps
+back. Restart now: the server drops for a few seconds and comes back with
+the other section — public link gone and a *Reach* note in its place, or
+the reverse. Switch back. The address in 2b is **different** now — the
+walk should notice that a restart changed it, because a user will.
 
 **7. The friend joins.**
 Open that URL on the second device, register through it, post a message.
@@ -101,6 +148,15 @@ Quit the app. Expected: within a few seconds `pgrep -f 'host/pg'`,
 `pgrep -f dendrite`, `pgrep -f 'ipfs daemon'` and the hosted node process all
 return nothing (Windows: Task Manager shows none of the four). Orphaned
 processes holding ports is the failure this checks for.
+
+**10b. Remove means remove.**
+On a throwaway install only. Host panel → *Remove this server from this
+computer*. Expected: the button does nothing until the word `remove` is
+typed; the panel then closes, the server leaves the rail, and the host
+panel offers *Set up my server* as on a fresh machine. `%APPDATA%\\
+cc.sovrgnnet.desktop\\host` (or the Linux equivalent) is gone. Set it up
+again: it asks the access question again, because nobody has answered it
+for this install.
 
 **11. Relaunch means resume.**
 Start the app again. Expected: the server starts without being asked, the

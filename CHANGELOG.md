@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+**A desktop host is reachable by anyone with the link, if its owner says
+so.** Every desktop host was LAN-only, with no way to say otherwise —
+"friends on your network can join" was exactly and only true, and a
+person who does not know what a router is cannot forward a port on one.
+cloudflared now ships in the bundle; the supervisor opens a Cloudflare
+quick tunnel before the app starts, reads the assigned hostname out of
+cloudflared's own log output, and hands it to the app so invite links
+name the public address instead of the owner's loopback. No account, no
+domain, no port forwarding. The address changes on restart, and the
+panel says so beside the copy button.
+
+Asked, not defaulted: first run puts the choice in front of the person
+— *anyone with the link* or *just my network* — and an install from
+before the choice existed is asked once on its next launch rather than
+started on anybody's behalf in either mode.
+
+**The host panel now owes its owner nothing.** Live component rows (the
+old ones froze at the moment of start, so a crashed homeserver read
+"running" forever); the public link; an access change with the restart
+it needs, stated first; a button to the logs folder; a hand-off to the
+server's own settings; and removal, behind a typed word.
+
+**Ten settings that were environment variables become settings.**
+Federation, the public homeserver address, SSO and its issuer, the three
+voice values, the IPFS address, the metrics token and the readiness
+bound were all documented in `.env.example` as configurable and were,
+for a desktop host, unreachable — no `.env`, no terminal. They live in
+`instanceSettings` now, nullable, where null means "ask the
+environment"; the admin settings screen edits every one of them, says
+where each value comes from, and never reads a secret back. The Docker
+compose file finally forwards them too.
+
+**Every implemented capability gets a way to reach it.** Account
+settings were written, finished, and mounted from a layout nothing
+imported — no username change ever reached a person. Mounted. Sessions
+can be ended, not just seen. Avatar and bio can be set (through a new
+narrow procedure: the existing one selected the row's
+`matrixAccessToken`, the credential the schema says the browser never
+sees, and survived only because nothing called it). Bans get a list and
+a lift. Invites get revoke.
+
 ## v0.7.2 — 2026-08-30
 
 **The first encrypted message on a fresh instance now arrives.** Dendrite
