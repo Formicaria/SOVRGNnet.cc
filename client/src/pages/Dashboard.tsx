@@ -621,7 +621,26 @@ export default function Dashboard() {
     }
     setMessageInput("");
     setSending(true);
+    const channelId = selectedChannelId;
     void sendOverMatrix(roomId, content)
+      .then(async () => {
+        // Refetch after our own send, rather than waiting for the echo to
+        // come back through /sync.
+        //
+        // The API mutation this replaced invalidated on success, and that
+        // invalidate was quietly carrying both paths: an encrypted channel
+        // relied on the sync handler noticing `m.room.encrypted` and
+        // invalidating for us, and when that didn't fire, the plaintext
+        // channels nobody had switched over hid it. With every channel
+        // encrypted there is nothing left to hide it — a message would sit
+        // in the index, correctly stored and correctly unreadable by the
+        // server, and simply not appear until the page was reloaded.
+        //
+        // The sync handler stays as it is; it is what shows *other people's*
+        // messages. This is only about the one we just sent, which is the
+        // one case where waiting to be told about our own action is silly.
+        await utils.messages.listByChannel.invalidate({ channelId });
+      })
       .catch(() => {
         setMessageInput(content);
         setError("That message wasn't sent. Nothing was sent unencrypted.");
