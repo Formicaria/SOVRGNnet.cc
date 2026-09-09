@@ -11,6 +11,12 @@ import {
 } from "./_core/auth";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
+import {
+  refreshSettings,
+  resolveSettings,
+  settings,
+  voiceConfigured,
+} from "./settings";
 import { systemRouter } from "./_core/systemRouter";
 import {
   adminProcedure,
@@ -131,10 +137,73 @@ const loginInput = z
  * One instance, so every request shares the cache — and so an outage at the
  * provider is survived by the whole server rather than per-request.
  */
-const jwksCache = new JwksCache(
-  process.env.IDENTITY_ISSUER?.trim() || IDENTITY_ORIGIN
-);
+let jwksCacheFor: string | null = null;
+let jwksCacheInstance: JwksCache | null = null;
+
+/**
+ * The cache for the *currently configured* issuer.
+ *
+ * This used to be one instance built at module load, which was right while the
+ * issuer was an environment variable and became a bug the moment it became a
+ * setting: an operator who corrected their identity provider would keep
+ * verifying against the old one until someone restarted the process, with no
+ * indication that was why sign-in still failed. Rebuilt only when the issuer
+ * actually changes, so the "one cache, shared by every request, survives a
+ * provider outage" property above still holds for as long as it should.
+ */
+function jwks(): JwksCache {
+  const issuer = settings().identityIssuer || IDENTITY_ORIGIN;
+  if (!jwksCacheInstance || jwksCacheFor !== issuer) {
+    jwksCacheInstance = new JwksCache(issuer);
+    jwksCacheFor = issuer;
+  }
+  return jwksCacheInstance;
+}
 const ssoConfig = () => ssoConfigFromEnv(instanceId());
+
+/**
+ * Where the value an admin is looking at actually came from (v0.8).
+ *
+ * Null in the row means the environment is answering. The distinction matters
+ * in the UI rather than in behaviour: a switch showing "off" reads very
+ * differently depending on whether this instance decided that or a `.env` file
+ * did, and only one of the two survives someone else's next deploy.
+ */
+function sourceOf(stored: unknown): "stored" | "environment" {
+  return stored === null || stored === undefined ? "environment" : "stored";
+}
+
+/**
+ * A URL setting: one of the given schemes, or empty to mean "unset".
+ *
+ * Validated here rather than at the point of use because every one of these
+ * is a value the instance hands to *clients* — the homeserver they sync
+ * against, the SFU they dial, the issuer whose keys they trust. A typo that
+ * reaches a client surfaces as a broken feature with no obvious cause, and
+ * `new URL()` rejecting it at the door costs nothing. Empty stays legal: it is
+ * how an operator clears a field.
+ */
+function urlSetting(schemes: string[], max = 500) {
+  const list = schemes.map(s => `${s}//`).join(" or ");
+  return z
+    .string()
+    .max(max)
+    .refine(
+      value => {
+        const trimmed = value.trim();
+        if (trimmed === "") return true;
+        try {
+          return schemes.includes(new URL(trimmed).protocol);
+        } catch {
+          return false;
+        }
+      },
+      { message: `Enter a ${list} address, or leave it empty.` }
+    );
+}
+
+const httpsUrlSetting = urlSetting(["http:", "https:"]);
+const websocketUrlSetting = urlSetting(["ws:", "wss:"]);
 
 /** Public shape of a user — never expose passwordHash. */
 function toPublicUser(user: User) {
@@ -328,7 +397,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         let claims;
         try {
-          claims = await verifySsoToken(input.token, jwksCache, ssoConfig());
+          claims = await verifySsoToken(input.token, jwks(), ssoConfig());
         } catch (err) {
           throw new TRPCError({
             code: "UNAUTHORIZED",
@@ -452,7 +521,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         let claims;
         try {
-          claims = await verifySsoToken(input.token, jwksCache, ssoConfig());
+          claims = await verifySsoToken(input.token, jwks(), ssoConfig());
         } catch (err) {
           throw new TRPCError({
             code: "UNAUTHORIZED",
@@ -637,7 +706,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         let claims;
         try {
-          claims = await verifySsoToken(input.token, jwksCache, ssoConfig());
+          claims = await verifySsoToken(input.token, jwks(), ssoConfig());
         } catch (err) {
           throw new TRPCError({
             code: "UNAUTHORIZED",
@@ -1714,6 +1783,7 @@ export const appRouter = router({
     getSettings: adminProcedure.query(async () => {
       const stored = await db.getInstanceSettings();
       const info = instanceInfo(APP_VERSION, stored);
+      const resolved = resolveSettings(stored);
       return {
         name: info.name,
         description: info.description,
@@ -1727,6 +1797,46 @@ export const appRouter = router({
         version: info.software.version,
         /** True once an admin has saved anything; false means env defaults. */
         configured: stored != null,
+
+        // ------------------------------------------------------------ v0.8
+        //
+        // The former environment-only settings. Each carries `...Source` so
+        // the UI can say *where the current value comes from* — an operator
+        // looking at a federation switch needs to know whether turning it off
+        // will stick or be overruled by the `.env` on next boot. "stored"
+        // means this instance owns the value; "environment" means the row is
+        // silent here and the process environment is answering.
+        federationEnabled: resolved.federationEnabled,
+        federationEnabledSource: sourceOf(stored?.federationEnabled),
+        matrixPublicUrl: resolved.matrixPublicUrl,
+        matrixPublicUrlSource: sourceOf(stored?.matrixPublicUrl),
+        ssoEnabled: resolved.ssoEnabled,
+        ssoEnabledSource: sourceOf(stored?.ssoEnabled),
+        identityIssuer: resolved.identityIssuer,
+        identityIssuerSource: sourceOf(stored?.identityIssuer),
+        voiceUrl: resolved.voiceUrl,
+        voiceUrlSource: sourceOf(stored?.voiceUrl),
+        voiceApiKey: resolved.voiceApiKey,
+        voiceApiKeySource: sourceOf(stored?.voiceApiKey),
+        ipfsApiUrl: resolved.ipfsApiUrl,
+        ipfsApiUrlSource: sourceOf(stored?.ipfsApiUrl),
+        readyTimeoutMs: resolved.readyTimeoutMs,
+        readyTimeoutMsSource: sourceOf(stored?.readyTimeoutMs),
+
+        // Secrets are never read back — not to the admin who set them, not
+        // over an authenticated channel, not once. A settings form that
+        // round-trips a secret has to receive it to redisplay it, and every
+        // layer in between (a proxy log, a browser cache, a screenshot in a
+        // support thread) then holds a copy it had no reason to hold. The UI
+        // needs exactly one bit to render correctly — whether one is set —
+        // and gets exactly that bit.
+        hasVoiceApiSecret: Boolean(resolved.voiceApiSecret),
+        voiceApiSecretSource: sourceOf(stored?.voiceApiSecret),
+        hasMetricsToken: Boolean(resolved.metricsToken),
+        metricsTokenSource: sourceOf(stored?.metricsToken),
+
+        /** Whether all three voice values are present, by the same rule voice.ts uses. */
+        voiceConfigured: voiceConfigured(resolved),
       };
     }),
 
@@ -1737,15 +1847,51 @@ export const appRouter = router({
           description: z.string().max(500).nullable().optional(),
           joinPolicy: z.enum(["open", "invite", "closed"]).optional(),
           listed: z.boolean().optional(),
+
+          // v0.8. Every field below is `.nullable().optional()`, and the two
+          // are different on purpose: omitted means "leave it alone", null
+          // means "clear this and go back to whatever the environment says".
+          // A form that always sends every field would otherwise have no way
+          // to express "I never touched this".
+          federationEnabled: z.boolean().nullable().optional(),
+          matrixPublicUrl: httpsUrlSetting.nullable().optional(),
+          ssoEnabled: z.boolean().nullable().optional(),
+          identityIssuer: httpsUrlSetting.nullable().optional(),
+          voiceUrl: websocketUrlSetting.nullable().optional(),
+          voiceApiKey: z.string().max(200).nullable().optional(),
+          voiceApiSecret: z.string().max(500).nullable().optional(),
+          ipfsApiUrl: httpsUrlSetting.nullable().optional(),
+          metricsToken: z.string().max(500).nullable().optional(),
+          // Bounded rather than free: this is the ceiling on every /ready
+          // dependency check, and a 10-minute one turns a health probe into a
+          // hang that load balancers read as "fine, still connecting".
+          readyTimeoutMs: z.number().int().min(100).max(60_000).nullable().optional(),
         })
       )
       .mutation(async ({ input }) => {
         const saved = await db.saveInstanceSettings(input);
+        // The cache is what every synchronous reader consults, so a save that
+        // didn't refresh it would appear to do nothing for up to 45 seconds —
+        // long enough for an admin to conclude the button is broken and press
+        // it again.
+        await refreshSettings();
+        const resolved = resolveSettings(saved);
         return {
           name: saved.name,
           description: saved.description,
           joinPolicy: normalizeJoinPolicy(saved.joinPolicy),
           listed: saved.listed,
+          federationEnabled: resolved.federationEnabled,
+          matrixPublicUrl: resolved.matrixPublicUrl,
+          ssoEnabled: resolved.ssoEnabled,
+          identityIssuer: resolved.identityIssuer,
+          voiceUrl: resolved.voiceUrl,
+          voiceApiKey: resolved.voiceApiKey,
+          ipfsApiUrl: resolved.ipfsApiUrl,
+          readyTimeoutMs: resolved.readyTimeoutMs,
+          hasVoiceApiSecret: Boolean(resolved.voiceApiSecret),
+          hasMetricsToken: Boolean(resolved.metricsToken),
+          voiceConfigured: voiceConfigured(resolved),
         };
       }),
 
@@ -1867,7 +2013,7 @@ export const appRouter = router({
           { deviceId, displayName: input.displayName }
         );
 
-        const base = parsePublicMatrixUrl(process.env.MATRIX_PUBLIC_URL);
+        const base = parsePublicMatrixUrl(settings().matrixPublicUrl ?? undefined);
         if (!base) {
           // directSync().available implies a parseable URL; if it vanished
           // between the check and here, refuse rather than hand out a token

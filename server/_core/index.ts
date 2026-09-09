@@ -11,6 +11,7 @@ import { registerInstanceRoutes } from "../instanceRoutes";
 import { refreshDirectSync } from "../matrixPublic";
 import { registerMetricsRoutes } from "../metrics";
 import { runMigrations, waitForDatabase } from "../migrate";
+import { refreshSettings } from "../settings";
 import { createContext } from "./context";
 import { serveStatic } from "./static";
 
@@ -71,6 +72,20 @@ async function startServer() {
   void refreshDirectSync().catch(() => {});
   setInterval(() => {
     void refreshDirectSync().catch(() => {});
+  }, 45_000).unref();
+
+  // Instance settings, on the same terms and for the same reason (v0.8).
+  // Readers of these are synchronous and sit on hot paths — the metrics
+  // bearer check, the voice token mint, the /ready bound — so the row is
+  // cached rather than fetched per call. Warmed before traffic because the
+  // window between "listening" and "first refresh" is a window where the
+  // instance would answer from environment defaults it may have been
+  // configured away from. A save refreshes immediately (see admin.updateSettings);
+  // this interval is only the backstop for a write that happened elsewhere,
+  // such as a second process or a restore.
+  void refreshSettings().catch(() => {});
+  setInterval(() => {
+    void refreshSettings().catch(() => {});
   }, 45_000).unref();
 
   // Configure body parser with larger size limit for file uploads

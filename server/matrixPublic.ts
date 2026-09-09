@@ -3,6 +3,7 @@ import {
   parsePublicMatrixUrl,
   type DirectSyncStatus,
 } from "@shared/matrixDelegation";
+import { settings } from "./settings";
 
 /**
  * Is the homeserver actually reachable at the address we advertise?
@@ -58,7 +59,7 @@ export function __resetForTests(): void {
 }
 
 function publicUrl(): string | null {
-  return parsePublicMatrixUrl(process.env.MATRIX_PUBLIC_URL);
+  return parsePublicMatrixUrl(settings().matrixPublicUrl ?? undefined);
 }
 
 /**

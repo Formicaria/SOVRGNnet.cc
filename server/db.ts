@@ -1448,6 +1448,20 @@ export async function saveInstanceSettings(values: {
   description?: string | null;
   joinPolicy?: string;
   listed?: boolean;
+  // v0.8 — see drizzle/schema.ts. Every one of these is nullable, and an
+  // explicit null is meaningful: it hands the field back to the environment.
+  // Which is why the caller must omit a key it doesn't mean to change rather
+  // than passing null for "leave it alone".
+  federationEnabled?: boolean | null;
+  matrixPublicUrl?: string | null;
+  ssoEnabled?: boolean | null;
+  identityIssuer?: string | null;
+  voiceUrl?: string | null;
+  voiceApiKey?: string | null;
+  voiceApiSecret?: string | null;
+  ipfsApiUrl?: string | null;
+  metricsToken?: string | null;
+  readyTimeoutMs?: number | null;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

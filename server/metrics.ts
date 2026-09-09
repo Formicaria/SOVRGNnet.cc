@@ -3,6 +3,7 @@ import { APP_VERSION } from "@shared/const";
 import * as db from "./db";
 import { isIpfsReachable } from "./ipfsService";
 import * as matrix from "./matrixService";
+import { settings } from "./settings";
 
 /**
  * Prometheus-compatible metrics — the 0.5 "portable infrastructure" box that
@@ -76,7 +77,7 @@ function render(lines: Line[]): string {
 
 export function registerMetricsRoutes(app: Express): void {
   app.get("/metrics", async (req: Request, res) => {
-    const required = process.env.METRICS_TOKEN;
+    const required = settings().metricsToken;
     if (required) {
       const header = req.headers.authorization;
       const presented = header?.startsWith("Bearer ") ? header.slice(7) : null;

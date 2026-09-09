@@ -6,6 +6,7 @@ import { PROTOCOL_VERSION } from "@shared/protocol";
 import * as db from "./db";
 import { instanceDescriptor, instanceInfo } from "./instance";
 import * as matrix from "./matrixService";
+import { settings } from "./settings";
 
 /**
  * Public, unauthenticated routes a client needs *before* it has an account.
@@ -133,7 +134,7 @@ export function registerInstanceRoutes(app: Express): void {
     // starting, and took /ready down with it.
     // Read per request so tests can shorten it without waiting out the real
     // bound, and so an operator on slow storage can raise it.
-    const limit = Number(process.env.READY_TIMEOUT_MS ?? 3000);
+    const limit = settings().readyTimeoutMs;
 
     const timeout = <T>(work: Promise<T>, fallback: T): Promise<T> =>
       Promise.race([
@@ -184,7 +185,7 @@ export function registerInstanceRoutes(app: Express): void {
     // SOVRGN identity provider is a different thing entirely, and advertising
     // it here would point Matrix clients at something that doesn't speak the
     // protocol they'd use it with.
-    const document = clientDelegation(process.env.MATRIX_PUBLIC_URL ?? null);
+    const document = clientDelegation(settings().matrixPublicUrl);
 
     // 404 rather than an empty document. A client that gets a 404 falls back
     // to its own default sensibly; one handed a delegation pointing nowhere
@@ -212,8 +213,8 @@ export function registerInstanceRoutes(app: Express): void {
     // no effect on what the world sees. See site/.well-known/README.md, which
     // is the delegation that deployment actually serves.
     const document = serverDelegation(
-      process.env.MATRIX_PUBLIC_URL ?? null,
-      process.env.MATRIX_ALLOW_FEDERATION === "true"
+      settings().matrixPublicUrl,
+      settings().federationEnabled
     );
 
     if (!document) return res.status(404).json({ errcode: "M_NOT_FOUND" });

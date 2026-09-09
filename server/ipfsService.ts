@@ -1,4 +1,4 @@
-import { ENV } from "./_core/env";
+import { settings } from "./settings";
 
 /**
  * Server-side IPFS (Kubo) client. Files pin to our own node and serve back
@@ -24,7 +24,7 @@ export function __setFetchForTests(f: FetchLike): void {
 }
 
 function apiUrl(path: string): string {
-  return `${ENV.ipfsApiUrl.replace(/\/+$/, "")}${path}`;
+  return `${settings().ipfsApiUrl.replace(/\/+$/, "")}${path}`;
 }
 
 /** Add (and pin) a file. Returns the CID. */

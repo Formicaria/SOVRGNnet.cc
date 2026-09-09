@@ -5,6 +5,7 @@ import { IDENTITY_ORIGIN } from "@shared/identity";
 import { ENV } from "./_core/env";
 import { appserviceConfigured } from "./appservice";
 import { directSync } from "./matrixPublic";
+import { resolveSettings, voiceConfigured, type SettingsRow } from "./settings";
 
 /**
  * Who this server is, to someone who has never met it.
@@ -178,12 +179,17 @@ export function normalizeJoinPolicy(
  * Kept as a parameter rather than fetched here so this stays a pure function —
  * the route does the I/O, and tests don't need a database.
  */
-export type StoredSettings = {
-  name?: string | null;
-  description?: string | null;
-  joinPolicy?: string | null;
-  listed?: boolean | null;
-} | null;
+export type StoredSettings =
+  | ({
+      name?: string | null;
+      description?: string | null;
+      joinPolicy?: string | null;
+      listed?: boolean | null;
+      // The v0.8 columns ride in the same object rather than being fetched
+      // here, for the reason above: this file stays pure, and `settings.ts`
+      // stays the only place that knows stored-beats-environment.
+    } & NonNullable<SettingsRow>)
+  | null;
 
 /**
  * Whether this build ships a crypto implementation at all.
@@ -241,7 +247,8 @@ export function instanceDescriptor(
   stored: StoredSettings = null
 ): InstanceDescriptor {
   const info = instanceInfo(version, stored);
-  const publicMatrix = process.env.MATRIX_PUBLIC_URL?.trim() || null;
+  const resolved = resolveSettings(stored);
+  const publicMatrix = resolved.matrixPublicUrl;
 
   return {
     product: "sovrgnnet",
@@ -262,12 +269,8 @@ export function instanceDescriptor(
       // three values — ADR 0013 as superseded. Same posture as sso:
       // unconfigured means honestly absent, not broken. Nothing here ever
       // depends on a SOVRGN-held backend.
-      voice: Boolean(
-        process.env.LIVEKIT_URL &&
-          process.env.LIVEKIT_API_KEY &&
-          process.env.LIVEKIT_API_SECRET
-      ),
-      federation: process.env.MATRIX_ALLOW_FEDERATION === "true",
+      voice: voiceConfigured(resolved),
+      federation: resolved.federationEnabled,
       sso: info.sso.enabled,
       publicRegistration: info.joinPolicy === "open",
       // True only when a homeserver has actually answered at the advertised
@@ -299,7 +302,8 @@ export function instanceInfo(
   version: string,
   stored: StoredSettings = null
 ): InstanceInfo {
-  const publicMatrix = process.env.MATRIX_PUBLIC_URL?.trim();
+  const resolved = resolveSettings(stored);
+  const publicMatrix = resolved.matrixPublicUrl;
 
   return {
     product: "sovrgnnet",
@@ -327,11 +331,8 @@ export function instanceInfo(
     encryption: e2eeAvailable(),
     listed: stored?.listed ?? process.env.INSTANCE_LISTED === "true",
     sso: {
-      enabled: process.env.INSTANCE_ALLOW_SSO === "true",
-      issuer:
-        process.env.INSTANCE_ALLOW_SSO === "true"
-          ? process.env.IDENTITY_ISSUER?.trim() || IDENTITY_ORIGIN
-          : null,
+      enabled: resolved.ssoEnabled,
+      issuer: resolved.ssoEnabled ? resolved.identityIssuer || IDENTITY_ORIGIN : null,
     },
     software: { name: "sovrgnnet", version },
   };

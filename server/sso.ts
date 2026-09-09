@@ -7,6 +7,7 @@ import {
   type IdentityClaims,
   type Jwk,
 } from "@shared/identity";
+import { settings } from "./settings";
 
 /**
  * Verifying sovrgnnet.cc identity tokens, from a server's point of view.
@@ -40,11 +41,11 @@ export type SsoConfig = {
 
 export function ssoConfigFromEnv(instanceId: string): SsoConfig {
   return {
-    issuer: process.env.IDENTITY_ISSUER?.trim() || TOKEN_ISSUER,
+    issuer: settings().identityIssuer || TOKEN_ISSUER,
     audience: instanceId,
     // Off unless an operator opts in. A server that wants nothing to do with
     // central identity stays fully functional.
-    enabled: process.env.INSTANCE_ALLOW_SSO === "true",
+    enabled: settings().ssoEnabled,
   };
 }
 

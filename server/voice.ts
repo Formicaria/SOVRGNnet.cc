@@ -1,4 +1,5 @@
 import { SignJWT, jwtVerify } from "jose";
+import { settings, voiceConfigured as isVoiceConfigured } from "./settings";
 
 /**
  * Voice channels over a per-instance LiveKit SFU — ADR 0013, as superseded.
@@ -33,15 +34,11 @@ import { SignJWT, jwtVerify } from "jose";
 const TOKEN_TTL = "10m";
 
 export function voiceConfigured(): boolean {
-  return Boolean(
-    process.env.LIVEKIT_URL &&
-      process.env.LIVEKIT_API_KEY &&
-      process.env.LIVEKIT_API_SECRET
-  );
+  return isVoiceConfigured(settings());
 }
 
 export function voiceUrl(): string {
-  return (process.env.LIVEKIT_URL ?? "").replace(/\/+$/, "");
+  return (settings().voiceUrl ?? "").replace(/\/+$/, "");
 }
 
 /**
@@ -66,8 +63,7 @@ export async function mintVoiceToken(options: {
   /** What other participants see. */
   displayName: string;
 }): Promise<string> {
-  const apiKey = process.env.LIVEKIT_API_KEY;
-  const secret = process.env.LIVEKIT_API_SECRET;
+  const { voiceApiKey: apiKey, voiceApiSecret: secret } = settings();
   if (!apiKey || !secret) {
     throw new Error("Voice is not configured on this instance.");
   }
@@ -90,7 +86,7 @@ export async function mintVoiceToken(options: {
 
 /** Tests only: verify a minted token the way the SFU would. */
 export async function __verifyVoiceTokenForTests(token: string) {
-  const secret = process.env.LIVEKIT_API_SECRET ?? "";
+  const secret = settings().voiceApiSecret ?? "";
   const { payload } = await jwtVerify(token, new TextEncoder().encode(secret), {
     algorithms: ["HS256"],
   });

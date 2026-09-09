@@ -238,6 +238,47 @@ export const instanceSettings = pgTable("instanceSettings", {
   joinPolicy: varchar("joinPolicy", { length: 16 }).default("invite").notNull(),
   /** Whether to appear in the sovrgnnet.cc directory. Opt-in, always. */
   listed: boolean("listed").default(false).notNull(),
+
+  // ---------------------------------------------------------------- v0.8
+  //
+  // The columns below were environment variables until v0.8, which meant
+  // every one of them was documented in `.env.example` as configurable and
+  // was, in practice, unreachable: the desktop host has no `.env` to edit
+  // and no terminal to edit it from, and the Docker install passes only a
+  // subset through to the container anyway. An operator could read that
+  // voice was configurable and have no way to configure it.
+  //
+  // Every column here is nullable with no default, and null means exactly
+  // "not set here — use the environment". That is what keeps this additive:
+  // an instance that upgrades into these columns behaves identically until
+  // somebody saves something, and an operator who prefers `.env` can keep
+  // using it. `server/settings.ts` owns the resolution and is the only
+  // place that knows the precedence.
+  //
+  // Secrets live here too, and the API never reads them back — see
+  // `admin.getSettings`, which reports only whether one is set.
+
+  /** MATRIX_ALLOW_FEDERATION. Dendrite must restart for this to take hold. */
+  federationEnabled: boolean("federationEnabled"),
+  /** MATRIX_PUBLIC_URL — the homeserver address clients are told to dial. */
+  matrixPublicUrl: varchar("matrixPublicUrl", { length: 500 }),
+  /** INSTANCE_ALLOW_SSO — accept sovrgnnet.cc identity tokens. */
+  ssoEnabled: boolean("ssoEnabled"),
+  /** IDENTITY_ISSUER — which identity provider those tokens must come from. */
+  identityIssuer: varchar("identityIssuer", { length: 500 }),
+  /** LIVEKIT_URL — the SFU clients dial for voice. */
+  voiceUrl: varchar("voiceUrl", { length: 500 }),
+  /** LIVEKIT_API_KEY — rides in every admission token as the issuer. */
+  voiceApiKey: varchar("voiceApiKey", { length: 200 }),
+  /** LIVEKIT_API_SECRET. Write-only over the API: set it, never read it. */
+  voiceApiSecret: text("voiceApiSecret"),
+  /** IPFS_API_URL — the Kubo daemon that stores attachments. */
+  ipfsApiUrl: varchar("ipfsApiUrl", { length: 500 }),
+  /** METRICS_TOKEN. Write-only. Null/empty leaves /metrics unauthenticated. */
+  metricsToken: text("metricsToken"),
+  /** READY_TIMEOUT_MS — per-check bound on /ready. */
+  readyTimeoutMs: integer("readyTimeoutMs"),
+
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 
