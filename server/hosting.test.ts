@@ -21,7 +21,9 @@ function make(states: Partial<Record<ComponentId, ComponentState>>): Component[]
   return COMPONENTS.map(id => ({
     id,
     state: states[id] ?? "running",
-    port: PREFERRED_PORTS[id],
+    // The tunnel has no port of its own: it dials the app's and answers on
+    // Cloudflare's. Every other component was given one.
+    port: id === "tunnel" ? null : PREFERRED_PORTS[id],
     error: null,
   }));
 }
@@ -83,6 +85,50 @@ describe("evaluate", () => {
       status: "running",
       components: make({}),
       url: URL,
+      publicUrl: null,
+    });
+  });
+
+  describe("the tunnel (v0.8)", () => {
+    const PUBLIC = "https://calm-river-1234.trycloudflare.com";
+
+    it("carries the public address through running and degraded", () => {
+      const running = evaluate(make({}), URL, PUBLIC);
+      expect(running.status).toBe("running");
+      if (running.status === "running") expect(running.publicUrl).toBe(PUBLIC);
+
+      const degraded = evaluate(make({ ipfs: "failed" }), URL, PUBLIC);
+      expect(degraded.status).toBe("degraded");
+      if (degraded.status === "degraded") expect(degraded.publicUrl).toBe(PUBLIC);
+    });
+
+    it("a tunnel that failed degrades the server, it does not break it", () => {
+      // The whole point of the mode is reach, not chat. A server whose
+      // tunnel could not connect — a captive portal, a corporate firewall —
+      // still works for everyone on the LAN, and saying it is down would be
+      // false and alarming in exactly the way describeDegradation exists to
+      // avoid.
+      const state = evaluate(make({ tunnel: "failed" }), URL);
+      expect(state.status).toBe("degraded");
+      if (state.status === "degraded") {
+        expect(state.problem).toMatch(/public link/);
+        expect(state.publicUrl).toBeNull();
+      }
+    });
+
+    it("a tunnel still connecting does not hold up a usable server", () => {
+      // cloudflared is alive from the moment it spawns and useful only once
+      // it has an address; the supervisor reports the gap as "starting".
+      // Chat is up regardless, and the panel should say so.
+      const state = evaluate(make({ tunnel: "starting" }), URL);
+      expect(state.status).toBe("running");
+    });
+
+    it("has no port of its own", () => {
+      expect(make({}).find(c => c.id === "tunnel")?.port).toBeNull();
+      // And is excluded from the port plan on purpose: the supervisor never
+      // binds a listener for it.
+      expect(Object.keys(PREFERRED_PORTS)).not.toContain("tunnel");
     });
   });
 
@@ -92,6 +138,7 @@ describe("evaluate", () => {
       matrix: "stopped",
       ipfs: "stopped",
       voice: "stopped",
+      tunnel: "stopped",
       app: "stopped",
     });
     expect(evaluate(all, URL).status).toBe("stopped");
@@ -153,6 +200,7 @@ describe("evaluate", () => {
         matrix: "stopped",
         ipfs: "stopped",
         voice: "off",
+        tunnel: "stopped",
         app: "stopped",
       });
       expect(evaluate(all, URL).status).toBe("stopped");

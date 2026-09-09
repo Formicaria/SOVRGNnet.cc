@@ -62,10 +62,29 @@ describe("the supervisor and the policy layer agree", () => {
     }
   });
 
-  it("the frontend sends candidates for every component", () => {
+  it("the frontend sends candidates for every component that binds a port", () => {
     for (const id of COMPONENTS) {
+      if (id === "tunnel") continue;
       expect(bridge).toContain(`${id}: portCandidates("${id}")`);
     }
+  });
+
+  it("the tunnel is the one component with no port plan (v0.8)", () => {
+    // cloudflared dials the app's port and answers on Cloudflare's; the
+    // supervisor never binds a listener for it. A candidate list for it
+    // would be a promise about a port nothing listens on.
+    expect(bridge).not.toContain('tunnel: portCandidates("tunnel")');
+    expect(supervisor).toMatch(/spawn_tunnel\(&bundle_dir\(&app\)\?, app_port/);
+  });
+
+  it("the access choice reaches the supervisor at start (v0.8)", () => {
+    // The mode is read once, as the app boots — the public hostname has to
+    // be in its environment — so it rides the start call, not a separate
+    // one the frontend could forget to make.
+    expect(bridge).toMatch(/invoke<HostReport>\("host_start", \{[\s\S]*?options,/);
+    expect(supervisor).toContain("options: HostOptions,");
+    expect(supervisor).toMatch(/"SOVRGNNET_ACCESS_MODE",\s*if options\.wants_tunnel\(\)/);
+    expect(supervisor).toContain('c.env("SOVRGN_PUBLIC_HOST", url)');
   });
 });
 
@@ -430,7 +449,16 @@ describe("a desktop-hosted server can create its first account", () => {
     // close the panel, hope the person finds the code — must not return.
     const handOffs = [...PANEL.matchAll(/await handOff\(started\.url\)/g)];
     expect(handOffs.length).toBeGreaterThanOrEqual(2);
-    expect(PANEL).not.toContain("onStarted(started.url)");
+    // The one place the direct hand-off is allowed is the settings restart
+    // (v0.8): a server whose access mode is being changed has accounts —
+    // the person changing it is signed in to one — and closing the panel
+    // there would hide the public link they changed the setting to get.
+    const direct = [...PANEL.matchAll(/onStarted\(started\.url\)/g)];
+    expect(direct.length).toBe(1);
+    const applyAccess = PANEL.slice(PANEL.indexOf("const applyAccess"));
+    expect(applyAccess.slice(0, applyAccess.indexOf("const openLogs"))).toContain(
+      "onStarted(started.url)"
+    );
   });
 
   it("keeps the code only as the fallback for another device", () => {
@@ -601,14 +629,17 @@ describe("a desktop host offers voice out of the box (ADR 0013)", () => {
     // "can't host"; a start failure surfaces as a failed HostState.
     const app = readFileSync(join(ROOT, "desktop", "src", "App.tsx"), "utf8");
     const code = app.replace(/^\s*\/\/.*$/gm, "");
-    const resume = code.slice(code.indexOf("await hostStart()"));
+    const resume = code.slice(code.indexOf("await hostStart(options)"));
     const catchBlock = resume.slice(resume.indexOf("catch"), resume.indexOf("catch") + 400);
     expect(catchBlock).toContain('status: "failed"');
     expect(catchBlock).not.toContain("setCanHost");
   });
 
   it("stops the SFU with everything else", () => {
-    expect(supervisor).toMatch(/\["app", "voice", "ipfs", "matrix"\]/);
+    // The tunnel leads (v0.8): it is the only component with a public face,
+    // and a public address answering 502 while the app dies is a worse last
+    // impression than one that stops resolving.
+    expect(supervisor).toMatch(/\["tunnel", "app", "voice", "ipfs", "matrix"\]/);
   });
 
   it("mints and keeps the signing pair, like every other host secret", () => {

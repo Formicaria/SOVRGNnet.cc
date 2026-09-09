@@ -181,6 +181,13 @@ jobs:
         working-directory: desktop/src-tauri
         run: cargo check --locked
 
+      # The supervisor grew its first pure logic in v0.8 — the scanner that
+      # finds cloudflared's assigned hostname in its log output — and logic
+      # that is checked but never run is how the std logging hook shipped.
+      - name: cargo test
+        working-directory: desktop/src-tauri
+        run: cargo test --locked
+
   # The identity provider is its own service with its own dependencies. Its
   # crypto is tested in the root suite, since shared/identity.ts is what both
   # this service and every server rely on.

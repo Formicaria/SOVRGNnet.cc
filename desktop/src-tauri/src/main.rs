@@ -342,7 +342,11 @@ fn main() {
             hosting::host_install,
             hosting::host_start,
             hosting::host_stop,
-            hosting::host_state
+            hosting::host_state,
+            hosting::host_options_read,
+            hosting::host_options_write,
+            hosting::host_open_logs,
+            hosting::host_uninstall
         ])
         .build(tauri::generate_context!())
         .expect("error while running SOVRGNnet")

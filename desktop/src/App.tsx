@@ -23,7 +23,13 @@ import Rail from "@/components/Rail";
 import SignIn from "@/components/SignIn";
 import UpdatePrompt from "@/components/UpdatePrompt";
 import { appVersion, consumeHostSetup, credentials, hostSetupRequested, quitApp } from "@/lib/bridge";
-import { hostAvailable, hostStart, onHostState } from "@/lib/hosting";
+import {
+  hostAvailable,
+  hostOptions,
+  hostStart,
+  onHostState,
+  watchHostState,
+} from "@/lib/hosting";
 import type { HostState } from "@shared/hosting";
 
 /**
@@ -229,7 +235,20 @@ export default function App() {
       }
       if (availability?.bundled && availability.installed) {
         try {
-          const started = await hostStart();
+          // An install that was never asked how it should be reached — one
+          // from before the choice existed, or a first run that stopped
+          // short — is not started on anybody's behalf. It is presented, once,
+          // with the question. Starting it silently as LAN-only would be the
+          // old default wearing the costume of a decision; starting it as a
+          // tunnel would put someone's server on the internet because they
+          // upgraded. Neither is a thing to do to a person.
+          const options = await hostOptions();
+          if (!options) {
+            setHost({ status: "stopped", components: [] });
+            setHostOpen(true);
+            return;
+          }
+          const started = await hostStart(options);
           setHost(started);
           if (started.status === "running" || started.status === "degraded") {
             await adoptHostedServer(started.url);
@@ -253,6 +272,19 @@ export default function App() {
     });
     return () => unlisten?.();
   }, []);
+
+  // Keep the picture current while something is running. The start report
+  // was the only report for two releases, so a component that crashed ten
+  // minutes in read "running" forever and the two reported "starting" by
+  // design read "starting" forever — a person watching the panel had no way
+  // to tell a server that was fine from one that had quietly lost its
+  // homeserver. Stopped when nothing is up: there is nothing to watch.
+  useEffect(() => {
+    const live =
+      host.status === "running" || host.status === "degraded" || host.status === "starting";
+    if (!live) return;
+    return watchHostState(setHost);
+  }, [host.status]);
 
   // Refresh names and reachability on launch, quietly. A server that's off
   // stays in the list — a friend's machine being asleep isn't a reason to
@@ -388,6 +420,20 @@ export default function App() {
         onStopped={() => {
           setHost({ status: "stopped", components: [] });
           setNotice("Your server is stopped. It starts again with the app.");
+        }}
+        onRemoved={async () => {
+          setHostOpen(false);
+          setHost({ status: "absent" });
+          // The rail entry for a server that no longer exists is a button
+          // to a refused connection. It goes with the server.
+          const gone = connections.filter(c => /^(127\.0\.0\.1|localhost)(:|$)/.test(c.host));
+          for (const connection of gone) await manager.disconnect(connection.id);
+          await reload();
+          setNotice("Your server has been removed from this computer.");
+        }}
+        onOpenServer={async url => {
+          setHostOpen(false);
+          await adoptHostedServer(url);
         }}
       />
 

@@ -510,7 +510,7 @@ button.ghost:hover { color: var(--text); }
 .panel-setup-code {
   margin: 14px 0;
   padding: 12px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 .panel-setup-code p { font-size: 13px; margin-bottom: 8px; }
@@ -522,3 +522,76 @@ button.ghost:hover { color: var(--text); }
   user-select: all;
   margin-bottom: 8px;
 }
+
+/* ------------------------------------------------------------- host panel v0.8 */
+
+/* The access question: two cards, because the difference between them is the
+   difference between a LAN service and a public website, and a toggle does
+   not carry that. Selected reads as chosen, not merely hovered. */
+.choices { display: flex; flex-direction: column; gap: 8px; }
+.choice {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #0d0818;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+.choice:hover { border-color: #3d2b66; }
+.choice.is-selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.choice:disabled { opacity: 0.55; cursor: default; }
+.choice-label { font-size: 13.5px; font-weight: 600; }
+.choice-detail { font-size: 12px; color: var(--muted); line-height: 1.45; }
+
+/* An inset block, same surface as .found. */
+.panel-block {
+  margin-top: 8px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0d0818;
+}
+.panel-block p { margin: 0; }
+.panel-block .panel-actions { margin-top: 10px; }
+.panel-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+/* The public address: monospace and selectable, because the whole point is
+   handing it to somebody. Wraps rather than clips — a link cut short is a
+   link to nowhere. */
+.panel-url {
+  font-family: var(--mono);
+  font-size: 12px;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.panel-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.panel-section + .panel-section { margin-top: 20px; }
+.panel-section > p.dim { margin-top: 4px; margin-bottom: 8px; line-height: 1.45; }
+
+button.ghost.small { padding: 5px 10px; font-size: 12px; }
+
+/* Removal is the one red button in the panel, and it stays outlined until
+   the person has typed the word — a filled red button is a target. */
+button.danger {
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: none;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  color: var(--danger);
+}
+button.danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.12); }
+button.danger:disabled { opacity: 0.45; cursor: default; }
+.panel-danger { padding-top: 16px; border-top: 1px solid rgba(44, 31, 77, 0.6); }
+
+/* On its way: neither up nor down, the third colour. */
+.panel-deps li.pending .panel-dep-state { color: var(--warn); }

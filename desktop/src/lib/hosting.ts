@@ -5,9 +5,11 @@ import {
   VOICE_UDP_RANGE,
   evaluate,
   portCandidates,
+  type AccessMode,
   type Component,
   type ComponentId,
   type ComponentState,
+  type HostOptions,
   type HostState,
 } from "@shared/hosting";
 import { credentials } from "@/lib/bridge";
@@ -79,7 +81,20 @@ interface HostReport {
   installed: boolean;
   components: ComponentReport[];
   url: string | null;
+  /** The tunnel's public address, when one is up. Optional: older supervisors omit it. */
+  public_url?: string | null;
 }
+
+/**
+ * The last full report — the one with ports and the url.
+ *
+ * `host_start` is the only call that knows which port each component was
+ * given and where the app answers; `host_state` reports live process states
+ * and nothing else, by design. So a poll is overlaid on this rather than
+ * replacing it, or every refresh would erase the ports from the panel and
+ * the url from the app.
+ */
+let lastReport: HostReport | null = null;
 
 function randomHex(bytes: number): string {
   const buffer = new Uint8Array(bytes);
@@ -245,8 +260,30 @@ export async function hostInstall(): Promise<void> {
   await invoke("host_install", { secrets: await hostSecrets() });
 }
 
+/**
+ * The access choice this install was made with, or null if nobody has
+ * chosen yet.
+ *
+ * Null is the answer the first-run flow is built around: it is what puts the
+ * question in front of the person instead of exposing their server — or
+ * silently not exposing it — on their behalf. An install from before the
+ * choice existed reads as null too, which is right: nobody chose for it, and
+ * the one-time question on its next launch is the cost of that.
+ */
+export async function hostOptions(): Promise<HostOptions | null> {
+  const raw = await invoke<{ access?: string } | null>("host_options_read");
+  if (!raw) return null;
+  // Anything unrecognised is LAN: the mode with no exposure to get wrong.
+  const access: AccessMode = raw.access === "tunnel" ? "tunnel" : "lan";
+  return { access };
+}
+
+export async function saveHostOptions(options: HostOptions): Promise<void> {
+  await invoke("host_options_write", { options });
+}
+
 /** Start everything and return the evaluated state, ready to render. */
-export async function hostStart(): Promise<HostState> {
+export async function hostStart(options: HostOptions): Promise<HostState> {
   const report = await invoke<HostReport>("host_start", {
     secrets: await hostSecrets(),
     ports: {
@@ -257,16 +294,118 @@ export async function hostStart(): Promise<HostState> {
       app: portCandidates("app"),
       voice_udp: VOICE_UDP_RANGE,
     },
+    options,
   });
+  lastReport = report;
   return interpret(report);
 }
 
 export async function hostStop(): Promise<void> {
   await invoke("host_stop");
+  lastReport = null;
 }
 
+/**
+ * The live picture: what the start report said, updated with what the
+ * processes are doing now.
+ *
+ * This existed before and nothing called it, which is why the panel's rows
+ * froze at the moment of start: a component that crashed ten minutes in read
+ * "running" forever, and ipfs and voice — reported "starting" by design,
+ * without waiting — read "starting" forever, whether or not they had come
+ * up. `watchHostState` is the caller now.
+ */
 export async function hostState(): Promise<HostState> {
-  return interpret(await invoke<HostReport>("host_state"));
+  const poll = await invoke<HostReport>("host_state");
+  const merged = lastReport ? overlay(lastReport, poll) : poll;
+  lastReport = merged;
+  return interpret(merged);
+}
+
+/**
+ * Merge a state poll onto the last full report.
+ *
+ * A poll carries live process states and, when there is a tunnel, its
+ * address; it carries no ports (they were decided at start and don't move)
+ * and no url. A component absent from a poll is one with no child process:
+ * either it never spawned — a start-time failure, whose words are worth
+ * keeping — or it has since been stopped.
+ */
+function overlay(base: HostReport, poll: HostReport): HostReport {
+  return {
+    installed: poll.installed,
+    url: base.url,
+    public_url: poll.public_url ?? base.public_url ?? null,
+    components: base.components.map(component => {
+      const live = poll.components.find(p => p.id === component.id);
+      if (live) {
+        return {
+          ...component,
+          state: live.state,
+          // A poll's error is fresher when it has one ("exited: ..."); when it
+          // doesn't, a start-time reason is only still true if the state is.
+          error: live.error ?? (live.state === component.state ? component.error : null),
+        };
+      }
+      if (component.state === "failed" || component.state === "off") return component;
+      return { ...component, state: "stopped", error: null };
+    }),
+  };
+}
+
+/**
+ * Poll the supervisor and report each change.
+ *
+ * Polling rather than pushing because the process handles live in Rust with
+ * no event of their own — `try_wait` is a question, not a notification — and
+ * five seconds is a fine answer to "is it still up" for a panel a person is
+ * looking at. Only *changes* reach the handler, compared structurally, so a
+ * steady server causes no re-renders at all.
+ */
+export function watchHostState(
+  handler: (state: HostState) => void,
+  intervalMs = 5000
+): () => void {
+  let stopped = false;
+  let last = "";
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const state = await hostState();
+      const key = JSON.stringify(state);
+      if (key !== last) {
+        last = key;
+        handler(state);
+      }
+    } catch {
+      // A poll that fails says nothing new; the last state stands.
+    }
+  };
+  const timer = setInterval(() => void tick(), intervalMs);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+}
+
+/** Reveal the component logs in the OS file manager. */
+export async function hostOpenLogs(): Promise<void> {
+  await invoke("host_open_logs");
+}
+
+/**
+ * Remove the hosted server entirely: every process stopped, every byte it
+ * wrote deleted, and the secrets it was started with forgotten.
+ *
+ * The keychain half is here rather than in Rust because the secrets were
+ * always the frontend's — generated here, stored here, never held by the
+ * supervisor past the call that used them. The confirmation is the
+ * caller's; by the time this runs, the person has read the words and said yes.
+ */
+export async function hostUninstall(): Promise<void> {
+  await invoke("host_uninstall");
+  await credentials.forget(HOST_KEYCHAIN_ID);
+  lastReport = null;
 }
 
 export function onInstallStep(handler: (stepId: string) => void): Promise<UnlistenFn> {
@@ -289,12 +428,13 @@ function interpret(report: HostReport): HostState {
 
   const byId = new Map(report.components.map(c => [c.id, c]));
   const components: Component[] = COMPONENTS.filter((id: ComponentId) => {
-    // Voice is the one optional component: a dev build or a bundle from
-    // before the SFU shipped runs a perfectly good server without it, and a
+    // Voice and the tunnel are the optional components: a dev build or a
+    // bundle from before the SFU shipped runs a perfectly good server
+    // without voice, and a LAN-only host has no tunnel by choice. A
     // permanent "stopped" row for something that was never going to start
     // reads as a problem. Absent from the report means absent from the
     // machine; the rows below mean "expected and not answering".
-    return id !== "voice" || byId.has(id);
+    return (id !== "voice" && id !== "tunnel") || byId.has(id);
   }).map((id: ComponentId) => {
     const raw = byId.get(id);
     return {
@@ -305,5 +445,5 @@ function interpret(report: HostReport): HostState {
     };
   });
 
-  return evaluate(components, report.url ?? "");
+  return evaluate(components, report.url ?? "", report.public_url ?? null);
 }

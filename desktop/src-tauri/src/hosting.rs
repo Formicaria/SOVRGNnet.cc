@@ -13,9 +13,9 @@
 // process trees are torn down with the tools each component itself ships
 // (pg_ctl for Postgres, plain kill for the single-process Go and Node ones).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -35,6 +35,16 @@ pub struct HostProcesses(pub Mutex<HashMap<String, Child>>);
 /// reason has exactly one writer (host_start) and one reader (host_state).
 static VOICE_OFF_REASON: Mutex<Option<String>> = Mutex::new(None);
 
+/// The public address the quick tunnel was assigned, once cloudflared says.
+///
+/// Same shape and same reasoning as VOICE_OFF_REASON: one writer (the thread
+/// reading cloudflared's stderr), readers in host_start and host_state, and no
+/// natural home on HostProcesses because it is a fact about the tunnel rather
+/// than a handle to it. Cleared by stop_all, because a stopped tunnel's old
+/// hostname is precisely the kind of stale truth that gets pasted into an
+/// invite.
+static TUNNEL_URL: Mutex<Option<String>> = Mutex::new(None);
+
 #[derive(Clone, Serialize)]
 pub struct ComponentReport {
     pub id: String,
@@ -49,6 +59,30 @@ pub struct HostReport {
     pub components: Vec<ComponentReport>,
     /// Where the app answers once running — what the frontend connects to.
     pub url: Option<String>,
+    /// Where the rest of the world reaches it, when a tunnel is up. Distinct
+    /// from `url` on purpose: the app itself is always dialled on loopback,
+    /// and the public address is only ever for handing to someone else.
+    pub public_url: Option<String>,
+}
+
+/// How the server is exposed — the persisted half of shared/hosting.ts's
+/// `HostOptions`. Written by the frontend through `host_options_write` once
+/// a person has chosen, read back on every later start so the choice
+/// survives the app. Lives in the data directory as plain JSON rather than
+/// the keychain, because it is a preference and not a secret, and because
+/// the keychain's "host" entry is documented as carrying secrets only.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct HostOptions {
+    /// "lan" or "tunnel". A string rather than an enum so a value written by
+    /// a newer frontend still deserialises here; anything unrecognised is
+    /// treated as "lan", the mode with no exposure to get wrong.
+    pub access: String,
+}
+
+impl HostOptions {
+    fn wants_tunnel(&self) -> bool {
+        self.access == "tunnel"
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -362,6 +396,205 @@ fn wait_for_port(port: u16, timeout_secs: u64) -> bool {
     false
 }
 
+/// The hostname cloudflared prints for a quick tunnel, if this line has it.
+///
+/// cloudflared announces the assigned address in a box on stderr:
+///
+/// ```text
+/// INF |  https://calm-river-1234.trycloudflare.com                           |
+/// ```
+///
+/// No regex crate (see the module comment), so: the first `https://` on the
+/// line, up to the next whitespace or box border, and it counts only if it is
+/// a trycloudflare.com name. Anything else that starts with https:// on
+/// cloudflared's stderr is documentation links in its startup banner.
+fn quick_tunnel_url(line: &str) -> Option<String> {
+    let start = line.find("https://")?;
+    let rest = &line[start..];
+    let end = rest
+        .find(|c: char| c.is_whitespace() || c == '|' || c == '"')
+        .unwrap_or(rest.len());
+    let candidate = rest[..end].trim_end_matches('/');
+    if candidate.ends_with(".trycloudflare.com") && candidate.len() > "https://.trycloudflare.com".len() {
+        Some(candidate.to_string())
+    } else {
+        None
+    }
+}
+
+/// Start a Cloudflare quick tunnel to the app and watch for its address.
+///
+/// Unlike every other component this one's stderr is *read*, not just
+/// captured: the assigned hostname exists nowhere except in cloudflared's own
+/// log output, and the app needs it at boot to mint invite links that name it.
+/// A thread tees each line to tunnel.log — so the log stays as complete as
+/// the other components' — and posts the first quick-tunnel URL it sees to
+/// TUNNEL_URL.
+///
+/// `--no-autoupdate` because the binary is the bundle's to update, not
+/// cloudflared's; a self-update would replace a file the installer owns.
+fn spawn_tunnel(bundle: &Path, app_port: u16, log_path: &Path) -> Result<Child, String> {
+    let binary = bundle.join(exe("cloudflared"));
+    if !binary.exists() {
+        return Err(
+            "This installer's bundle has no cloudflared — a newer installer carries it. Until then, your server is reachable on your network only."
+                .to_string(),
+        );
+    }
+
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .map_err(|e| format!("couldn't open log {}: {e}", log_path.display()))?;
+    let mut log_for_stderr = log.try_clone().map_err(|e| e.to_string())?;
+
+    let mut command = Command::new(binary);
+    command
+        .arg("tunnel")
+        .arg("--url")
+        .arg(format!("http://127.0.0.1:{app_port}"))
+        .arg("--no-autoupdate")
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::piped());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "cloudflared started without a readable stderr".to_string())?;
+
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            let _ = writeln!(log_for_stderr, "{line}");
+            if let Some(url) = quick_tunnel_url(&line) {
+                *TUNNEL_URL.lock().unwrap() = Some(url);
+            }
+        }
+    });
+
+    Ok(child)
+}
+
+/// Wait for the tunnel to report its address. Generous, because cloudflared
+/// first has to reach Cloudflare's edge, and on a slow or captive network
+/// that is the slowest thing in the whole start sequence. Late is fine — the
+/// reader thread keeps listening and host_state will report the address when
+/// it lands — but the app is about to be spawned with whatever is known now,
+/// so a few extra seconds here buy correct invite links for the whole run.
+fn wait_for_tunnel_url(timeout_secs: u64) -> Option<String> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    while std::time::Instant::now() < deadline {
+        if let Some(url) = TUNNEL_URL.lock().unwrap().clone() {
+            return Some(url);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    None
+}
+
+// ------------------------------------------------------------------- options
+
+fn options_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(data_dir(app)?.join("options.json"))
+}
+
+/// The persisted access choice, or None for an install that was never asked.
+///
+/// None is a real answer, not a default: it is what tells the frontend to put
+/// the question in front of the person rather than silently exposing (or
+/// silently not exposing) their server. An install from before v0.8 reads as
+/// never-asked too, which is correct — nobody chose for it.
+#[tauri::command]
+pub async fn host_options_read(app: AppHandle) -> Result<Option<HostOptions>, String> {
+    let path = options_path(&app)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    serde_json::from_str::<HostOptions>(&text)
+        .map(Some)
+        .map_err(|e| format!("options.json is unreadable: {e}"))
+}
+
+#[tauri::command]
+pub async fn host_options_write(app: AppHandle, options: HostOptions) -> Result<(), String> {
+    let path = options_path(&app)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let text = serde_json::to_string_pretty(&options).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| e.to_string())
+}
+
+/// Reveal the component logs in the OS file manager.
+///
+/// The panel used to tell people the path in prose — "under host/logs/" — and
+/// stop there, because `open_external` refuses anything but http(s) and there
+/// was nothing else to hand a folder to. Reading a log is the one thing a
+/// person can do when a component fails, and a path they have to find by hand
+/// is a path most never find.
+#[tauri::command]
+pub async fn host_open_logs(app: AppHandle) -> Result<(), String> {
+    let logs = data_dir(&app)?.join("logs");
+    std::fs::create_dir_all(&logs).map_err(|e| e.to_string())?;
+    let mut command = if cfg!(windows) {
+        let mut c = Command::new("explorer");
+        c.arg(&logs);
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = Command::new("open");
+        c.arg(&logs);
+        c
+    } else {
+        let mut c = Command::new("xdg-open");
+        c.arg(&logs);
+        c
+    };
+    // Explorer in particular returns a non-zero status even on success, so the
+    // spawn is the check, not the exit code.
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("couldn't open {}: {e}", logs.display()))
+}
+
+/// Remove everything the hosted server wrote: databases, homeserver state,
+/// the IPFS repo, rendered configs, logs, and the access choice.
+///
+/// Stops the components first — Postgres through pg_ctl so it lets go of its
+/// files — because deleting a live cluster's directory out from under it is
+/// how you get a process that survives holding open handles to nothing.
+/// Deliberately does NOT touch the keychain: the secrets are the frontend's,
+/// stored by it and forgotten by it, and this module never held them.
+///
+/// The confirmation that this is wanted happens in the frontend, with the
+/// words in front of the person. By the time this runs, they have said yes.
+#[tauri::command]
+pub async fn host_uninstall(
+    app: AppHandle,
+    processes: tauri::State<'_, HostProcesses>,
+) -> Result<(), String> {
+    stop_all(&app, &processes);
+    let data = data_dir(&app)?;
+    if data.exists() {
+        std::fs::remove_dir_all(&data)
+            .map_err(|e| format!("couldn't remove {}: {e}", data.display()))?;
+    }
+    Ok(())
+}
+
 // ------------------------------------------------------------------- install
 
 /// One-time setup: database cluster, homeserver identity, IPFS repo.
@@ -600,10 +833,14 @@ pub async fn host_start(
     processes: tauri::State<'_, HostProcesses>,
     secrets: HostSecrets,
     ports: PortPlan,
+    options: HostOptions,
 ) -> Result<HostReport, String> {
     if !installed(&app) {
         return Err("Nothing is installed to start.".to_string());
     }
+    // A start is a fresh tunnel or no tunnel; either way, last run's address
+    // is not this run's.
+    *TUNNEL_URL.lock().unwrap() = None;
 
     let data = data_dir(&app)?;
     let logs = data.join("logs");
@@ -805,8 +1042,33 @@ pub async fn host_start(
         }
     }
 
-    // -- app -----------------------------------------------------------------
+    // -- tunnel --------------------------------------------------------------
+    //
+    // Before the app, for the reason shared/hosting.ts gives beside voice:
+    // the app reads its public hostname from the environment at boot, and a
+    // quick tunnel's hostname exists only once cloudflared has connected.
+    // cloudflared is content to come up before its origin does — it answers
+    // 502 until the app is listening, then stops — so the ordering costs
+    // nothing but the wait.
     let app_port = pick_port(&ports.app)?;
+    let mut public_url: Option<String> = None;
+    if options.wants_tunnel() {
+        match spawn_tunnel(&bundle_dir(&app)?, app_port, &logs.join("tunnel.log")) {
+            Ok(child) => {
+                processes.0.lock().unwrap().insert("tunnel".into(), child);
+                public_url = wait_for_tunnel_url(30);
+                components.push(ComponentReport {
+                    id: "tunnel".into(),
+                    state: if public_url.is_some() { "running" } else { "starting" }.into(),
+                    port: None,
+                    error: None,
+                });
+            }
+            Err(e) => fail(&mut components, "tunnel", e),
+        }
+    }
+
+    // -- app -----------------------------------------------------------------
     {
         let bundle = bundle_dir(&app)?;
         let mut c = Command::new(bundle.join(exe("node")));
@@ -833,7 +1095,16 @@ pub async fn host_start(
             .env("SOVRGN_SETUP_TOKEN", &secrets.setup_token)
             .env("INSTANCE_NAME", "My computer")
             .env("INSTANCE_JOIN_POLICY", "invite")
-            .env("SOVRGNNET_ACCESS_MODE", "lan");
+            .env("SOVRGNNET_ACCESS_MODE", if options.wants_tunnel() { "tunnel" } else { "lan" });
+        // The one address that is right for everyone, handed to the app so
+        // invite links name it instead of the owner's loopback
+        // (server/lanHost.ts). Only when known: an app started with a stale
+        // or guessed public host would mint links to nowhere with total
+        // confidence, which is worse than LAN links that at least say where
+        // they point.
+        if let Some(url) = &public_url {
+            c.env("SOVRGN_PUBLIC_HOST", url);
+        }
         // Only when the SFU actually started: these three are the exact
         // switch behind the instance's `voice` capability flag, and setting
         // them beside a component that failed to spawn would advertise a
@@ -873,6 +1144,7 @@ pub async fn host_start(
         installed: true,
         components,
         url,
+        public_url,
     };
     emit_state(&app, &report);
     Ok(report)
@@ -897,10 +1169,14 @@ pub fn stop_all(app: &AppHandle, processes: &HostProcesses) {
     // running-but-voiceless host; leaving it set would make host_state report
     // an "off" SFU for a server that is entirely off.
     *VOICE_OFF_REASON.lock().unwrap() = None;
+    *TUNNEL_URL.lock().unwrap() = None;
 
     let mut map = processes.0.lock().unwrap();
 
-    for id in ["app", "voice", "ipfs", "matrix"] {
+    // The tunnel goes first: it is the only component with a public face, and
+    // a public address that answers 502 for the seconds the app takes to die
+    // is a worse last impression than one that simply stops resolving.
+    for id in ["tunnel", "app", "voice", "ipfs", "matrix"] {
         if let Some(mut child) = map.remove(id) {
             let _ = child.kill();
             let _ = child.wait();
@@ -941,8 +1217,16 @@ pub async fn host_state(
     let mut components = Vec::new();
     let mut map = processes.0.lock().unwrap();
 
+    let public_url = TUNNEL_URL.lock().unwrap().clone();
+
     for (id, child) in map.iter_mut() {
         let state = match child.try_wait() {
+            // Alive is running — except for the tunnel, which is alive from
+            // the moment it spawns and *useful* only once it has an address.
+            // Reporting the gap as "starting" is what lets the panel show a
+            // spinner beside "public link" instead of a green dot beside
+            // nothing.
+            Ok(None) if id == "tunnel" && public_url.is_none() => ("starting".to_string(), None),
             Ok(None) => ("running".to_string(), None),
             Ok(Some(status)) => ("failed".to_string(), Some(format!("exited: {status}"))),
             Err(e) => ("failed".to_string(), Some(e.to_string())),
@@ -970,6 +1254,7 @@ pub async fn host_state(
         installed: installed(&app),
         components,
         url: None,
+        public_url,
     })
 }
 
@@ -980,4 +1265,76 @@ pub async fn host_available(app: AppHandle) -> Result<serde_json::Value, String>
         "bundled": bundle_present(&app),
         "installed": installed(&app),
     }))
+}
+
+// ---------------------------------------------------------------------- tests
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The only piece of this module with logic worth a unit test that
+    // doesn't need a process: the line scanner that finds cloudflared's
+    // assigned hostname. Everything else here is spawning and waiting.
+
+    #[test]
+    fn finds_the_quick_tunnel_url_in_cloudflareds_box() {
+        // Verbatim shape of what cloudflared prints, timestamp and all.
+        let line = "2026-09-08T05:12:33Z INF |  https://calm-river-1234.trycloudflare.com                                     |";
+        assert_eq!(
+            quick_tunnel_url(line).as_deref(),
+            Some("https://calm-river-1234.trycloudflare.com")
+        );
+    }
+
+    #[test]
+    fn ignores_the_documentation_links_in_the_banner() {
+        // cloudflared's startup banner has https:// links of its own, none
+        // of which are the tunnel.
+        for line in [
+            "INF Requesting new quick Tunnel on trycloudflare.com...",
+            "INF |  Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):  |",
+            "INF Thank you for trying Cloudflare Tunnel. Doing so, without a Cloudflare account, is a quick way to experiment. https://developers.cloudflare.com/cloudflare-one/",
+            "WRN Cannot determine default configuration path. No file [config.yml config.yaml] in [~/.cloudflared ~/.cloudflare-warp ~/cloudflare-warp /etc/cloudflared /usr/local/etc/cloudflared]",
+        ] {
+            assert_eq!(quick_tunnel_url(line), None, "matched: {line}");
+        }
+    }
+
+    #[test]
+    fn stops_at_whitespace_borders_and_quotes() {
+        assert_eq!(
+            quick_tunnel_url("x https://a-b.trycloudflare.com| y").as_deref(),
+            Some("https://a-b.trycloudflare.com")
+        );
+        assert_eq!(
+            quick_tunnel_url("url=\"https://a-b.trycloudflare.com\"").as_deref(),
+            Some("https://a-b.trycloudflare.com")
+        );
+        assert_eq!(
+            quick_tunnel_url("https://a-b.trycloudflare.com/").as_deref(),
+            Some("https://a-b.trycloudflare.com")
+        );
+    }
+
+    #[test]
+    fn refuses_a_bare_domain_and_other_hosts() {
+        // A suffix match alone would accept the empty-subdomain form, which
+        // cloudflared never assigns and which a person could not dial.
+        assert_eq!(quick_tunnel_url("https://.trycloudflare.com"), None);
+        assert_eq!(quick_tunnel_url("https://example.com"), None);
+        assert_eq!(quick_tunnel_url("http://a-b.trycloudflare.com"), None);
+    }
+
+    #[test]
+    fn options_round_trip_and_tolerate_the_unknown() {
+        let json = serde_json::to_string(&HostOptions { access: "tunnel".into() }).unwrap();
+        let back: HostOptions = serde_json::from_str(&json).unwrap();
+        assert!(back.wants_tunnel());
+        // A value from a newer frontend still parses, and reads as no tunnel.
+        let future: HostOptions = serde_json::from_str(r#"{"access":"something-new"}"#).unwrap();
+        assert!(!future.wants_tunnel());
+        let lan: HostOptions = serde_json::from_str(r#"{"access":"lan"}"#).unwrap();
+        assert!(!lan.wants_tunnel());
+    }
 }

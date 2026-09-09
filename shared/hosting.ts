@@ -13,10 +13,57 @@
 /**
  * The pieces a hosted server is made of, in start order. Voice starts before
  * the app because the app reads the SFU's address from its environment at
- * boot — the one ordering dependency here that isn't about data.
+ * boot. The tunnel precedes the app for the identical reason: the public
+ * hostname a quick tunnel is assigned exists only once cloudflared has
+ * connected, and the app has to know it at boot to mint invite links that
+ * name it rather than the owner's loopback. Two ordering dependencies, both
+ * about environment rather than data.
  */
-export const COMPONENTS = ["postgres", "matrix", "ipfs", "voice", "app"] as const;
+export const COMPONENTS = ["postgres", "matrix", "ipfs", "voice", "tunnel", "app"] as const;
 export type ComponentId = (typeof COMPONENTS)[number];
+
+/**
+ * How people reach a desktop-hosted server.
+ *
+ * `lan` is what every desktop host was before v0.8: the app listens on all
+ * interfaces, invite links carry the machine's LAN address, and "friends on
+ * your network can join" is exactly and only true. `tunnel` adds a Cloudflare
+ * quick tunnel — a public `https://` link with no account, no domain and no
+ * port forwarding, which is the entire point: ADR 0002 called it "likely the
+ * better default for *my friends should be able to join*", and a person who
+ * does not know what a router is cannot forward a port on one.
+ *
+ * Asked at first run rather than defaulted. A quick tunnel exposes the server
+ * to the internet, and that is a decision a person should make on purpose,
+ * with the words in front of them — not one that happened to them.
+ */
+export type AccessMode = "lan" | "tunnel";
+
+export const ACCESS_MODES: Array<{
+  id: AccessMode;
+  label: string;
+  detail: string;
+}> = [
+  {
+    id: "tunnel",
+    label: "Anyone with the link",
+    detail:
+      "A public https:// address through a free Cloudflare tunnel. No account, no port forwarding. The address changes each time your server restarts.",
+  },
+  {
+    id: "lan",
+    label: "Just my network",
+    detail:
+      "Only people on the same Wi-Fi or LAN can reach it. Nothing is exposed to the internet.",
+  },
+];
+
+/** The options the supervisor is started with. Persisted by the supervisor. */
+export type HostOptions = {
+  access: AccessMode;
+};
+
+export const DEFAULT_HOST_OPTIONS: HostOptions = { access: "tunnel" };
 
 export type ComponentState =
   | "stopped"
@@ -50,8 +97,14 @@ export type HostState =
   | { status: "absent" }
   | { status: "installing"; step: string; completed: number; total: number }
   | { status: "starting"; components: Component[] }
-  | { status: "running"; components: Component[]; url: string }
-  | { status: "degraded"; components: Component[]; url: string; problem: string }
+  | { status: "running"; components: Component[]; url: string; publicUrl: string | null }
+  | {
+      status: "degraded";
+      components: Component[];
+      url: string;
+      publicUrl: string | null;
+      problem: string;
+    }
   | { status: "stopped"; components: Component[] }
   | { status: "failed"; components: Component[]; problem: string };
 
@@ -63,7 +116,7 @@ export type HostState =
  * taken — which is why every component reports the port it actually got rather
  * than anyone assuming.
  */
-export const PREFERRED_PORTS: Record<ComponentId, number> = {
+export const PREFERRED_PORTS: Record<Exclude<ComponentId, "tunnel">, number> = {
   postgres: 5433, // not 5432 — a developer's own Postgres is likely there
   matrix: 8018, // not 8008 — Dendrite's default, and a developer may run one
   ipfs: 5101, // not 5001 — a developer's own Kubo is likely there
@@ -83,7 +136,7 @@ export const PORT_SEARCH_RANGE = 40;
  */
 export const VOICE_UDP_RANGE: [number, number] = [50000, 50200];
 
-export function portCandidates(component: ComponentId): number[] {
+export function portCandidates(component: Exclude<ComponentId, "tunnel">): number[] {
   const first = PREFERRED_PORTS[component];
   return Array.from({ length: PORT_SEARCH_RANGE }, (_, i) => first + i);
 }
@@ -112,7 +165,11 @@ export const REQUIRED_FOR_CHAT: ComponentId[] = ["postgres", "matrix", "app"];
  * work is degraded, not broken, and telling someone their server is down when
  * they can chat perfectly well would be both wrong and alarming.
  */
-export function evaluate(components: Component[], url: string): HostState {
+export function evaluate(
+  components: Component[],
+  url: string,
+  publicUrl: string | null = null
+): HostState {
   const byId = new Map(components.map(c => [c.id, c]));
 
   const failed = components.filter(c => c.state === "failed");
@@ -149,10 +206,11 @@ export function evaluate(components: Component[], url: string): HostState {
         status: "degraded",
         components,
         url,
+        publicUrl,
         problem: describeDegradation(ailing),
       };
     }
-    return { status: "running", components, url };
+    return { status: "running", components, url, publicUrl };
   }
 
   const unhealthy = components.filter(c => c.state === "unhealthy");
@@ -172,6 +230,7 @@ const HUMAN_NAMES: Record<ComponentId, string> = {
   matrix: "the chat server",
   ipfs: "file storage",
   voice: "the voice server",
+  tunnel: "the public link",
   app: "the app",
 };
 

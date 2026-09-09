@@ -13,6 +13,7 @@
 #     generate-keys[.exe]  its signing-key tool, same build
 #     kubo[.exe]           IPFS
 #     livekit[.exe]        the voice SFU, so a desktop host offers voice out of the box
+#     cloudflared[.exe]    a quick tunnel, so "anyone with the link" needs no port forwarding
 #     node[.exe]           the Node runtime that runs the app bundle
 #     app/                 self-contained server: index.mjs, public/, drizzle/
 #     dendrite.yaml.template
@@ -46,6 +47,13 @@ PG_VERSION="${HOST_PG_VERSION:-16.6.0}"
 # No compose-file counterpart to match: a dedicated deployment's operator runs
 # their own SFU (docs/VOICE.md), so this pin is the desktop host's alone.
 LIVEKIT_VERSION="${HOST_LIVEKIT_VERSION:-1.13.1}"
+# cloudflared's calendar versioning. No compose-file counterpart either: the
+# Docker install pulls cloudflare/cloudflared:latest as a sidecar, which is
+# fine for a container that restarts into a fresh pull and wrong for a file an
+# installer ships — the desktop host pins, so a build is reproducible and a
+# regression in the tunnel client is a version bump here rather than a
+# mystery on somebody's machine.
+CLOUDFLARED_VERSION="${HOST_CLOUDFLARED_VERSION:-2026.8.3}"
 
 HOST_DIR="desktop/src-tauri/host"
 WORK="$(mktemp -d -t sovrgnnet-host.XXXXXX)"
@@ -182,6 +190,25 @@ case "$TARGET" in
     ;;
 esac
 ok "livekit in place"
+
+# --- cloudflared -------------------------------------------------------------
+# Single static binaries, published per platform without an archive around
+# them. Not built from source like Dendrite: cloudflared's build wants a
+# specific Go toolchain and a pile of platform SDKs, and the released binary
+# is what Cloudflare itself supports.
+say "cloudflared $CLOUDFLARED_VERSION"
+CLOUDFLARED_BASE="https://github.com/cloudflare/cloudflared/releases/download/$CLOUDFLARED_VERSION"
+case "$TARGET" in
+  linux-x64)
+    fetch "$CLOUDFLARED_BASE/cloudflared-linux-amd64" "$WORK/cloudflared"
+    install -m 755 "$WORK/cloudflared" "$HOST_DIR/cloudflared"
+    ;;
+  windows-x64)
+    fetch "$CLOUDFLARED_BASE/cloudflared-windows-amd64.exe" "$WORK/cloudflared.exe"
+    cp "$WORK/cloudflared.exe" "$HOST_DIR/cloudflared.exe"
+    ;;
+esac
+ok "cloudflared in place"
 
 # --- postgres ----------------------------------------------------------------
 say "PostgreSQL $PG_VERSION (zonky embedded binaries)"

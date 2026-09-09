@@ -163,3 +163,55 @@ describe("the voice URL gets the same treatment", () => {
     expect(shareableVoiceUrl("not a url", "192.168.1.50:3100", HOME_LAN)).toBe("not a url");
   });
 });
+
+describe("shareableHost prefers a public host the supervisor announced (v0.8)", () => {
+  // The desktop tunnel: the app is started with SOVRGN_PUBLIC_HOST once
+  // cloudflared reports the hostname it was assigned. That address is right
+  // for everyone, and beats the LAN guess — which would hand a friend across
+  // town a 192.168 link to nowhere.
+
+  it("returns the public host for a loopback request, dropping the port", () => {
+    // The tunnel terminates on 443; carrying :3100 across would produce
+    // https://x.trycloudflare.com:3100, a link to nowhere.
+    expect(shareableHost("127.0.0.1:3100", HOME_LAN, "calm-river.trycloudflare.com"))
+      .toBe("calm-river.trycloudflare.com");
+    expect(shareableHost("localhost:3100", HOME_LAN, "calm-river.trycloudflare.com"))
+      .toBe("calm-river.trycloudflare.com");
+  });
+
+  it("still leaves a non-loopback Host header alone", () => {
+    // A friend on the LAN who dialled 192.168.1.50 directly was reachable at
+    // exactly that address; second-guessing it is the mistake this module
+    // exists to avoid. Same for a request that arrived through the tunnel,
+    // whose header already names the public host.
+    expect(shareableHost("192.168.1.50:3100", HOME_LAN, "calm-river.trycloudflare.com"))
+      .toBe("192.168.1.50:3100");
+    expect(shareableHost("calm-river.trycloudflare.com", HOME_LAN, "calm-river.trycloudflare.com"))
+      .toBe("calm-river.trycloudflare.com");
+  });
+
+  it("falls back to the LAN rule when no public host is known", () => {
+    expect(shareableHost("127.0.0.1:3100", HOME_LAN, null)).toBe("192.168.1.50:3100");
+  });
+
+  it("reads SOVRGN_PUBLIC_HOST from the environment per call, host only", () => {
+    const before = process.env.SOVRGN_PUBLIC_HOST;
+    try {
+      // Full URL, the form cloudflared prints. Only the host survives.
+      process.env.SOVRGN_PUBLIC_HOST = "https://calm-river.trycloudflare.com";
+      expect(shareableHost("127.0.0.1:3100", HOME_LAN)).toBe("calm-river.trycloudflare.com");
+      // Bare host works too.
+      process.env.SOVRGN_PUBLIC_HOST = "calm-river.trycloudflare.com";
+      expect(shareableHost("127.0.0.1:3100", HOME_LAN)).toBe("calm-river.trycloudflare.com");
+      // Blank means absent — the LAN rule, not an empty host.
+      process.env.SOVRGN_PUBLIC_HOST = "   ";
+      expect(shareableHost("127.0.0.1:3100", HOME_LAN)).toBe("192.168.1.50:3100");
+      // Garbage is treated as absent rather than handed out as a link.
+      process.env.SOVRGN_PUBLIC_HOST = "http://[not a host";
+      expect(shareableHost("127.0.0.1:3100", HOME_LAN)).toBe("192.168.1.50:3100");
+    } finally {
+      if (before === undefined) delete process.env.SOVRGN_PUBLIC_HOST;
+      else process.env.SOVRGN_PUBLIC_HOST = before;
+    }
+  });
+});

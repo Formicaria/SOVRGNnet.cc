@@ -82,15 +82,48 @@ function looksLikeDockerBridge(address: string): boolean {
 
 export function shareableHost(
   requestHost: string,
-  read: InterfaceReader = networkInterfaces
+  read: InterfaceReader = networkInterfaces,
+  publicHost: string | null = publicHostFromEnv()
 ): string {
   const { name, port } = splitHostPort(requestHost);
   if (!isLoopbackName(name)) return requestHost;
+
+  // A supervisor that opened a tunnel knows the one address that is right
+  // for everyone, and it beats any guess made from the interface table. The
+  // tunnel terminates on its own port, so the loopback port is dropped rather
+  // than carried — `https://x.trycloudflare.com:3100` is a link to nowhere.
+  if (publicHost) return publicHost;
 
   const candidates = lanAddresses(read).filter(a => !looksLikeDockerBridge(a));
   if (candidates.length === 0) return requestHost;
 
   return port ? `${candidates[0]}:${port}` : candidates[0];
+}
+
+/**
+ * The public hostname the process was started under, if any.
+ *
+ * Set by the desktop supervisor once its quick tunnel reports the hostname
+ * Cloudflare assigned — and only then, because the value is unknowable before
+ * cloudflared connects and different on every restart. That is also why it is
+ * an environment variable and not an instance setting: a stored value would be
+ * wrong within a day. Docker's tunnel modes never set it; behind those the
+ * Host header already names the public address and the loopback rule above
+ * never fires.
+ *
+ * Read per call, not at module load, so a test can set and unset it.
+ */
+function publicHostFromEnv(): string | null {
+  const value = process.env.SOVRGN_PUBLIC_HOST?.trim();
+  if (!value) return null;
+  // Tolerate a full URL — `https://x.trycloudflare.com` — since that is the
+  // form cloudflared prints and the form a person would paste. Only the host
+  // is wanted; inviteUrl chooses the scheme.
+  try {
+    return new URL(value.includes("://") ? value : `https://${value}`).host || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
