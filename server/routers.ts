@@ -881,6 +881,39 @@ export const appRouter = router({
         };
       }),
 
+    /**
+     * Retire the current invite link.
+     *
+     * The code is a column on the server row, not a table of them, so there is
+     * one live link at a time and revoking is clearing it. Until now nothing
+     * ever set that column back to null and `createInvite` was idempotent —
+     * which meant a link that had been forwarded somewhere it shouldn't have
+     * been could never be taken away. Calling `createInvite` after this mints a
+     * fresh code, which is the intended sequence.
+     *
+     * Admin+, matching `createInvite`: an invite is the way past a private
+     * server's door, in both directions.
+     */
+    revokeInvite: protectedProcedure
+      .input(z.object({ serverId: z.number() }))
+      .mutation(async ({ ctx, input }) => {
+        const server = await db.getServerById(input.serverId);
+        if (!server) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Server not found.",
+          });
+        }
+        await requireServerRole(input.serverId, ctx.user.id, "admin");
+
+        // Reported so the caller can tell "that link is dead now" from "there
+        // was no link" — the two deserve different words on screen, and only
+        // this side knows which happened.
+        const revoked = server.inviteCode != null;
+        if (revoked) await db.clearServerInviteCode(server.id);
+        return { revoked } as const;
+      }),
+
     /** Join via invite code — works for private servers too. */
     joinByInvite: protectedProcedure
       .input(z.object({ code: z.string().min(1).max(32) }))
@@ -1507,6 +1540,27 @@ export const appRouter = router({
           input.matrixUserId
         );
       }),
+
+    /**
+     * The two fields the account panel lets you write about yourself.
+     *
+     * Deliberately not `get` above. That one answers with the whole profile
+     * row, `matrixAccessToken` included — the instance's credential for acting
+     * as this account, which the schema states the browser never sees. It has
+     * survived because nothing called it; pointing the profile form at it would
+     * have ended that, and of every token on the account this is the one
+     * `signOutDevice` refuses to revoke. See `getEditableUserProfile`.
+     */
+    editable: protectedProcedure.query(async ({ ctx }) => {
+      const profile = await db.getEditableUserProfile(ctx.user.id);
+      // An account with no profile row is the ordinary state before anyone
+      // fills anything in, not an error. Answering with nulls rather than
+      // nothing keeps "still loading" and "nothing set" apart in the form.
+      return {
+        avatar: profile?.avatar ?? null,
+        bio: profile?.bio ?? null,
+      };
+    }),
 
     /**
      * Every Matrix session on this account.

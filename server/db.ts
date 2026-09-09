@@ -978,6 +978,25 @@ export async function setServerInviteCode(
     .where(eq(servers.id, serverId));
 }
 
+/**
+ * Retire a server's invite code.
+ *
+ * A separate accessor rather than widening `setServerInviteCode` to take null:
+ * clearing the column is the one write that makes a link that is already in
+ * somebody's hands stop working, and a caller that reaches for it should have
+ * had to name it. The column is unique, so leaving a revoked code in place
+ * would also block re-minting that exact string forever.
+ */
+export async function clearServerInviteCode(serverId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  await db
+    .update(servers)
+    .set({ inviteCode: null, updatedAt: new Date() })
+    .where(eq(servers.id, serverId));
+}
+
 export async function getMessageById(messageId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -1231,6 +1250,30 @@ export async function getUserProfile(userId: number) {
 
   const result = await db
     .select()
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, userId))
+    .limit(1);
+  return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * The profile fields a person edits about themselves.
+ *
+ * A narrowed select, and not a stylistic one. `getUserProfile` above is
+ * `select()` — every column, `matrixAccessToken` included, which is the
+ * instance's own credential for acting as this account and which the schema
+ * says in as many words the browser never sees. Nothing had ever handed it out
+ * because nothing called that accessor; wiring the profile form to it would
+ * have, and that token is the one the sessions list cannot revoke. So the
+ * accessor the form reads through is a different accessor, and it cannot
+ * select what it does not name.
+ */
+export async function getEditableUserProfile(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .select({ avatar: userProfiles.avatar, bio: userProfiles.bio })
     .from(userProfiles)
     .where(eq(userProfiles.userId, userId))
     .limit(1);

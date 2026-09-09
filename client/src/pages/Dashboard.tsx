@@ -44,6 +44,7 @@ import {
   Settings,
   KeyRound,
   Lock,
+  User as UserIcon,
 } from "lucide-react";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
@@ -52,6 +53,7 @@ import VoicePanel from "@/components/VoicePanel";
 import MemberList from "@/components/MemberList";
 import AddServerDialog from "@/components/AddServerDialog";
 import ServerSettings from "@/components/ServerSettings";
+import { AccountSettings } from "@/components/AccountSettings";
 import { EncryptionPanel } from "@/components/EncryptionPanel";
 import { SharedFile } from "@/components/SharedFile";
 import { useConnections } from "@/contexts/ConnectionsContext";
@@ -119,6 +121,7 @@ export default function Dashboard() {
   const { connections, current, multiplexes } = useConnections();
   const [addServerOpen, setAddServerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const [, setLocation] = useLocation();
 
   const [selectedServerId, setSelectedServerId] = useState<number | null>(null);
@@ -324,9 +327,21 @@ export default function Dashboard() {
     },
     onError: e => setError(e.message),
   });
+  const revokeInvite = trpc.servers.revokeInvite.useMutation({
+    onSuccess: () => {
+      // Not refetched: `createInvite` is a mutation, so there is no query cache
+      // holding the dead code. What's on screen is what this dialog was handed,
+      // and it is now wrong — drop it and say so.
+      setInviteLink(null);
+      setInviteCopied(false);
+      setInviteRevoked(true);
+    },
+    onError: e => setError(e.message),
+  });
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
+  const [inviteRevoked, setInviteRevoked] = useState(false);
 
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -877,6 +892,40 @@ export default function Dashboard() {
         )}
 
         <div className="mt-auto flex flex-col gap-2">
+          {/*
+              Your own account, next to the two other things that are about
+              this client rather than about a community.
+
+              The panel itself has existed since #33. Its only mount was in a
+              DashboardLayout that nothing imports, so in practice the web app
+              shipped with no account settings at all: no way to change a
+              username, list the sessions signed in to your account, or set an
+              avatar — all of it implemented, none of it reachable. This rail
+              is where ServerSettings and the encryption panel are opened
+              from, so it is where this one belongs.
+          */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                aria-label="Account"
+                onClick={() => setAccountOpen(true)}
+                className="w-12 h-12 rounded-2xl bg-slate-800 hover:bg-slate-700 hover:rounded-xl flex items-center justify-center transition-all"
+              >
+                <UserIcon className="w-4 h-4 text-slate-400" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Account</TooltipContent>
+          </Tooltip>
+          <AccountSettings
+            open={accountOpen}
+            onOpenChange={setAccountOpen}
+            // So the sessions list can mark the row you are sitting on before
+            // you end it. Null when this client holds no Matrix session of its
+            // own — which is one of the times that list matters most, so the
+            // panel must not require it.
+            currentDeviceId={cryptoSession?.deviceId ?? null}
+          />
+
           {encryptionAvailable && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -945,6 +994,7 @@ export default function Dashboard() {
                 setInviteOpen(open);
                 if (open && selectedServerId) {
                   setInviteCopied(false);
+                  setInviteRevoked(false);
                   createInvite.mutate({ serverId: selectedServerId });
                 }
               }}
@@ -964,26 +1014,88 @@ export default function Dashboard() {
                     Anyone with this link can join {selectedServer.name}.
                   </DialogDescription>
                 </DialogHeader>
-                {inviteLink ? (
-                  <div className="flex gap-2">
-                    <Input
-                      readOnly
-                      value={inviteLink}
-                      className="bg-slate-800 border-slate-700 font-mono text-sm"
-                    />
+                {inviteRevoked ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-slate-300">
+                      That link is dead. Anyone who already joined with it stays
+                      — revoking closes the door, it doesn't remove people who
+                      came through it.
+                    </p>
                     <Button
-                      size="icon"
-                      onClick={async () => {
-                        await navigator.clipboard.writeText(inviteLink);
-                        setInviteCopied(true);
+                      variant="secondary"
+                      disabled={createInvite.isPending}
+                      onClick={() => {
+                        if (!selectedServerId) return;
+                        setInviteRevoked(false);
+                        setInviteCopied(false);
+                        createInvite.mutate({ serverId: selectedServerId });
                       }}
                     >
-                      {inviteCopied ? (
-                        <Check className="w-4 h-4" />
-                      ) : (
-                        <Copy className="w-4 h-4" />
+                      {createInvite.isPending && (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       )}
+                      Create a new link
                     </Button>
+                  </div>
+                ) : inviteLink ? (
+                  <div className="space-y-3">
+                    <div className="flex gap-2">
+                      <Input
+                        readOnly
+                        value={inviteLink}
+                        className="bg-slate-800 border-slate-700 font-mono text-sm"
+                      />
+                      <Button
+                        size="icon"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(inviteLink);
+                          setInviteCopied(true);
+                        }}
+                      >
+                        {inviteCopied ? (
+                          <Check className="w-4 h-4" />
+                        ) : (
+                          <Copy className="w-4 h-4" />
+                        )}
+                      </Button>
+                    </div>
+                    {/* A server has one invite code at a time, so this is the
+                        whole list — and until `servers.revokeInvite` existed
+                        it was also a link that could never be taken back, no
+                        matter where it had been forwarded. */}
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="text-xs text-slate-500">
+                        One link at a time, and it doesn't expire. Revoking it
+                        stops every copy already shared.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="shrink-0 text-red-400 hover:text-red-300"
+                        disabled={revokeInvite.isPending}
+                        onClick={() => {
+                          if (!selectedServerId) return;
+                          if (
+                            !window.confirm(
+                              "Revoke this invite link?\n\n" +
+                                "Everyone you've sent it to loses the ability to join with " +
+                                "it. People already in the server are unaffected. You can " +
+                                "create a new link straight afterwards."
+                            )
+                          ) {
+                            return;
+                          }
+                          revokeInvite.mutate({ serverId: selectedServerId });
+                        }}
+                      >
+                        {revokeInvite.isPending ? (
+                          <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                        ) : (
+                          <X className="w-3.5 h-3.5 mr-1" />
+                        )}
+                        Revoke
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <Loader2 className="w-5 h-5 animate-spin text-purple-500" />

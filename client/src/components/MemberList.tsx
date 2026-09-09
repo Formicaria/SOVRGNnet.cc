@@ -7,7 +7,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Crown, Shield, ShieldCheck, MoreVertical, UserMinus, Ban } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Crown,
+  Shield,
+  ShieldCheck,
+  MoreVertical,
+  UserMinus,
+  Ban,
+  Loader2,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 type Role = "owner" | "admin" | "moderator" | "member";
@@ -48,12 +65,19 @@ export default function MemberList({
 }) {
   const utils = trpc.useUtils();
   const [busyUserId, setBusyUserId] = useState<number | null>(null);
+  const [bansOpen, setBansOpen] = useState(false);
 
   const membersQuery = trpc.serverMembers.list.useQuery(
     { serverId },
     { refetchInterval: 20000 }
   );
   const myRoleQuery = trpc.serverMembers.myRole.useQuery({ serverId });
+  // Only while the dialog is showing: a moderator who never opens it shouldn't
+  // be polling for a list that is usually empty.
+  const bansQuery = trpc.serverMembers.listBans.useQuery(
+    { serverId },
+    { enabled: bansOpen }
+  );
 
   const refresh = async () => {
     setBusyUserId(null);
@@ -67,9 +91,22 @@ export default function MemberList({
   const setRole = trpc.serverMembers.setRole.useMutation({ onSuccess: refresh, onError: handleError });
   const kick = trpc.serverMembers.kick.useMutation({ onSuccess: refresh, onError: handleError });
   const ban = trpc.serverMembers.ban.useMutation({ onSuccess: refresh, onError: handleError });
+  const unban = trpc.serverMembers.unban.useMutation({
+    onSuccess: async () => {
+      setBusyUserId(null);
+      await utils.serverMembers.listBans.invalidate({ serverId });
+    },
+    onError: handleError,
+  });
 
   const members = membersQuery.data ?? [];
   const myRole = (myRoleQuery.data ?? null) as Role | null;
+
+  // Moderator or above, with nobody in particular in mind. The check below is
+  // per-target and can't answer "should this person see the ban list at all",
+  // which is a question about the actor alone — the server asks it the same way
+  // in `listBans`.
+  const isModerator = myRole != null && RANK[myRole] >= RANK.moderator;
 
   // Same rule the server enforces: you can only act on people below you.
   const canModerate = (targetRole: Role, targetUserId: number) =>
@@ -176,11 +213,92 @@ export default function MemberList({
 
   return (
     <aside className="w-56 bg-slate-900/60 border-l border-slate-800 flex flex-col">
-      <div className="h-12 px-4 flex items-center border-b border-slate-800">
-        <span className="text-sm font-semibold text-slate-300">
+      <div className="h-12 px-4 flex items-center gap-2 border-b border-slate-800">
+        <span className="flex-1 text-sm font-semibold text-slate-300">
           Members
           <span className="ml-1.5 text-xs text-slate-500">{members.length}</span>
         </span>
+
+        {/*
+          The other half of the ban button in the menu below.
+
+          Banning shipped with no way back: `serverMembers.unban` and
+          `.listBans` were both implemented and neither had a caller, so the
+          only moderation action on this screen that can't be undone by
+          repeating it was also the only one with no undo. A moderator who
+          banned the wrong account had to ask someone with database access.
+        */}
+        {isModerator && (
+          <Dialog open={bansOpen} onOpenChange={setBansOpen}>
+            <DialogTrigger asChild>
+              <button
+                className="text-slate-500 hover:text-slate-200 transition-colors"
+                title="Banned people"
+                aria-label="Banned people"
+              >
+                <Ban className="w-4 h-4" />
+              </button>
+            </DialogTrigger>
+            <DialogContent className="bg-slate-900 border-slate-700 text-slate-100">
+              <DialogHeader>
+                <DialogTitle>Banned from this server</DialogTitle>
+                <DialogDescription className="text-slate-400">
+                  A ban keeps someone out of every channel here, invite links
+                  included. Lifting one lets them join again the ordinary way —
+                  it doesn't put them back in.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {bansQuery.isLoading && (
+                  <Loader2 className="w-5 h-5 animate-spin text-purple-500 mx-auto my-6" />
+                )}
+
+                {bansQuery.data?.length === 0 && (
+                  <p className="text-sm text-slate-400 text-center py-4">
+                    Nobody is banned from this server.
+                  </p>
+                )}
+
+                {(bansQuery.data ?? []).map(banned => (
+                  <div
+                    key={banned.userId}
+                    className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      {/* A banned account can have no display name, and the
+                          left join answers null for one that was deleted
+                          outright. The id is the thing that always exists and
+                          is what a moderator can match against an audit log. */}
+                      <p className="text-sm truncate">
+                        {banned.name ?? `Account #${banned.userId}`}
+                      </p>
+                      <p className="text-[11px] text-slate-500 truncate">
+                        {banned.reason ?? "No reason recorded"} ·{" "}
+                        {new Date(banned.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-slate-700 text-xs"
+                      disabled={busyUserId === banned.userId}
+                      onClick={() => {
+                        setBusyUserId(banned.userId);
+                        unban.mutate({ serverId, userId: banned.userId });
+                      }}
+                    >
+                      {busyUserId === banned.userId && (
+                        <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                      )}
+                      Lift ban
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-2">
