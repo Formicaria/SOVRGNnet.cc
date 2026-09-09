@@ -241,21 +241,14 @@ render_homeserver() {
 
   # Appservice registration (ADR 0009) — same opt-in the e2e harness does,
   # with this instance's throwaway tokens.
+  # The template lists /etc/dendrite/appservice.yaml itself (ADR 0015); the
+  # federation compose mounts this instance's rendered file at that path.
   sed \
     -e "s|{{AS_TOKEN}}|$as_token|g" \
     -e "s|{{HS_TOKEN}}|$hs_token|g" \
+    -e "s|{{APP_URL}}|http://app:3000|g" \
     dendrite/appservice.yaml.template > "$dir/appservice.yaml"
   chmod 600 "$dir/appservice.yaml"
-
-  if grep -q '^app_service_api:' "$dir/dendrite.yaml"; then
-    die "dendrite.yaml.template now has app_service_api; this script must stop appending its own."
-  fi
-  cat >> "$dir/dendrite.yaml" <<'YAML'
-
-app_service_api:
-  config_files:
-    - /etc/dendrite/appservice-fed.yaml
-YAML
 
   ok "$alias configured: federation on, TLS listener, appservice wired"
 }

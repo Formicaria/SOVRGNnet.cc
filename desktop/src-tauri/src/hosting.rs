@@ -124,6 +124,17 @@ pub struct HostSecrets {
     pub livekit_api_key: String,
     #[serde(default)]
     pub livekit_api_secret: String,
+    /// The appservice registration's two tokens — ADR 0009, mandatory since
+    /// ADR 0015. as_token is what the instance would present to the
+    /// homeserver; hs_token is what the homeserver presents on every event it
+    /// pushes to the instance. Both rendered into appservice.yaml and handed
+    /// to the app; both `default` for the usual reason, and an install whose
+    /// keychain predates them is backfilled by the frontend before this
+    /// struct is ever built.
+    #[serde(default)]
+    pub appservice_as_token: String,
+    #[serde(default)]
+    pub appservice_hs_token: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -709,6 +720,7 @@ fn render_dendrite_config(
     app: &AppHandle,
     data: &Path,
     pg_port: u16,
+    app_port: u16,
     secrets: &HostSecrets,
 ) -> Result<PathBuf, String> {
     let template_path = bundle_dir(app)?.join("dendrite.yaml.template");
@@ -779,9 +791,60 @@ fn render_dendrite_config(
         return Err("dendrite template's std logging hook survived rewriting".to_string());
     }
 
+    // The appservice registration (ADR 0015) — rendered beside the config
+    // from the bundle's template, with this start's tokens and this start's
+    // app port, and the template's /etc/dendrite path rebased into the data
+    // dir exactly as the signing key's is. Dendrite reads it at boot, which
+    // is why the app's port has to be known before Dendrite starts, and why
+    // the caller picks it early.
+    let registration = render_appservice_registration(app, data, app_port, secrets)?;
+    let rendered = rendered.replace(
+        "/etc/dendrite/appservice.yaml",
+        &registration.display().to_string(),
+    );
+    if rendered.contains("/etc/dendrite/appservice.yaml") || !rendered.contains("app_service_api:") {
+        // Same guard as the placeholders: a template that no longer lists the
+        // registration would start a homeserver that never tells the instance
+        // anything, and every client-authored event would vanish silently.
+        return Err("dendrite template's app_service_api section is missing or unrewritten".to_string());
+    }
+
     // The listen port is a CLI flag at spawn, not a config field — the port
     // is picked fresh each start and the config shouldn't pretend otherwise.
     let path = data.join("dendrite.yaml");
+    std::fs::write(&path, rendered).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// The registration file Dendrite reads to know where to push events, and
+/// under which token. Written each start: the app's port is chosen fresh
+/// each start, and the file names it.
+fn render_appservice_registration(
+    app: &AppHandle,
+    data: &Path,
+    app_port: u16,
+    secrets: &HostSecrets,
+) -> Result<PathBuf, String> {
+    if secrets.appservice_as_token.is_empty() || secrets.appservice_hs_token.is_empty() {
+        return Err("the appservice tokens are missing from this install's secrets".to_string());
+    }
+    let template_path = bundle_dir(app)?.join("appservice.yaml.template");
+    let template = std::fs::read_to_string(&template_path).map_err(|e| {
+        format!(
+            "couldn't read appservice template: {e} — this installer's bundle predates always-on encryption; install a newer one"
+        )
+    })?;
+    let rendered = template
+        .replace("{{AS_TOKEN}}", &secrets.appservice_as_token)
+        .replace("{{HS_TOKEN}}", &secrets.appservice_hs_token)
+        .replace("{{APP_URL}}", &format!("http://127.0.0.1:{app_port}"));
+    for line in rendered.lines() {
+        let code = line.trim_start();
+        if !code.starts_with('#') && code.contains("{{") {
+            return Err(format!("unfilled placeholder in appservice template: {code}"));
+        }
+    }
+    let path = data.join("appservice.yaml");
     std::fs::write(&path, rendered).map_err(|e| e.to_string())?;
     Ok(path)
 }
@@ -910,9 +973,16 @@ pub async fn host_start(
         run_to_completion(c, "create databases")?;
     }
 
+    // The app's port, chosen here rather than beside the app, because the
+    // appservice registration Dendrite reads at boot names it (ADR 0015).
+    // Bind-and-release like every pick; the window between this and the
+    // app's spawn is a few components long, and the same race already
+    // existed between each pick and its own spawn.
+    let app_port = pick_port(&ports.app)?;
+
     // -- dendrite ------------------------------------------------------------
     let matrix_port = pick_port(&ports.matrix)?;
-    match render_dendrite_config(&app, &data, pg_port, &secrets) {
+    match render_dendrite_config(&app, &data, pg_port, app_port, &secrets) {
         Ok(config) => {
             let mut c = Command::new(bundle_dir(&app)?.join(exe("dendrite")));
             c.arg("--config")
@@ -1050,7 +1120,6 @@ pub async fn host_start(
     // cloudflared is content to come up before its origin does — it answers
     // 502 until the app is listening, then stops — so the ordering costs
     // nothing but the wait.
-    let app_port = pick_port(&ports.app)?;
     let mut public_url: Option<String> = None;
     if options.wants_tunnel() {
         match spawn_tunnel(&bundle_dir(&app)?, app_port, &logs.join("tunnel.log")) {
@@ -1093,6 +1162,12 @@ pub async fn host_start(
             .env("MATRIX_HOMESERVER_URL", format!("http://127.0.0.1:{matrix_port}"))
             .env("IPFS_API_URL", format!("http://127.0.0.1:{ipfs_port}"))
             .env("SOVRGN_SETUP_TOKEN", &secrets.setup_token)
+            // The same two values Dendrite's registration was rendered with
+            // (ADR 0015). If these ever diverge, every push the homeserver
+            // makes is a 403 in app.log and an index that silently stops
+            // following the rooms it is supposed to mirror.
+            .env("MATRIX_APPSERVICE_AS_TOKEN", &secrets.appservice_as_token)
+            .env("MATRIX_APPSERVICE_HS_TOKEN", &secrets.appservice_hs_token)
             .env("INSTANCE_NAME", "My computer")
             .env("INSTANCE_JOIN_POLICY", "invite")
             .env("SOVRGNNET_ACCESS_MODE", if options.wants_tunnel() { "tunnel" } else { "lan" });

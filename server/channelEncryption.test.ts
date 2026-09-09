@@ -76,97 +76,78 @@ async function makeInstanceCapable(): Promise<void> {
   await refreshDirectSync();
 }
 
-describe("a capable instance encrypts every channel it creates", () => {
-  it("sets m.room.encryption without being asked", async () => {
+describe("a channel is encrypted from its creation event (ADR 0015)", () => {
+  it("puts m.room.encryption in the room's initial state — no second request", async () => {
     await makeInstanceCapable();
 
-    const result = await createChannelRoom(
-      "token",
-      "!space:test.local",
-      "general"
-    );
+    const result = await createChannelRoom("token", "!space:test.local", "general");
 
     expect(result).toEqual({ roomId: ROOM, encrypted: true });
-    const stateCall = matrixFetch.mock.calls.find(([url]) =>
-      String(url).includes("/state/m.room.encryption/")
+    const createCall = matrixFetch.mock.calls.find(([url]) =>
+      String(url).includes("/createRoom")
     );
-    expect(stateCall, "no m.room.encryption was written").toBeTruthy();
-    expect(JSON.parse(stateCall![1].body).algorithm).toBe(
-      "m.megolm.v1.aes-sha2"
-    );
+    expect(createCall, "no createRoom was made").toBeTruthy();
+    const body = JSON.parse(createCall![1].body) as {
+      initial_state: Array<{ type: string; content: { algorithm?: string } }>;
+    };
+    const encryption = body.initial_state.find(e => e.type === "m.room.encryption");
+    expect(encryption, "createRoom carried no m.room.encryption").toBeTruthy();
+    expect(encryption!.content.algorithm).toBe("m.megolm.v1.aes-sha2");
+
+    // And nothing set it afterwards: "afterwards" was a window in which the
+    // room existed and was plaintext, and the previous design lived in it.
+    expect(
+      matrixFetch.mock.calls.some(([url]) => String(url).includes("/state/m.room.encryption/"))
+    ).toBe(false);
   });
 
-  it("creates the room before encrypting it", async () => {
-    // Room creation makes more than one request (the space child among them),
-    // so this asserts the relative order rather than fixed indices — a
-    // homeserver that refuses the state event must leave a working plaintext
-    // channel, not a half-made room.
+  it("a homeserver that refuses leaves no room at all, not a plaintext one", async () => {
     await makeInstanceCapable();
-    await createChannelRoom("token", "!space:test.local", "general");
-
-    const urls = matrixFetch.mock.calls.map(([url]) => String(url));
-    const created = urls.findIndex(u => u.includes("/createRoom"));
-    const encrypted = urls.findIndex(u => u.includes("m.room.encryption"));
-    expect(created).toBeGreaterThan(-1);
-    expect(encrypted).toBeGreaterThan(created);
-  });
-
-  it("reports unencrypted when the state event is refused", async () => {
-    await makeInstanceCapable();
-    // Refuse only the encryption call, by URL — sequencing by call index would
-    // land the 403 on whichever intermediate request happened to be second.
     matrixFetch.mockImplementation(async (url: unknown) =>
-      String(url).includes("m.room.encryption")
+      String(url).includes("/createRoom")
         ? jsonResponse(403, { errcode: "M_FORBIDDEN" })
         : jsonResponse(200, { room_id: ROOM })
     );
 
-    const result = await createChannelRoom(
-      "token",
-      "!space:test.local",
-      "general"
-    );
-
-    // The channel exists and is usable; it is simply not encrypted, and says
-    // so. Returning `encrypted: true` here would put a lock icon over
-    // plaintext — the one direction this flag must never be wrong in.
-    expect(result).toEqual({ roomId: ROOM, encrypted: false });
+    await expect(createChannelRoom("token", "!space:test.local", "general")).rejects.toThrow();
+    // No space child was linked: there is nothing to link.
+    expect(
+      matrixFetch.mock.calls.some(([url]) => String(url).includes("m.space.child"))
+    ).toBe(false);
   });
 });
 
-describe("an instance that can't offer encryption doesn't pretend", () => {
-  it("creates a plaintext channel when no homeserver is advertised", async () => {
-    __resetForTests();
-    const result = await createChannelRoom(
-      "token",
-      "!space:test.local",
-      "general"
-    );
+describe("an instance that can't encrypt refuses to create a channel", () => {
+  // Before ADR 0015 these two cases produced a plaintext room with an honest
+  // `encrypted: false` — honest, and the state every stock deployment lived
+  // in. The installer wires the proxy and the appservice on every path now,
+  // so an instance that can't encrypt is one where something is broken, and
+  // a broken thing gets said, not a room nobody meant.
 
-    expect(result).toEqual({ roomId: ROOM, encrypted: false });
-    expect(
-      matrixFetch.mock.calls.some(([url]) =>
-        String(url).includes("m.room.encryption")
-      ),
-      "tried to encrypt on an instance that can't support it"
-    ).toBe(false);
+  it("when the homeserver isn't answering", async () => {
+    homeserverReachable(false);
+    const { refreshDirectSync } = await import("./matrixPublic");
+    await refreshDirectSync();
+
+    await expect(
+      createChannelRoom("token", "!space:test.local", "general")
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(matrixFetch).not.toHaveBeenCalled();
   });
 
-  it("creates a plaintext channel when the appservice isn't wired", async () => {
-    // Reachable homeserver, no ingest. An encrypted message the instance never
-    // records is invisible to members on the API fallback, so this is not a
-    // deployment that may encrypt.
+  it("when the appservice isn't wired", async () => {
+    // Reachable homeserver, no ingest. An encrypted message the instance
+    // never records is invisible to every member; that is not a deployment
+    // that may create rooms.
     process.env.MATRIX_PUBLIC_URL = "https://matrix.test.local";
     homeserverReachable(true);
     const { refreshDirectSync } = await import("./matrixPublic");
     await refreshDirectSync();
 
-    const result = await createChannelRoom(
-      "token",
-      "!space:test.local",
-      "general"
-    );
-    expect(result.encrypted).toBe(false);
+    await expect(
+      createChannelRoom("token", "!space:test.local", "general")
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(matrixFetch).not.toHaveBeenCalled();
   });
 });
 

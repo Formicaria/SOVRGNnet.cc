@@ -135,6 +135,8 @@ services:
     volumes:
       - ./dendrite/dendrite.yaml:/etc/dendrite/dendrite.yaml:ro
       - ./dendrite/matrix_key.pem:/etc/dendrite/matrix_key.pem:ro
+      # Rendered by install.sh beside dendrite.yaml, which lists it (ADR 0015).
+      - ./dendrite/appservice.yaml:/etc/dendrite/appservice.yaml:ro
       - matrix_data:/var/lib/dendrite
     ports:
       # Loopback only — the app and tunnel reach the homeserver over the

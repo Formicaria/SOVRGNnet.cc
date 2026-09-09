@@ -284,6 +284,14 @@ write_env() {
   # that was printed the first time.
   setup_token="$(env_get SOVRGN_SETUP_TOKEN)"
   [ -z "$setup_token" ] && setup_token="$(secret)"
+  # The appservice tokens (ADR 0009, made mandatory by 0015). Kept across
+  # re-runs like every other secret: a new pair would orphan the registration
+  # Dendrite already trusts until the next homeserver restart.
+  local as_token hs_token
+  as_token="$(env_get MATRIX_APPSERVICE_AS_TOKEN)"
+  hs_token="$(env_get MATRIX_APPSERVICE_HS_TOKEN)"
+  [ -z "$as_token" ] && as_token="$(secret)"
+  [ -z "$hs_token" ] && hs_token="$(secret)"
 
   if [ -f "$ENV_FILE" ]; then
     cp "$ENV_FILE" "$ENV_FILE.backup.$(date +%Y%m%d%H%M%S)"
@@ -306,6 +314,11 @@ MATRIX_SHARED_SECRET=$matrix_token
 # Without it, whoever reaches a freshly deployed instance first takes it.
 # Stops being needed once that account exists.
 SOVRGN_SETUP_TOKEN=$setup_token
+# The homeserver pushes every event to the instance under these (ADR 0009);
+# that push is what lets clients author encrypted events the instance still
+# indexes (ADR 0015). Rendered into dendrite/appservice.yaml by this script.
+MATRIX_APPSERVICE_AS_TOKEN=$as_token
+MATRIX_APPSERVICE_HS_TOKEN=$hs_token
 
 # --- your instance ---
 # The Matrix domain baked into every user and room ID. Changing this after
@@ -345,7 +358,7 @@ write_dendrite_config() {
   # Docker creates a *directory* when a bind-mount source is missing, and both
   # of these are bind-mounted. A leftover directory makes Dendrite fail to start
   # for a reason that looks nothing like the cause.
-  for stray in "$REPO_DIR/dendrite/dendrite.yaml" "$REPO_DIR/dendrite/matrix_key.pem"; do
+  for stray in "$REPO_DIR/dendrite/dendrite.yaml" "$REPO_DIR/dendrite/matrix_key.pem" "$REPO_DIR/dendrite/appservice.yaml"; do
     [ -d "$stray" ] && rm -rf "$stray"
   done
 
@@ -382,7 +395,17 @@ write_dendrite_config() {
     "$REPO_DIR/dendrite/dendrite.yaml.template" > "$REPO_DIR/dendrite/dendrite.yaml"
 
   chmod 600 "$REPO_DIR/dendrite/dendrite.yaml"
-  ok "Homeserver configured"
+
+  # The registration the template above lists (ADR 0015). Tokens come from
+  # .env, written just before this; the URL is the app as Dendrite sees it
+  # inside the compose network.
+  sed \
+    -e "s|{{AS_TOKEN}}|$(env_get MATRIX_APPSERVICE_AS_TOKEN)|g" \
+    -e "s|{{HS_TOKEN}}|$(env_get MATRIX_APPSERVICE_HS_TOKEN)|g" \
+    -e "s|{{APP_URL}}|http://app:3000|g" \
+    "$REPO_DIR/dendrite/appservice.yaml.template" > "$REPO_DIR/dendrite/appservice.yaml"
+  chmod 600 "$REPO_DIR/dendrite/appservice.yaml"
+  ok "Homeserver configured, appservice registered"
 }
 
 # ------------------------------------------------------------------- launch

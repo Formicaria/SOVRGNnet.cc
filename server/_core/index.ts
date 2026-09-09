@@ -9,6 +9,7 @@ import { registerAppserviceRoutes } from "../appservice";
 import { registerFileRoutes } from "../fileRoutes";
 import { registerInstanceRoutes } from "../instanceRoutes";
 import { registerMatrixProxy } from "../matrixProxy";
+import { sweepPlaintextChannels } from "../encryptionSweep";
 import { refreshDirectSync } from "../matrixPublic";
 import { registerMetricsRoutes } from "../metrics";
 import { runMigrations, waitForDatabase } from "../migrate";
@@ -73,6 +74,19 @@ async function startServer() {
   void refreshDirectSync().catch(() => {});
   setInterval(() => {
     void refreshDirectSync().catch(() => {});
+  }, 45_000).unref();
+
+  // Encrypt whatever predates always-on encryption (ADR 0015), on the same
+  // beat: the sweep needs e2eeAvailable() true, which needs the probe above
+  // to have answered, so it follows the probe rather than racing it. Idle
+  // once nothing is left. Deferred past the first probe by a few seconds so
+  // a fresh start's very first tick isn't spent discovering the homeserver
+  // hasn't answered yet.
+  setTimeout(() => {
+    void sweepPlaintextChannels().catch(() => {});
+  }, 5_000).unref();
+  setInterval(() => {
+    void sweepPlaintextChannels().catch(() => {});
   }, 45_000).unref();
 
   // Instance settings, on the same terms and for the same reason (v0.8).

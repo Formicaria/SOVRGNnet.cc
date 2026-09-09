@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 
 import { nanoid } from "nanoid";
-import { encryptionStateContent } from "@shared/e2ee";
+import { ENCRYPTION_STATE_EVENT, encryptionStateContent } from "@shared/e2ee";
 import { isLegalLocalpart } from "@shared/username";
 import { ENV } from "./_core/env";
 
@@ -508,6 +508,16 @@ export async function createChannelRoom(
             join_rule: "restricted",
             allow: [{ type: "m.room_membership", room_id: spaceId }],
           },
+        },
+        // Encrypted from the creation event onward (ADR 0015). In the room's
+        // initial state rather than set afterwards, because "afterwards" is
+        // a window — short, but a window — in which the room exists and is
+        // plaintext, and a state event that fails then leaves it that way.
+        // A createRoom that fails leaves nothing.
+        {
+          type: ENCRYPTION_STATE_EVENT,
+          state_key: "",
+          content: encryptionStateContent(),
         },
       ],
     },

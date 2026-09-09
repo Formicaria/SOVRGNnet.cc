@@ -57,7 +57,7 @@ services:
       # Same-target mounts replace the base file's; new targets append.
       - ./dendrite/fed-${FED_ID:?}/dendrite.yaml:/etc/dendrite/dendrite.yaml:ro
       - ./dendrite/fed-${FED_ID:?}/matrix_key.pem:/etc/dendrite/matrix_key.pem:ro
-      - ./dendrite/fed-${FED_ID:?}/appservice.yaml:/etc/dendrite/appservice-fed.yaml:ro
+      - ./dendrite/fed-${FED_ID:?}/appservice.yaml:/etc/dendrite/appservice.yaml:ro
       - ./dendrite/fed-${FED_ID:?}/tls.crt:/etc/dendrite/fed-tls.crt:ro
       - ./dendrite/fed-${FED_ID:?}/tls.key:/etc/dendrite/fed-tls.key:ro
     ports: !override

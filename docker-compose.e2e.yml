@@ -47,7 +47,7 @@ services:
       - "8008:8008"
     volumes:
       # Appended to the main file's mounts (compose merges volume lists).
-      - ./dendrite/appservice-e2e.yaml:/etc/dendrite/appservice-e2e.yaml:ro
+      - ./dendrite/appservice-e2e.yaml:/etc/dendrite/appservice.yaml:ro
 
   ipfs:
     restart: "no"

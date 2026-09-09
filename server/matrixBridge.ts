@@ -4,50 +4,39 @@ import { e2eeAvailable } from "./instance";
 import * as matrix from "./matrixService";
 
 /**
- * Create a channel room, encrypted if this instance can manage it at all.
+ * Create a channel room. Encrypted, or not created.
  *
- * Encryption is the default and there is no per-channel choice — a lock that
- * has to be found and switched on is a lock most conversations never get, and
- * "why would anyone want the insecure option" is the right question to ask of
- * a default.
+ * Encryption is not a per-channel choice and not a per-instance capability
+ * that may be absent — ADR 0015. Until that decision, this function encrypted
+ * "if this instance can manage it at all" and otherwise created a plaintext
+ * room with an honest `encrypted: false`. Honest, and the state every stock
+ * deployment lived in for two releases, because "can manage it" was false
+ * everywhere the installer hadn't wired the homeserver proxy and the
+ * appservice. Those are wired now, on every path, so an instance that cannot
+ * encrypt is an instance where something is broken — and the right response
+ * to a broken thing is to say so, not to quietly make a room nobody meant.
  *
- * The one thing that overrides it is whether the deployment can actually
- * support it. On an instance whose homeserver clients cannot reach, or which
- * doesn't record what its homeserver pushes, there is nowhere for a member's
- * keys to live except the server — so encrypting there would produce a channel
- * nobody can read while claiming the opposite. Those instances get plaintext
- * rooms and an `e2ee` capability that says so, which is the same capability
- * contract every other feature here uses.
- *
- * Encryption is applied *after* the room exists rather than at creation, so a
- * homeserver that refuses the state event leaves a working plaintext channel
- * and an honest `encrypted: false` in the index, instead of a half-made room.
+ * The room is created with `m.room.encryption` in its initial state, so it is
+ * never plaintext for even the interval between two requests, and a refusal
+ * from the homeserver leaves no room at all rather than a half-made one.
  */
 export async function createChannelRoom(
   accessToken: string,
   spaceId: string,
   name: string,
   description?: string
-): Promise<{ roomId: string; encrypted: boolean }> {
-  const roomId = await matrix.createChannelRoom(
-    accessToken,
-    spaceId,
-    name,
-    description
-  );
-
-  if (!e2eeAvailable()) return { roomId, encrypted: false };
-
-  try {
-    await matrix.enableRoomEncryption(accessToken, roomId);
-    return { roomId, encrypted: true };
-  } catch (err) {
-    // Reported as unencrypted, which is what it is. The alternative — marking
-    // it encrypted and hoping — is how a channel ends up with a lock icon over
-    // plaintext, and this codebase has made that class of mistake twice.
-    console.warn(`[matrix] channel ${roomId} created without encryption:`, err);
-    return { roomId, encrypted: false };
+): Promise<{ roomId: string; encrypted: true }> {
+  if (!e2eeAvailable()) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "This server can't encrypt right now — its homeserver isn't answering, or it isn't " +
+        "recording what clients send — so no channel was created. Every channel is " +
+        "end-to-end encrypted; try again once the server is healthy.",
+    });
   }
+  const roomId = await matrix.createChannelRoom(accessToken, spaceId, name, description);
+  return { roomId, encrypted: true };
 }
 
 /**

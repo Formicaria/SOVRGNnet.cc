@@ -112,6 +112,15 @@ user_api:
 room_server:
   default_room_version: "10"
 
+# The instance's own registration — ADR 0015. Every installer renders
+# appservice.yaml beside this file; the desktop supervisor rewrites the path
+# into its data directory the same way it does for the signing key. This used
+# to be left out "for operators to add when they opt in", and no stock
+# deployment ever did, which is how encryption shipped implemented and off.
+app_service_api:
+  config_files:
+    - /etc/dendrite/appservice.yaml
+
 logging:
   - type: std
     level: info

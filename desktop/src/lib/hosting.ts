@@ -68,6 +68,16 @@ export interface HostSecrets {
    */
   livekit_api_key: string;
   livekit_api_secret: string;
+  /**
+   * The appservice registration's tokens — what lets the homeserver push
+   * every event to the instance, which is what lets clients author events
+   * the instance can't read and still have them indexed (ADR 0009, made
+   * mandatory by ADR 0015). Per-install, generated once, for the same reason
+   * as everything above: nothing about one machine's registration should
+   * verify on another's.
+   */
+  appservice_as_token: string;
+  appservice_hs_token: string;
 }
 
 interface ComponentReport {
@@ -157,6 +167,15 @@ export async function hostSecrets(): Promise<HostSecrets> {
       stored.livekit_api_secret = randomHex(24);
       changed = true;
     }
+    // The appservice tokens, for installs that predate ADR 0015. Minting
+    // them here is what turns an existing plaintext host into an encrypting
+    // one on its next start: the supervisor renders the registration from
+    // these, Dendrite reads it at boot, and eventIngest is true.
+    if (!stored.appservice_as_token || !stored.appservice_hs_token) {
+      stored.appservice_as_token = randomHex(32);
+      stored.appservice_hs_token = randomHex(32);
+      changed = true;
+    }
     if (changed) await credentials.store(HOST_KEYCHAIN_ID, JSON.stringify(stored));
     return stored as HostSecrets;
   }
@@ -168,6 +187,8 @@ export async function hostSecrets(): Promise<HostSecrets> {
     setup_token: randomHex(16),
     livekit_api_key: randomHex(8),
     livekit_api_secret: randomHex(24),
+    appservice_as_token: randomHex(32),
+    appservice_hs_token: randomHex(32),
   };
   await credentials.store(HOST_KEYCHAIN_ID, JSON.stringify(fresh));
   return fresh;

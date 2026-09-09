@@ -17,6 +17,7 @@
 #     node[.exe]           the Node runtime that runs the app bundle
 #     app/                 self-contained server: index.mjs, public/, drizzle/
 #     dendrite.yaml.template
+#     appservice.yaml.template
 #
 # Version pins match the rest of the repository where a counterpart exists:
 # Kubo and Dendrite are the same versions docker-compose.yml pins, because a
@@ -113,6 +114,7 @@ node --check "$HOST_DIR/app/createdbs.mjs" || die "the createdbs bundle doesn't 
 ok "app bundle: index.mjs + public/ + drizzle/"
 
 cp dendrite/dendrite.yaml.template "$HOST_DIR/dendrite.yaml.template"
+cp dendrite/appservice.yaml.template "$HOST_DIR/appservice.yaml.template"
 
 # --- node runtime ------------------------------------------------------------
 say "Node $NODE_VERSION"

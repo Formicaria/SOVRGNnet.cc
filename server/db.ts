@@ -880,6 +880,28 @@ export async function ingestMessage(
 }
 
 /**
+ * Channels that predate always-on encryption (ADR 0015), with the owner of
+ * the community each belongs to — the account whose server-held session has
+ * the power to change the room's state. For the one-shot sweep.
+ */
+export async function listPlaintextChannels(): Promise<
+  Array<{ id: number; matrixRoomId: string; serverId: number; ownerId: number }>
+> {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: channels.id,
+      matrixRoomId: channels.matrixRoomId,
+      serverId: channels.serverId,
+      ownerId: servers.ownerId,
+    })
+    .from(channels)
+    .innerJoin(servers, eq(servers.id, channels.serverId))
+    .where(eq(channels.encrypted, false));
+}
+
+/**
  * The homeserver told us a room turned on encryption. One-way by design:
  * Matrix itself never downgrades m.room.encryption, so neither do we.
  */

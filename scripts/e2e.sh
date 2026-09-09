@@ -282,31 +282,23 @@ export MATRIX_APPSERVICE_HS_TOKEN="$E2E_HS_TOKEN"
 sed \
   -e "s|{{AS_TOKEN}}|$E2E_AS_TOKEN|g" \
   -e "s|{{HS_TOKEN}}|$E2E_HS_TOKEN|g" \
+  -e "s|{{APP_URL}}|http://app:3000|g" \
   dendrite/appservice.yaml.template > dendrite/appservice-e2e.yaml
 chmod 600 dendrite/appservice-e2e.yaml
 
-# The production template deliberately ships without an app_service_api
-# section (operators add it when they opt in — docs/UPGRADING.md). The
-# harness opts in. Appending a top-level section to the rendered config is
-# valid YAML as long as the template never grows its own; the guard below
-# turns that collision into a loud failure instead of a duplicate-key one.
+# The template lists /etc/dendrite/appservice.yaml itself now (ADR 0015);
+# the compose override mounts this run's rendered file at that path, and the
+# guard this harness carried for the day the template grew the section has
+# done its job and gone.
 #
-# E2E_REPRO_NO_AS leaves the section out entirely — a repro-mode control
-# (see below) that asks whether the to-device loss needs the appservice
-# registered at all. Only meaningful with E2E_REPRO; the normal walk would
-# just fail its ingest checks without the appservice.
-if grep -q '^app_service_api:' dendrite/dendrite.yaml; then
-  die "dendrite.yaml.template now has app_service_api; e2e.sh must stop appending its own."
-fi
+# E2E_REPRO_NO_AS strips the section — a repro-mode control (see below) that
+# asks whether the to-device loss needs the appservice registered at all.
+# Only meaningful with E2E_REPRO; the normal walk would just fail its ingest
+# checks without the appservice.
 if [ -n "${E2E_REPRO_NO_AS:-}" ]; then
+  sed -i.bak '/^app_service_api:/,/^$/d' dendrite/dendrite.yaml && rm -f dendrite/dendrite.yaml.bak
   ok "Appservice registration SKIPPED (E2E_REPRO_NO_AS control)"
 else
-  cat >> dendrite/dendrite.yaml <<'YAML'
-
-app_service_api:
-  config_files:
-    - /etc/dendrite/appservice-e2e.yaml
-YAML
   ok "Appservice registration wired (eventIngest will be live)"
 fi
 
