@@ -37,16 +37,32 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("with no public URL", () => {
-  it("is unavailable and says why", () => {
+describe("with no public URL (ADR 0015: the app is the homeserver's address)", () => {
+  // Before: no public URL meant no homeserver to advertise, and the probe
+  // stayed off the network. Now the app proxies /_matrix, so the honest
+  // question is whether the homeserver behind the proxy answers — asked of
+  // the internal address, with exactly the same refusal to believe it
+  // before it has.
+  it("is unverified, not absent, on the first call", () => {
     const status = directSync();
     expect(status.available).toBe(false);
-    expect(status.reason).toBe("no-public-url");
+    expect(status.reason).toBe("unverified");
   });
 
-  it("never touches the network", () => {
-    directSync();
-    expect(fetchMock).not.toHaveBeenCalled();
+  it("probes the internal homeserver", async () => {
+    fetchMock.mockResolvedValue(versions());
+    await refreshDirectSync();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toMatch(/^http:\/\/localhost:8008\/_matrix\/client\/versions$/);
+    expect(directSync().available).toBe(true);
+  });
+
+  it("stays unavailable when the homeserver behind the proxy is down", async () => {
+    fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+    const status = await refreshDirectSync();
+    expect(status.available).toBe(false);
+    expect(status.reason).toBe("unreachable");
   });
 });
 
@@ -195,11 +211,16 @@ describe("caching", () => {
 });
 
 describe("a malformed URL", () => {
-  it("is treated as absent rather than probed", () => {
+  it("is treated as absent — which now means the proxied homeserver, not nothing", async () => {
+    // An operator who typo'd MATRIX_PUBLIC_URL used to get a silent
+    // "no-public-url". They now get the same answer an unset variable gets:
+    // the homeserver at the app's own address. The malformed value is never
+    // probed as written.
     process.env.MATRIX_PUBLIC_URL = "matrix.example.com";
-    const status = directSync();
-    expect(status.available).toBe(false);
-    expect(status.reason).toBe("no-public-url");
-    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValue(versions());
+    await refreshDirectSync();
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).not.toContain("matrix.example.com");
+    expect(url).toMatch(/^http:\/\/localhost:8008\//);
   });
 });

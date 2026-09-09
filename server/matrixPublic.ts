@@ -3,6 +3,7 @@ import {
   parsePublicMatrixUrl,
   type DirectSyncStatus,
 } from "@shared/matrixDelegation";
+import { ENV } from "./_core/env";
 import { settings } from "./settings";
 
 /**
@@ -58,8 +59,23 @@ export function __resetForTests(): void {
   inFlight = null;
 }
 
+/**
+ * Which homeserver to ask.
+ *
+ * A configured public address is an operator naming the homeserver clients
+ * should use, and is probed as given. With nothing configured the app is the
+ * homeserver's address — it proxies `/_matrix` (ADR 0015) — and the truth
+ * worth checking is whether the homeserver behind the proxy answers. That is
+ * the internal address. Reachability *through* the proxy is not probed
+ * separately: the proxy is this process's own code, mounted unconditionally,
+ * and a probe of one's own listening port from inside the process proves
+ * nothing a unit test doesn't.
+ */
 function publicUrl(): string | null {
-  return parsePublicMatrixUrl(settings().matrixPublicUrl ?? undefined);
+  return (
+    parsePublicMatrixUrl(settings().matrixPublicUrl ?? undefined) ??
+    parsePublicMatrixUrl(ENV.matrixHomeserverUrl)
+  );
 }
 
 /**

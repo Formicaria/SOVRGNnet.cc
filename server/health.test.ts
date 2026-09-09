@@ -204,10 +204,26 @@ describe("Matrix delegation", () => {
     else process.env.MATRIX_ALLOW_FEDERATION = OLD_FED;
   });
 
-  it("404s the client delegation when no homeserver is published", async () => {
+  it("delegates to the request's own origin when no homeserver is published (ADR 0015)", async () => {
+    // This used to 404: no MATRIX_PUBLIC_URL, no homeserver to point at. The
+    // app proxies Matrix now, so the homeserver is reachable at whatever
+    // address reached the app — and that is the address the delegation
+    // names, per request, so a LAN client and a tunnel client each get one
+    // they can dial.
     delete process.env.MATRIX_PUBLIC_URL;
     const response = await fetch(`${base}/.well-known/matrix/client`);
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ "m.homeserver": { base_url: base } });
+
+    const tunnelled = await fetch(`${base}/.well-known/matrix/client`, {
+      headers: {
+        "x-forwarded-host": "calm-river.trycloudflare.com",
+        "x-forwarded-proto": "https",
+      },
+    });
+    expect(await tunnelled.json()).toEqual({
+      "m.homeserver": { base_url: "https://calm-river.trycloudflare.com" },
+    });
   });
 
   it("serves the client delegation when one is", async () => {

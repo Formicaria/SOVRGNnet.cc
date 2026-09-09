@@ -46,6 +46,7 @@ import { appserviceConfigured } from "./appservice";
 import * as db from "./db";
 import { isIpfsReachable } from "./ipfsService";
 import { shareableHost, shareableVoiceUrl } from "./lanHost";
+import { requestOrigin } from "./matrixProxy";
 import { directSync } from "./matrixPublic";
 import * as matrix from "./matrixService";
 import {
@@ -2067,14 +2068,17 @@ export const appRouter = router({
           { deviceId, displayName: input.displayName }
         );
 
-        const base = parsePublicMatrixUrl(settings().matrixPublicUrl ?? undefined);
+        // The configured homeserver, or — since the app proxies Matrix
+        // (ADR 0015) — the origin this request arrived on, which is the one
+        // address this client is known to reach. Refused only if neither
+        // exists: a token with nowhere to use it is worse than no token.
+        const base =
+          parsePublicMatrixUrl(settings().matrixPublicUrl ?? undefined) ??
+          parsePublicMatrixUrl(requestOrigin(ctx.req));
         if (!base) {
-          // directSync().available implies a parseable URL; if it vanished
-          // between the check and here, refuse rather than hand out a token
-          // with nowhere to use it.
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
-            message: "The homeserver address is no longer configured.",
+            message: "The homeserver address could not be determined for this request.",
           });
         }
 

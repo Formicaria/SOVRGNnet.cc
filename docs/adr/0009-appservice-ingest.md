@@ -101,7 +101,7 @@ path and ingest), reconciled by event id. The API path's row and the ingested
 row are the same row. When the proxy send path is eventually retired, the
 ingest is the only writer and the question disappears.
 
-**Operators must wire a registration file.** The template ships in
+**Operators must wire a registration file.** *Superseded by [ADR 0015](0015-encryption-is-not-a-feature.md): the installer wires it, on every path; the capability is no longer optional.* The template ships in
 `dendrite/appservice.yaml.template` with the two env variables documented
 beside it; generating both during `install.sh` is follow-up work, noted so it
 isn't mistaken for done. An instance that never configures it keeps today's

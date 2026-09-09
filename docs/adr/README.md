@@ -21,6 +21,7 @@ was tried and what it cost.
 | [0012](0012-username-rename.md) | Renaming changes the username, not the Matrix ID | Accepted |
 | [0013](0013-voice-cloudflare-realtime.md) | Voice over Cloudflare Realtime SFU | **Superseded same day — self-hosted LiveKit per instance** |
 | [0014](0014-implementation-language.md) | TypeScript stays; the restructure is the homeserver swap, not a rewrite | Proposed |
+| [0015](0015-encryption-is-not-a-feature.md) | Encryption is the only mode: every deployment wires it, every room is born encrypted, no plaintext path | Accepted |
 
 ## The through-line
 

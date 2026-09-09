@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { registerAppserviceRoutes } from "../appservice";
 import { registerFileRoutes } from "../fileRoutes";
 import { registerInstanceRoutes } from "../instanceRoutes";
+import { registerMatrixProxy } from "../matrixProxy";
 import { refreshDirectSync } from "../matrixPublic";
 import { registerMetricsRoutes } from "../metrics";
 import { runMigrations, waitForDatabase } from "../migrate";
@@ -87,6 +88,11 @@ async function startServer() {
   setInterval(() => {
     void refreshSettings().catch(() => {});
   }, 45_000).unref();
+
+  // The homeserver, at this instance's own address (ADR 0015). Before the
+  // body parsers on purpose: media uploads stream through this, and /sync
+  // holds its connection open; neither survives being buffered here first.
+  registerMatrixProxy(app);
 
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));

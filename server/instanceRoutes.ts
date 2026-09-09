@@ -7,6 +7,7 @@ import * as db from "./db";
 import { instanceDescriptor, instanceInfo } from "./instance";
 import * as matrix from "./matrixService";
 import { settings } from "./settings";
+import { requestOrigin } from "./matrixProxy";
 
 /**
  * Public, unauthenticated routes a client needs *before* it has an account.
@@ -23,7 +24,7 @@ export function registerInstanceRoutes(app: Express): void {
    * response doesn't say `product: "sovrgnnet"`, it isn't one of ours and the
    * client can say so plainly instead of failing at a login screen.
    */
-  app.get("/api/instance", async (_req, res) => {
+  app.get("/api/instance", async (req, res) => {
     // Short cache: an admin renaming their server should see it propagate in
     // a minute, not on the next restart.
     res.set("Cache-Control", "public, max-age=60");
@@ -69,9 +70,19 @@ export function registerInstanceRoutes(app: Express): void {
     // clients expect them; `protocol`, `capabilities`, and `matrix` are added
     // alongside. Independently operated instances and clients upgrade on their
     // own schedules, so neither may be forced to move first.
+    const info = instanceInfo(APP_VERSION, stored);
+    const descriptor = instanceDescriptor(APP_VERSION, stored);
+    // The homeserver is reachable at whatever address this request arrived
+    // on, because the app proxies it (ADR 0015). The descriptor is a pure
+    // function with no request to look at, so the address is filled in
+    // here, and only when nothing was configured: an operator who set
+    // MATRIX_PUBLIC_URL named the homeserver they mean.
+    const baseUrl = descriptor.matrix.baseUrl ?? homeserverOriginFor(req, descriptor);
     res.json({
-      ...instanceInfo(APP_VERSION, stored),
-      ...instanceDescriptor(APP_VERSION, stored),
+      ...info,
+      matrixBaseUrl: baseUrl,
+      ...descriptor,
+      matrix: { ...descriptor.matrix, baseUrl },
       needsSetup,
     });
   });
@@ -176,7 +187,7 @@ export function registerInstanceRoutes(app: Express): void {
    * Both must be readable cross-origin — a Matrix client on another origin is
    * exactly who reads them.
    */
-  app.get("/.well-known/matrix/client", (_req, res) => {
+  app.get("/.well-known/matrix/client", (req, res) => {
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Cache-Control", "public, max-age=300");
 
@@ -185,7 +196,10 @@ export function registerInstanceRoutes(app: Express): void {
     // SOVRGN identity provider is a different thing entirely, and advertising
     // it here would point Matrix clients at something that doesn't speak the
     // protocol they'd use it with.
-    const document = clientDelegation(settings().matrixPublicUrl);
+    // Delegate to the configured homeserver, or — since the app proxies
+    // Matrix (ADR 0015) — to the origin this request arrived on, which is
+    // therefore an address the asking client can reach.
+    const document = clientDelegation(settings().matrixPublicUrl ?? requestOrigin(req));
 
     // 404 rather than an empty document. A client that gets a 404 falls back
     // to its own default sensibly; one handed a delegation pointing nowhere
@@ -306,4 +320,22 @@ export function registerInstanceRoutes(app: Express): void {
       res.status(503).json({ error: "Server is not ready" });
     }
   });
+}
+
+/**
+ * The address a client should use for the homeserver, when the app is the
+ * homeserver's address.
+ *
+ * Only when direct sync is actually available — the same condition the
+ * descriptor's `clientMatrix` reports — because a base URL beside a false
+ * capability is exactly the "configured is not reachable" lie the probe
+ * exists to prevent. And only when a request origin can be determined: a
+ * request with no Host header gets no address rather than an empty string.
+ */
+function homeserverOriginFor(
+  req: { headers: Record<string, string | string[] | undefined>; protocol: string },
+  descriptor: { capabilities: { clientMatrix: boolean } }
+): string | null {
+  if (!descriptor.capabilities.clientMatrix) return null;
+  return requestOrigin(req) || null;
 }
