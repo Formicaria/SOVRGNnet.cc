@@ -241,27 +241,6 @@ export default function Dashboard() {
     },
     onError: e => setError(e.message),
   });
-  const enableEncryption = trpc.channels.enableEncryption.useMutation({
-    onSuccess: async () => {
-      await utils.channels.listByServer.invalidate({
-        serverId: selectedServerId!,
-      });
-      // Opened straight afterwards because encrypting a channel is the moment
-      // a recovery key stops being optional, and the person who just did it is
-      // the one who most needs to be told.
-      setEncryptionPanelOpen(true);
-    },
-    onError: e => setError(e.message),
-  });
-  const sendMessage = trpc.messages.send.useMutation({
-    onSuccess: async () => {
-      setMessageInput("");
-      await utils.messages.listByChannel.invalidate({
-        channelId: selectedChannelId!,
-      });
-    },
-    onError: e => setError(e.message),
-  });
   const deleteMessage = trpc.messages.delete.useMutation({
     onSuccess: async () => {
       await utils.messages.listByChannel.invalidate({
@@ -344,6 +323,13 @@ export default function Dashboard() {
   const [inviteRevoked, setInviteRevoked] = useState(false);
 
   const [isUploading, setIsUploading] = useState(false);
+  /**
+   * A send in flight. Local state rather than a mutation's isPending: there
+   * is no mutation any more (ADR 0015 — the API compose path is gone), and
+   * the composer still has to disable itself while the crypto machine
+   * encrypts and the homeserver accepts.
+   */
+  const [sending, setSending] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -607,52 +593,40 @@ export default function Dashboard() {
 
   const handleSend = () => {
     const content = messageInput.trim();
-    if (!content || selectedChannelId == null || sendMessage.isPending) return;
+    if (!content || selectedChannelId == null || sending) return;
 
     const selected = channels.find(c => c.id === selectedChannelId);
     const roomId = selected?.matrixRoomId;
 
-    // An encrypted channel has exactly one send path, and no fallback.
-    //
-    // Everywhere else in this function a failure falls back to the API, on the
-    // principle that a message shouldn't be lost to an architectural
-    // preference. Here that principle inverts: the API path composes plaintext
-    // server-side, and falling back to it would put cleartext into a room
-    // whose members believe it is encrypted. Refusing is the safe failure.
-    if (selected?.encrypted) {
-      if (!canAuthor || !roomId) {
-        setError(
-          "This channel is encrypted, and this client isn't holding its own Matrix " +
-            "session. Reload, or open it on a device that can."
-        );
-        return;
-      }
-      typingSentAt.current = 0;
-      setTyping.mutate({ channelId: selectedChannelId, typing: false });
-      setMessageInput("");
-      void sendOverMatrix(roomId, content).catch(() => {
-        setMessageInput(content);
-        setError("That message wasn't sent. Nothing was sent unencrypted.");
-      });
-      return;
-    }
-
     typingSentAt.current = 0;
     setTyping.mutate({ channelId: selectedChannelId, typing: false });
 
-    // Author over the client's own Matrix session when the instance both
-    // offers direct sync and records homeserver pushes (ADR 0009). The row
-    // appears via the appservice ingest and the echo returns through /sync.
-    // Any failure falls back to the API path — the message must not be lost
-    // to an architectural preference.
-    if (canAuthor && roomId) {
-      setMessageInput("");
-      void sendOverMatrix(roomId, content).catch(() => {
-        sendMessage.mutate({ channelId: selectedChannelId, content });
-      });
+    // Every channel is end-to-end encrypted (ADR 0015), so there is one send
+    // path and it is this one: composed here, with this client's own keys,
+    // over its own session.
+    //
+    // The API fallback that used to live here is gone rather than unused. It
+    // was written as a safety net on the principle that a message shouldn't
+    // be lost to an architectural preference, and that was right while a room
+    // could legitimately be plaintext. It is now the one way cleartext could
+    // reach a room whose members believe otherwise — and a path that exists
+    // is a path something eventually takes. Refusing is the safe failure, and
+    // the refusal says what to do.
+    if (!canAuthor || !roomId) {
+      setError(
+        "This client isn't holding its own encryption keys yet, so it can't send. " +
+          "Reload the page, or open this on a device that can."
+      );
       return;
     }
-    sendMessage.mutate({ channelId: selectedChannelId, content });
+    setMessageInput("");
+    setSending(true);
+    void sendOverMatrix(roomId, content)
+      .catch(() => {
+        setMessageInput(content);
+        setError("That message wasn't sent. Nothing was sent unencrypted.");
+      })
+      .finally(() => setSending(false));
   };
 
   const myRole = myRoleQuery.data ?? null;
@@ -1252,41 +1226,28 @@ export default function Dashboard() {
                   </TooltipContent>
                 </Tooltip>
               ) : (
-                canManageServer &&
-                encryptionAvailable && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="ml-auto h-7 text-xs text-slate-400 hover:text-slate-100"
-                    disabled={enableEncryption.isPending}
-                    onClick={() => {
-                      // Irreversible, so it asks. Matrix has no way to
-                      // un-encrypt a room and the messages sent afterwards
-                      // stay ciphertext forever.
-                      if (
-                        !window.confirm(
-                          `Encrypt #${selectedChannel.name}?\n\n` +
-                            "This can't be undone. Messages sent afterwards are readable " +
-                            "only on members' own devices — this instance will store them " +
-                            "and be unable to read them. Anyone whose client can't hold " +
-                            "keys will stop being able to read the channel."
-                        )
-                      ) {
-                        return;
-                      }
-                      enableEncryption.mutate({
-                        channelId: selectedChannel.id,
-                      });
-                    }}
-                  >
-                    {enableEncryption.isPending ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Lock className="w-3.5 h-3.5" />
-                    )}
-                    Encrypt this channel
-                  </Button>
-                )
+                /* Not encrypted is now a fault, not a setting (ADR 0015).
+                   Every channel is encrypted at creation and the boot sweep
+                   encrypts whatever predates that, so a channel still showing
+                   plaintext is one the sweep hasn't reached — usually because
+                   the homeserver isn't answering yet. There is nothing for a
+                   person to click, so this says what is true instead of
+                   offering a switch: the old "Encrypt this channel" button was
+                   the admin-only opt-in this decision removed. */
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="flex items-center gap-1 text-xs text-amber-400">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      Not yet encrypted
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    This channel predates always-on encryption and is still
+                    being switched over. Messages sent now are readable by
+                    whoever runs this server. It resolves on its own once the
+                    server is healthy.
+                  </TooltipContent>
+                </Tooltip>
               )}
             </>
           ) : (
@@ -1638,10 +1599,10 @@ export default function Dashboard() {
               />
               <Button
                 size="icon"
-                disabled={!messageInput.trim() || sendMessage.isPending}
+                disabled={!messageInput.trim() || sending}
                 onClick={handleSend}
               >
-                {sendMessage.isPending ? (
+                {sending ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <Send className="w-4 h-4" />

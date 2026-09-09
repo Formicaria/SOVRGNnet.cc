@@ -149,8 +149,16 @@ describe("the harness render guards hold", () => {
     expect(harness).toMatch(/prefer_direct_fetch not found where expected/);
   });
 
-  it("fails loudly on an app_service_api collision, like e2e.sh does", () => {
-    expect(harness).toMatch(/must stop appending its own/);
+  it("no longer appends its own app_service_api section (ADR 0015)", () => {
+    // The guard this replaces existed for the day the production template
+    // grew the section itself. That day arrived: the template lists
+    // /etc/dendrite/appservice.yaml, the harness renders its file and the
+    // compose override mounts it at that path. A harness still appending its
+    // own would produce a duplicate key and a homeserver that refuses to
+    // start, so the assertion inverts rather than disappearing.
+    expect(harness).not.toMatch(/must stop appending its own/);
+    expect(harness).not.toMatch(/^app_service_api:/m);
+    expect(harness).toMatch(/appservice\.yaml\.template/);
   });
 
   it("checks for unfilled placeholders", () => {

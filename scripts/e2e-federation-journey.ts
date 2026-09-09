@@ -336,11 +336,31 @@ async function setupA(): Promise<void> {
   // not rewrite history it never saw, and that fact should be stated by a
   // passing test rather than discovered by a confused operator.
   const baselineText = `pre-federation baseline ${stamp}`;
-  await alice.mutate("messages.send", { channelId: channel.id, content: baselineText });
-  ok("Baseline message sent on A before any federation");
 
+  // The session is minted before the baseline is sent, which is a reordering
+  // ADR 0015 forced: every channel is encrypted now, and `messages.send`
+  // refuses an encrypted channel by design — the instance holds no keys and
+  // has nothing to offer such a room but the plaintext that would undermine
+  // it. So the baseline goes over the homeserver, the way the rest of this
+  // harness already sends (see B's send below).
+  //
+  // It is a plaintext `m.room.message` into a room carrying
+  // `m.room.encryption`, which Dendrite accepts and no real client would
+  // write. That is fine and deliberate here: this phase is about *when the
+  // index attaches*, not about what the bytes are, and B's assertion is that
+  // the message is absent, not that it is readable.
   const minted = await mintMatrixSession(alice, "federation harness (A)");
   ok("Device-scoped Matrix session minted for A's admin");
+
+  await matrixCall(
+    MATRIX_A,
+    "PUT",
+    `/_matrix/client/v3/rooms/${encodeURIComponent(matrixRoomId)}/send/m.room.message/fed_baseline_${Date.now()}`,
+    minted.accessToken,
+    { msgtype: "m.text", body: baselineText },
+    "A baseline send"
+  );
+  ok("Baseline message sent on A before any federation");
 
   writeState({
     password,
@@ -476,11 +496,23 @@ async function cross(): Promise<void> {
   assert(bobRowOnB!.userId === state.bobId, `B should attribute its own account: ${JSON.stringify(bobRowOnB)}`);
   ok("B's index attributed the same event to its local account");
 
-  // A → B. Authored through A's ordinary product API — the path every
-  // message took before federation existed.
+  // A → B. Authored over A's own Matrix session, which since ADR 0015 is the
+  // only way anything is authored: the API compose path refuses an encrypted
+  // channel, and every channel is encrypted. Same reasoning as the baseline
+  // above — this phase asserts federation delivery and index attribution, not
+  // the readability of the bytes.
   const aliceText = `from A through the instance ${stamp}`;
-  await alice.mutate("messages.send", { channelId: state.channelIdA, content: aliceText });
-  ok("A sent through its instance API");
+  await retryMatrix("A's message into the federated room", 60_000, () =>
+    matrixCall(
+      MATRIX_A,
+      "PUT",
+      `/_matrix/client/v3/rooms/${encodeURIComponent(state.roomId)}/send/m.room.message/fed_a_${Date.now()}`,
+      state.aliceMatrixToken!,
+      { msgtype: "m.text", body: aliceText },
+      "A send"
+    )
+  );
+  ok("A sent through its own homeserver");
 
   let aliceRowOnB: MessageRow | undefined;
   await pollUntil("A's message reaching B's index", 120_000, async () => {

@@ -383,8 +383,18 @@ export default function App() {
             <span className="stage-name">{active.name}</span>
             <span className="stage-host">{active.host}</span>
             {!active.encryption && (
-              <span className="stage-warn" title="Messages are readable by whoever runs this server">
-                not encrypted
+              // A fault, not a property (ADR 0015). Every server encrypts
+              // every channel; one that isn't has a homeserver that isn't
+              // answering its clients, or an ingest that isn't recording what
+              // they send. The wording says something is wrong rather than
+              // describing a server that is working as intended, because for
+              // two releases this pill sat beside every conversation on every
+              // stock deployment and read as the latter.
+              <span
+                className="stage-warn"
+                title="This server can't encrypt right now — its homeserver isn't reachable, or it isn't recording what clients send. Messages are readable by whoever runs it. Open Status for details."
+              >
+                encryption unavailable
               </span>
             )}
             {/* Reachable from the frame rather than from inside the instance's

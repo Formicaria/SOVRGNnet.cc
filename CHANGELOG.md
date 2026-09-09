@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+**Every conversation is end-to-end encrypted, on every server, always.**
+Encryption was implemented, tested, honest about itself, and off. The
+code shipped in v0.7 — Olm and Megolm, a send path that refuses to fall
+back to plaintext, encrypted attachments, key rotation, device
+verification, recovery keys — and the instance correctly derived that it
+could not offer any of it, because two of the three conditions were left
+for an operator to establish by hand. A desktop host has no operator. So
+`"e2ee": false` was the answer on every stock deployment, and the
+interface said *not end-to-end encrypted* beside every conversation as if
+that were a property of the room rather than a gap in the install.
+
+The conditions are now established by whatever installs the instance. The
+app proxies `/_matrix` to its own homeserver, so one address — the
+tunnel, the LAN, loopback — serves both and there is nothing to expose.
+The appservice registration is rendered by `install.sh` and by the
+desktop supervisor, not by a step in `docs/UPGRADING.md` that said
+"optional, recommended". Rooms are encrypted in their creation event
+rather than switched on afterwards. A one-shot sweep encrypts every
+channel that predates this, once, at the first start that can.
+
+There is no plaintext send path left to take: the API fallback is
+removed, not merely unused, and the per-channel encryption switch is
+gone. `e2ee: false` is now a fault with a reason, and the desktop's
+header pill says *encryption unavailable* instead of describing a server
+working as intended. See ADR 0015.
+
+**The cost, stated plainly:** lose every device and the recovery key and
+the history is gone. The server holds ciphertext it cannot read and keys
+it never had — no reset, no support path, no administrator who can help.
+That is the property being bought. Messages written before this release
+stay plaintext on disk, and the interface marks the boundary rather than
+painting a lock over them.
+
+
 **A desktop host is reachable by anyone with the link, if its owner says
 so.** Every desktop host was LAN-only, with no way to say otherwise —
 "friends on your network can join" was exactly and only true, and a

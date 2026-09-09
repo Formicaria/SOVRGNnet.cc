@@ -77,11 +77,41 @@ it; a person is never shown a code they have no way to know. The account is
 created and is the administrator. If the screen asks you to find a code in a
 `.env`, the token plumbing regressed to exactly the bug it fixed.
 
-**5. Community and encryption honesty.**
-Create a community. Expected: `#general` exists, and because a hosted
-server's homeserver is loopback-only, `e2ee` is false — the channel is
-plaintext and the interface *says so* (status panel: "not end-to-end
-encrypted"). A lock icon here would be a lie; absence of one is the pass.
+**5. Encryption, which is not optional (ADR 0015).**
+Create a community. Expected: `#general` exists and shows **Encrypted** —
+a green lock, no "Encrypt this channel" button anywhere, because there is
+no such choice. Check the descriptor:
+
+```bash
+curl -s http://127.0.0.1:31xx/api/instance | jq '.capabilities'
+```
+
+Expected: `e2ee`, `clientMatrix` and `eventIngest` all **true**. This is
+the step that inverted — all three were false on every stock deployment
+before this release, and `e2ee: false` here now means something is broken,
+not that this is a plaintext server. If any is false, read
+`host/logs/dendrite.log` and `host/logs/app.log`; the header pill will say
+*encryption unavailable* rather than *not encrypted*.
+
+Post a message. Expected: it appears, and the row in the database is
+ciphertext — the instance stores what it cannot read:
+
+```bash
+# from the app's own database, whichever channel you posted in
+select content from messages order by id desc limit 1;
+```
+
+Expected: not your message text. If it is your message text in the clear,
+stop — the client fell back to a send path that no longer exists.
+
+**5b. Upgrading an install that predates this.**
+Only if you kept a server from before this release. Expected: the channel
+shows *Not yet encrypted* briefly on first launch, then flips to
+**Encrypted** on its own within a minute — the boot sweep. Old messages
+stay readable as plaintext, which is correct and deliberate: they were on
+disk in the clear for their whole life and encrypting them now would
+protect them from nobody. New messages in that same channel are
+ciphertext.
 
 **6. The invite link.**
 Create an invite from the community. Expected with *Anyone with the link*:

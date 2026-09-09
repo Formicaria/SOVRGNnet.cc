@@ -333,7 +333,10 @@ describe("the appservice user namespace", () => {
       (m) => m[1]
     );
     expect(substitutions.length).toBeGreaterThan(0);
-    expect(substitutions.sort()).toEqual(["AS_TOKEN", "HS_TOKEN"]);
+    // APP_URL joined the pair in ADR 0015: the registration names where the
+    // homeserver pushes, and the desktop's app port is chosen at each start,
+    // so it stopped being a constant in the template.
+    expect(substitutions.sort()).toEqual(["APP_URL", "AS_TOKEN", "HS_TOKEN"]);
   });
 
   it("agrees with the generated file, when there is one", () => {
